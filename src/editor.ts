@@ -3,6 +3,8 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { TransformControls } from 'three/addons/controls/TransformControls.js';
 import { clone as cloneSkeleton } from 'three/addons/utils/SkeletonUtils.js';
 import { createGrid } from './grid';
+import { extrudeTriangle } from './extrude';
+import { buildTopology, type MeshTopology, type ComponentMode } from './topology';
 
 export type Primitive = 'cube' | 'sphere' | 'cylinder' | 'cone' | 'torus' | 'plane' | 'icosphere';
 export type Keyframe = { frame: number; position: number[]; quaternion: number[]; scale: number[] };
@@ -31,6 +33,11 @@ export class Editor extends EventTarget {
   private vertexPoints: THREE.Points | null = null;
   private vertexProxy = new THREE.Object3D();
   private vertexIndices: number[] = [];
+  componentMode: ComponentMode = 'vertex';
+  private selectedFace: number | null = null;
+  private topology: MeshTopology | null = null;
+  private componentEdges: THREE.LineSegments | null = null;
+  private componentCenter = new THREE.Vector3();
   private history: string[] = [];
   private historyIndex = -1;
   private pending = false;
@@ -333,9 +340,14 @@ export class Editor extends EventTarget {
     if (enabled && (!(this.selected instanceof THREE.Mesh) || this.selected instanceof THREE.SkinnedMesh || this.playing)) return false;
     this.editMode = enabled;
     this.vertexIndices = [];
+    this.selectedFace = null;
     this.transform.detach();
     if (this.vertexPoints) {
       this.vertexPoints.removeFromParent();
+      this.componentEdges?.geometry.dispose();
+      if (this.componentEdges) (this.componentEdges.material as THREE.Material).dispose();
+      this.componentEdges = null;
+      this.topology = null;
       this.vertexPoints.geometry.dispose();
       (this.vertexPoints.material as THREE.Material).dispose();
       this.vertexPoints = null;
@@ -346,39 +358,129 @@ export class Editor extends EventTarget {
       this.vertexPoints = new THREE.Points(geometry, new THREE.PointsMaterial({ color: 0xf4be75, size: 6, sizeAttenuation: false, depthTest: false }));
       this.vertexPoints.renderOrder = 10;
       this.selected.add(this.vertexPoints);
+      const position = this.selected.geometry.getAttribute('position');
+      const coordinates = Array.from({ length: position.count }, (_, i) => [position.getX(i), position.getY(i), position.getZ(i)]).flat();
+      this.topology = buildTopology(coordinates, this.selected.geometry.index?.array);
+      geometry.setAttribute('color', new THREE.Float32BufferAttribute(new Float32Array(position.count * 3).fill(1), 3));
+      (this.vertexPoints.material as THREE.PointsMaterial).vertexColors = true;
+      this.componentEdges = new THREE.LineSegments(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({ color: 0xe4b578, transparent: true, opacity: 0.65, depthTest: false }));
+      this.componentEdges.renderOrder = 9;
+      this.vertexPoints.add(this.componentEdges);
+      this.refreshComponents();
     } else if (this.selected?.visible) this.transform.attach(this.selected);
     this.updateSelection();
     this.emit('mode');
     this.invalidate();
     return true;
   }
-  private pickVertex() {
-    if (!this.vertexPoints || !(this.selected instanceof THREE.Mesh)) return;
-    this.raycaster.params.Points.threshold = this.camera.position.distanceTo(this.orbit.target) * 0.012;
-    const hit = this.raycaster.intersectObject(this.vertexPoints)[0];
-    if (!hit || hit.index === undefined) return;
-    const positions = this.selected.geometry.getAttribute('position');
-    const local = new THREE.Vector3().fromBufferAttribute(positions, hit.index);
+  setComponentMode(mode: ComponentMode) {
+    this.componentMode = mode;
     this.vertexIndices = [];
-    for (let i = 0; i < positions.count; i++) if (new THREE.Vector3().fromBufferAttribute(positions, i).distanceToSquared(local) < 1e-10) this.vertexIndices.push(i);
-    this.vertexProxy.position.copy(this.selected.localToWorld(local));
-    this.transform.setMode('translate');
-    this.transform.attach(this.vertexProxy);
+    this.selectedFace = null;
+    if (this.editMode) this.transform.detach();
+    this.refreshComponents();
+    this.emit('mode');
     this.invalidate();
+  }
+  private refreshComponents() {
+    if (!this.vertexPoints || !this.componentEdges || !this.topology || !(this.selected instanceof THREE.Mesh)) return;
+    const position = this.selected.geometry.getAttribute('position');
+    let edges = this.componentEdges.geometry.getAttribute('position');
+    if (!edges || edges.count !== this.topology.edges.length * 2) {
+      edges = new THREE.Float32BufferAttribute(new Float32Array(this.topology.edges.length * 6), 3);
+      this.componentEdges.geometry.setAttribute('position', edges);
+    }
+    let cursor = 0;
+    for (const edge of this.topology.edges) for (const vertex of edge) {
+      const i = this.topology.vertices[vertex][0];
+      edges.setXYZ(cursor++, position.getX(i), position.getY(i), position.getZ(i));
+    }
+    edges.needsUpdate = true;
+    this.componentEdges.geometry.computeBoundingSphere();
+    this.componentEdges.visible = this.componentMode !== 'vertex';
+    const colors = this.vertexPoints.geometry.getAttribute('color');
+    const selected = new Set(this.vertexIndices);
+    for (let i = 0; i < colors.count; i++) colors.setXYZ(i, 1, selected.has(i) ? 0.3 : 1, selected.has(i) ? 0.05 : 1);
+    colors.needsUpdate = true;
+  }
+  private pickVertex() {
+    if (!this.vertexPoints || !this.topology || !(this.selected instanceof THREE.Mesh)) return;
+    let vertices: number[] | undefined;
+    let face: number | null = null;
+    const threshold = this.camera.position.distanceTo(this.orbit.target) * 0.012;
+    if (this.componentMode === 'vertex') {
+      this.raycaster.params.Points.threshold = threshold;
+      const hit = this.raycaster.intersectObject(this.vertexPoints, false)[0];
+      if (hit?.index !== undefined) vertices = [this.topology.bufferToVertex[hit.index]];
+    } else if (this.componentMode === 'edge' && this.componentEdges) {
+      this.raycaster.params.Line.threshold = threshold;
+      const hit = this.raycaster.intersectObject(this.componentEdges, false)[0];
+      if (hit?.index !== undefined) vertices = this.topology.edges[Math.floor(hit.index / 2)];
+    } else {
+      const hit = this.raycaster.intersectObject(this.selected, false)[0];
+      if (hit?.faceIndex !== undefined && hit.faceIndex !== null) { vertices = this.topology.faces[hit.faceIndex]; face = hit.faceIndex; }
+    }
+    this.vertexIndices = [];
+    this.selectedFace = null;
+    this.transform.detach();
+    this.selectedFace = face;
+    this.selectComponentVertices(vertices);
+  }
+  private selectComponentVertices(vertices?: number[]) {
+    if (!(this.selected instanceof THREE.Mesh) || !this.topology) return;
+    if (vertices) {
+      const positions = this.selected.geometry.getAttribute('position');
+      this.componentCenter.set(0, 0, 0);
+      const unique = [...new Set(vertices)];
+      for (const vertex of unique) {
+        this.vertexIndices.push(...this.topology.vertices[vertex]);
+        this.componentCenter.add(new THREE.Vector3().fromBufferAttribute(positions, this.topology.vertices[vertex][0]));
+      }
+      this.componentCenter.divideScalar(unique.length);
+      this.vertexProxy.position.copy(this.selected.localToWorld(this.componentCenter.clone()));
+      this.transform.setMode('translate');
+      this.transform.attach(this.vertexProxy);
+    }
+    this.refreshComponents();
+    this.invalidate();
+  }
+  extrudeFace(distance: number) {
+    if (!this.editMode || this.componentMode !== 'face' || this.selectedFace === null || !(this.selected instanceof THREE.Mesh) || this.selected instanceof THREE.SkinnedMesh || this.playing) throw new Error('Select a triangle face in Edit Mode first.');
+    const mesh = this.selected, face = this.selectedFace;
+    if (this.stats().vertices + 15 > 2_000_000) throw new Error('Extrusion would exceed the scene vertex limit.');
+    const original = mesh.geometry;
+    const geometry = extrudeTriangle(original, face, distance);
+    this.setEditMode(false);
+    mesh.geometry = geometry;
+    let retained = false;
+    this.content.traverse(object => { if (object instanceof THREE.Mesh && object.geometry === original) retained = true; });
+    if (!retained) original.dispose();
+    this.setEditMode(true);
+    this.selectedFace = face;
+    this.selectComponentVertices(this.topology?.faces[face]);
+    this.commit();
   }
   private updateVertex() {
     if (!(this.selected instanceof THREE.Mesh) || !this.vertexPoints) return;
     const local = this.selected.worldToLocal(this.vertexProxy.position.clone());
+    const delta = local.clone().sub(this.componentCenter);
     const position = this.selected.geometry.getAttribute('position');
     const points = this.vertexPoints.geometry.getAttribute('position');
-    for (const i of this.vertexIndices) { position.setXYZ(i, local.x, local.y, local.z); points.setXYZ(i, local.x, local.y, local.z); }
+    for (const i of this.vertexIndices) {
+      const moved = new THREE.Vector3().fromBufferAttribute(position, i).add(delta);
+      position.setXYZ(i, moved.x, moved.y, moved.z);
+      points.setXYZ(i, moved.x, moved.y, moved.z);
+    }
+    this.componentCenter.copy(local);
     position.needsUpdate = points.needsUpdate = true;
     this.selected.geometry.computeVertexNormals();
     this.selected.geometry.computeBoundingSphere();
     this.selected.geometry.computeBoundingBox();
     this.vertexPoints.geometry.computeBoundingSphere();
+    this.refreshComponents();
   }
   snapshot(): string {
+    this.content.updateMatrixWorld(true);
     // Stabilize lazily computed geometry metadata before history and worker comparisons.
     this.content.traverse(o => { if (o instanceof THREE.Mesh && !o.geometry.boundingSphere) o.geometry.computeBoundingSphere(); });
     const points = this.vertexPoints;

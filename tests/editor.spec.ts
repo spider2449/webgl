@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { buildTopology } from '../src/topology';
 
 test.beforeEach(async ({ page }) => {
   await page.goto('/');
@@ -173,4 +174,73 @@ test('rig workspace screenshot', async ({ page }) => {
   await page.evaluate(() => { const e=(window as any).__forge,r=(window as any).__rig; r.activeRig.getObjectByName('LeftArm').rotation.z=0.5;e.commit();e.focus(true); });
   await page.waitForTimeout(250);
   await page.screenshot({path:'test-results/rig.png'});
+});
+
+for (const mode of ['vertex', 'edge', 'face'] as const) {
+  test(`selects and translates a ${mode} with welded seams and history`, async ({ page }) => {
+    await page.evaluate(() => {
+      const e = (window as any).__forge;
+      e.selected.rotation.set(0, 0, 0);
+      e.selected.scale.set(1.5, 0.8, 1.2);
+      e.commit();
+      e.view('front');
+    });
+    await page.locator('#mode').selectOption('edit');
+    await page.getByLabel('Mesh component').selectOption(mode);
+    const target = await page.evaluate((mode) => {
+      const e = (window as any).__forge, mesh = e.selected;
+      mesh.updateWorldMatrix(true, true);
+      const position = mesh.geometry.attributes.position;
+      const topology = e.topology;
+      const read = (v: number) => mesh.position.clone().fromBufferAttribute(position, topology.vertices[v][0]);
+      let vertices: number[];
+      if (mode === 'vertex') vertices = [topology.vertices.findIndex((_: any, i: number) => { const v=read(i); return v.x===1 && v.y===1 && v.z===1; })];
+      else if (mode === 'edge') vertices = topology.edges.find((edge: number[]) => edge.every(i => { const v=read(i); return v.y===1 && v.z===1; }));
+      else vertices = topology.faces.find((face: number[]) => face.every(i => read(i).z===1));
+      const point = mesh.position.clone().set(0,0,0);
+      vertices.forEach(i => point.add(read(i)));
+      point.divideScalar(vertices.length);
+      mesh.localToWorld(point).project(e.camera);
+      const rect = e.host.getBoundingClientRect();
+      return { x: rect.left+(point.x+1)*rect.width/2, y: rect.top+(1-point.y)*rect.height/2, counts: [topology.vertices.length,topology.edges.length,topology.faces.length] };
+    }, mode);
+    expect(target.counts).toEqual([8,18,12]);
+    await page.mouse.click(target.x, target.y);
+    const result = await page.evaluate(() => {
+      const e = (window as any).__forge;
+      const mesh = e.selected, position = mesh.geometry.attributes.position;
+      const before = Array.from(position.array) as number[];
+      const selected = [...e.vertexIndices] as number[];
+      const logicalCount = new Set(selected.map(i=>e.topology.bufferToVertex[i])).size;
+      e.vertexProxy.position.x += 0.75;
+      e.transform.dispatchEvent({type:'objectChange'});
+      const after = Array.from(position.array) as number[];
+      const correct = before.every((v,i)=>Math.abs(after[i]-v-(selected.includes(Math.floor(i/3)) && i%3===0 ? 0.5 : 0))<1e-5);
+      e.commit();
+      const saved = e.snapshot();
+      const helpersSaved = /LineSegments|Points/.test(saved);
+      e.undo();
+      const undone = Array.from(e.selected.geometry.attributes.position.array);
+      e.redo();
+      const redone = Array.from(e.selected.geometry.attributes.position.array);
+      e.load(JSON.parse(saved));
+      return {logicalCount, correct, helpersSaved, before, after, undone, redone, restored:Array.from(e.selected.geometry.attributes.position.array)};
+    });
+    expect(result.logicalCount).toBe(mode === 'vertex' ? 1 : mode === 'edge' ? 2 : 3);
+    expect(result.correct).toBe(true);
+    expect(result.helpersSaved).toBe(false);
+    expect(result.undone).toEqual(result.before);
+    expect(result.redone).toEqual(result.after);
+    expect(result.restored).toEqual(result.after);
+  });
+}
+
+test('indexed and expanded triangles produce equivalent seam connectivity', () => {
+  const indexed = buildTopology([0,0,0, 1,0,0, 1,1,0, 0,1,0], [0,1,2, 0,2,3]);
+  const expanded = buildTopology([0,0,0, 1,0,0, 1,1,0, 0,0,0, 1,1,0, 0,1,0]);
+  expect(expanded.faces).toEqual(indexed.faces);
+  expect(expanded.edges).toEqual(indexed.edges);
+  expect(expanded.edges).toHaveLength(5);
+  expect(expanded.vertices).toEqual([[0,3],[1],[2,4],[5]]);
+  expect(buildTopology([])).toEqual({ vertices: [], bufferToVertex: [], edges: [], faces: [] });
 });

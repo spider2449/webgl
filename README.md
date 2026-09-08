@@ -27,7 +27,7 @@ The browser tests use port 5174. Production output is in `dist/`. No backend, ac
 - Use **Add** to create a cube, sphere, cylinder, cone, torus, plane or icosphere.
 - Select in the viewport or outliner. Move, rotate and scale using gizmos or numeric properties. Choose Global/Local orientation and enable snapping for 0.5-unit translations, 15-degree rotations and 0.1 scale steps.
 - Orbit with middle mouse or Alt + left drag; pan with right mouse or Shift + middle mouse; zoom with the wheel. F frames the selection; 1/3/7 show front/right/top; 5 switches projection.
-- Edit Mode exposes mesh vertices. Click a vertex and drag its move gizmo. Coincident positions move together. This is vertex deformation, not edge/face topology editing.
+- Edit Mode offers Vertex, Edge and Triangle face selection. Click a component and drag its move gizmo to translate all its vertices together; selected vertices appear orange. Exactly coincident positions move together across normal and UV seams. Edges include triangulation diagonals; faces are individual triangles. Vertex and edge selection can reach through the mesh. Use **Extrude selected triangle** in the Object panel to add an offset cap and three walls along the face normal. Set a positive **Extrusion distance** in local mesh units; the cap stays selected for movement or repeated extrusion. Each operation accepts up to 100k input vertices. Existing UVs/colors and material groups are retained; wall UVs copy the boundary values and need later unwrapping. Unsupported attributes, morph targets and partial draw ranges are rejected. Multi-face regions, inward extrusion and polygon merging are not implemented.
 - Material properties edit the first standard material of a selected mesh. Imported groups expose child meshes in the outliner. Solid and wireframe views are temporary viewport overrides.
 - Use the timeline to insert transform keys, move to another frame, change the object, and insert another key. Playback interpolates at a 24 fps timeline timebase across frames 1–250.
 - Ctrl+Z / Ctrl+Shift+Z undo and redo. Shift+D duplicates objects; Delete removes them. Individual bones cannot be deleted or duplicated; duplicate the armature to make an independent character.
@@ -73,6 +73,6 @@ The automated WebGL tests use Chromium's software renderer for repeatability. Th
 
 ## Current limits and next stages
 
-The editor does not yet include edge/face selection, extrusion, bevel, topology modifiers, sculpting, UV editing, texture painting, weight painting, IK pole vectors/joint limits, retargeting, geometry nodes, physics, compositing or offline rendering. Kimodo text-to-motion inference is not connected. The UI exposes only implemented local workflows and labels the basic rigging limitations.
+The editor does not yet include polygon face editing, extrusion, bevel, topology modifiers, sculpting, UV editing, texture painting, weight painting, IK pole vectors/joint limits, retargeting, geometry nodes, physics, compositing or offline rendering. Kimodo text-to-motion inference is not connected. The UI exposes only implemented local workflows and labels the basic rigging limitations.
 
 The development plan is [docs/plans/2026-09-08-forge-studio.md](docs/plans/2026-09-08-forge-studio.md).
