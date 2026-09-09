@@ -3,7 +3,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { TransformControls } from 'three/addons/controls/TransformControls.js';
 import { clone as cloneSkeleton } from 'three/addons/utils/SkeletonUtils.js';
 import { createGrid } from './grid';
-import { extrudeTriangle } from './extrude';
+import { extrudeTriangle, insetTriangle } from './extrude';
 import { buildTopology, type MeshTopology, type ComponentMode } from './topology';
 
 export type Primitive = 'cube' | 'sphere' | 'cylinder' | 'cone' | 'torus' | 'plane' | 'icosphere';
@@ -444,12 +444,12 @@ export class Editor extends EventTarget {
     this.refreshComponents();
     this.invalidate();
   }
-  extrudeFace(distance: number) {
+  extrudeFace(distance: number, inset = false) {
     if (!this.editMode || this.componentMode !== 'face' || this.selectedFace === null || !(this.selected instanceof THREE.Mesh) || this.selected instanceof THREE.SkinnedMesh || this.playing) throw new Error('Select a triangle face in Edit Mode first.');
     const mesh = this.selected, face = this.selectedFace;
-    if (this.stats().vertices + 15 > 2_000_000) throw new Error('Extrusion would exceed the scene vertex limit.');
+    if (this.stats().vertices + 15 > 2_000_000) throw new Error('Triangle editing would exceed the scene vertex limit.');
     const original = mesh.geometry;
-    const geometry = extrudeTriangle(original, face, distance);
+    const geometry = inset ? insetTriangle(original, face, distance) : extrudeTriangle(original, face, distance);
     this.setEditMode(false);
     mesh.geometry = geometry;
     let retained = false;

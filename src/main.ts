@@ -291,6 +291,8 @@ document.querySelectorAll<HTMLInputElement>('[data-transform]').forEach(input =>
 });
 on('reset-transform', () => { if (editor.selected) { editor.selected.position.set(0,0,0); editor.selected.rotation.set(0,0,0); editor.selected.scale.set(1,1,1); editor.commit(); } });
 on('extrude-face', () => { try { editor.extrudeFace(Number($<HTMLInputElement>('#extrude-distance').value)); toast('Triangle extruded. Move the selected cap or extrude again.'); } catch (error) { toast((error as Error).message); } });
+$('#mirror').insertAdjacentHTML('beforebegin', '<label class="property-row">Inset distance<input id="inset-distance" aria-label="Inset distance" type="number" min="0.0001" max="1000" step="0.05" value="0.1"></label><button class="wide-button" id="inset-face">Inset selected triangle</button><p class="field-help">Moves each edge inward by the local distance. Must be smaller than the triangle inradius.</p>');
+on('inset-face', () => { try { editor.extrudeFace(Number($<HTMLInputElement>('#inset-distance').value), true); toast('Triangle inset. The inner face remains selected.'); } catch (error) { toast((error as Error).message); } });
 $<HTMLSelectElement>('#component-mode').onchange = e => editor.setComponentMode((e.target as HTMLSelectElement).value as 'vertex' | 'edge' | 'face');
 $<HTMLSelectElement>('#mode').onchange = e => { if (!editor.setEditMode((e.target as HTMLSelectElement).value === 'edit')) { $<HTMLSelectElement>('#mode').value = 'object'; toast('Select a mesh and pause playback first.'); } tool('translate'); };
 $<HTMLSelectElement>('#space').onchange = e => { editor.transform.setSpace((e.target as HTMLSelectElement).value as 'world' | 'local'); editor.invalidate(); };

@@ -33,7 +33,7 @@ User requested an integrated rig system based on NVIDIA Kimodo. Use the official
 
 Add edge/face selection, extrusion, inset, bevel, loop cuts, proportional editing, multi-object editing, robust non-destructive modifiers, UV editing and snapping to mesh geometry. Define topology and selection data independent of GPU buffers first. Move expensive topology calculations to workers and benchmark large meshes.
 
-Status: in progress. The component-selection and single-triangle-extrusion increment is complete; the remaining modeling-core features listed above are still open.
+Status: in progress. Component selection, single-triangle extrusion and single-triangle inset are complete; the remaining modeling-core features listed above are still open. See [triangle inset increment](2026-09-09-triangle-inset.md) for the latest validation and scope.
 
 ## Phase 3: Content workflows
 

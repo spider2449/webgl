@@ -32,6 +32,10 @@ The browser tests use port 5174. Production output is in `dist/`. No backend, ac
 - Use the timeline to insert transform keys, move to another frame, change the object, and insert another key. Playback interpolates at a 24 fps timeline timebase across frames 1–250.
 - Ctrl+Z / Ctrl+Shift+Z undo and redo. Shift+D duplicates objects; Delete removes them. Individual bones cannot be deleted or duplicated; duplicate the armature to make an independent character.
 
+### Triangle inset
+
+In Edit Mode, select a triangle face and use **Inset selected triangle** in the Object panel. **Inset distance** is the perpendicular inward distance from each edge in local mesh units and must be smaller than the triangle inradius. The outer boundary stays fixed; the inner face remains selected for another inset, extrusion or movement. UVs and colors are interpolated, material groups are preserved, and undo/redo and Forge projects retain the result. The same 100k input-vertex and attribute restrictions as extrusion apply. Region inset and polygon face editing remain future work.
+
 ## Kimodo rigging
 
 1. Open **Rigging** and choose **Create SOMA77 armature**.
@@ -73,6 +77,6 @@ The automated WebGL tests use Chromium's software renderer for repeatability. Th
 
 ## Current limits and next stages
 
-The editor does not yet include polygon face editing, extrusion, bevel, topology modifiers, sculpting, UV editing, texture painting, weight painting, IK pole vectors/joint limits, retargeting, geometry nodes, physics, compositing or offline rendering. Kimodo text-to-motion inference is not connected. The UI exposes only implemented local workflows and labels the basic rigging limitations.
+The editor does not yet include polygon face editing, region extrusion or inset, bevel, topology modifiers, sculpting, UV editing, texture painting, weight painting, IK pole vectors/joint limits, retargeting, geometry nodes, physics, compositing or offline rendering. Kimodo text-to-motion inference is not connected. The UI exposes only implemented local workflows and labels the basic rigging limitations.
 
 The development plan is [docs/plans/2026-09-08-forge-studio.md](docs/plans/2026-09-08-forge-studio.md).
