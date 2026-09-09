@@ -5,6 +5,7 @@ import { clone as cloneSkeleton } from 'three/addons/utils/SkeletonUtils.js';
 import { createGrid } from './grid';
 import { extrudeTriangle, insetTriangle } from './extrude';
 import { buildTopology, type MeshTopology, type ComponentMode } from './topology';
+import { proportionalWeights } from './proportional';
 
 export type Primitive = 'cube' | 'sphere' | 'cylinder' | 'cone' | 'torus' | 'plane' | 'icosphere';
 export type Keyframe = { frame: number; position: number[]; quaternion: number[]; scale: number[] };
@@ -38,6 +39,9 @@ export class Editor extends EventTarget {
   private topology: MeshTopology | null = null;
   private componentEdges: THREE.LineSegments | null = null;
   private componentCenter = new THREE.Vector3();
+  private proportionalEnabled = false;
+  private proportionalRadius = 2;
+  private componentDrag: { positions: number[]; weights: Float32Array; center: THREE.Vector3 } | null = null;
   private history: string[] = [];
   private historyIndex = -1;
   private pending = false;
@@ -81,8 +85,8 @@ export class Editor extends EventTarget {
     this.scene.add(this.transform.getHelper());
     this.transform.addEventListener('dragging-changed', e => {
       this.orbit.enabled = !e.value;
-      if (e.value) this.suppressClick = true;
-      else this.commit();
+      if (e.value) { this.suppressClick = true; this.beginComponentDrag(); }
+      else { this.componentDrag = null; this.commit(); }
     });
     this.transform.addEventListener('objectChange', () => {
       if (this.editMode) this.updateVertex();
@@ -339,6 +343,7 @@ export class Editor extends EventTarget {
   setEditMode(enabled: boolean) {
     if (enabled && (!(this.selected instanceof THREE.Mesh) || this.selected instanceof THREE.SkinnedMesh || this.playing)) return false;
     this.editMode = enabled;
+    this.componentDrag = null;
     this.vertexIndices = [];
     this.selectedFace = null;
     this.transform.detach();
@@ -374,6 +379,7 @@ export class Editor extends EventTarget {
     return true;
   }
   setComponentMode(mode: ComponentMode) {
+    this.componentDrag = null;
     this.componentMode = mode;
     this.vertexIndices = [];
     this.selectedFace = null;
@@ -427,6 +433,7 @@ export class Editor extends EventTarget {
     this.selectComponentVertices(vertices);
   }
   private selectComponentVertices(vertices?: number[]) {
+    this.componentDrag = null;
     if (!(this.selected instanceof THREE.Mesh) || !this.topology) return;
     if (vertices) {
       const positions = this.selected.geometry.getAttribute('position');
@@ -460,16 +467,36 @@ export class Editor extends EventTarget {
     this.selectComponentVertices(this.topology?.faces[face]);
     this.commit();
   }
+  setProportionalEditing(enabled: boolean, radius: number) {
+    if (!Number.isFinite(radius) || radius <= 0) throw new Error('Proportional radius must be a finite positive number.');
+    if (this.transform.dragging) throw new Error('Finish the current drag before changing proportional editing.');
+    this.proportionalEnabled = enabled;
+    this.proportionalRadius = radius;
+    this.componentDrag = null;
+  }
+  private beginComponentDrag() {
+    this.componentDrag = null;
+    if (!this.editMode || !(this.selected instanceof THREE.Mesh) || !this.topology || !this.vertexIndices.length) return;
+    const attribute = this.selected.geometry.getAttribute('position');
+    const positions = Array.from({ length: attribute.count }, (_, i) => [attribute.getX(i), attribute.getY(i), attribute.getZ(i)]).flat();
+    const weights = this.proportionalEnabled ? proportionalWeights(positions, this.topology, this.vertexIndices, this.proportionalRadius) : new Float32Array(attribute.count);
+    if (!this.proportionalEnabled) for (const i of this.vertexIndices) weights[i] = 1;
+    this.componentDrag = { positions, weights, center: this.componentCenter.clone() };
+  }
   private updateVertex() {
     if (!(this.selected instanceof THREE.Mesh) || !this.vertexPoints) return;
+    if (!this.componentDrag) this.beginComponentDrag();
+    if (!this.componentDrag) return;
+    const { positions, weights, center } = this.componentDrag;
     const local = this.selected.worldToLocal(this.vertexProxy.position.clone());
-    const delta = local.clone().sub(this.componentCenter);
+    const delta = local.clone().sub(center);
     const position = this.selected.geometry.getAttribute('position');
     const points = this.vertexPoints.geometry.getAttribute('position');
-    for (const i of this.vertexIndices) {
-      const moved = new THREE.Vector3().fromBufferAttribute(position, i).add(delta);
-      position.setXYZ(i, moved.x, moved.y, moved.z);
-      points.setXYZ(i, moved.x, moved.y, moved.z);
+    for (let i = 0; i < weights.length; i++) {
+      if (!weights[i]) continue;
+      const x = positions[i * 3] + delta.x * weights[i], y = positions[i * 3 + 1] + delta.y * weights[i], z = positions[i * 3 + 2] + delta.z * weights[i];
+      position.setXYZ(i, x, y, z);
+      points.setXYZ(i, x, y, z);
     }
     this.componentCenter.copy(local);
     position.needsUpdate = points.needsUpdate = true;

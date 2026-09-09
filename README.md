@@ -36,6 +36,10 @@ The browser tests use port 5174. Production output is in `dist/`. No backend, ac
 
 In Edit Mode, select a triangle face and use **Inset selected triangle** in the Object panel. **Inset distance** is the perpendicular inward distance from each edge in local mesh units and must be smaller than the triangle inradius. The outer boundary stays fixed; the inner face remains selected for another inset, extrusion or movement. UVs and colors are interpolated, material groups are preserved, and undo/redo and Forge projects retain the result. The same 100k input-vertex and attribute restrictions as extrusion apply. Region inset and polygon face editing remain future work.
 
+### Proportional editing
+
+Enable **Proportional editing** in the Object panel, set a positive **Influence radius**, then move a selected vertex, edge or triangle in Edit Mode. Selected vertices move fully; nearby vertices follow with smooth falloff to zero at the radius. Distance is measured in local mesh units from the nearest selected vertex, including across disconnected geometry. Welded seams stay together. Each drag uses its starting positions and radius; Escape resets the current drag. Geometry changes support undo/redo and project saving. The toggle and radius are session preferences. Connected-only influence, radius overlays and proportional rotation/scale are not implemented.
+
 ## Kimodo rigging
 
 1. Open **Rigging** and choose **Create SOMA77 armature**.

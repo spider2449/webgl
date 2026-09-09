@@ -293,6 +293,19 @@ on('reset-transform', () => { if (editor.selected) { editor.selected.position.se
 on('extrude-face', () => { try { editor.extrudeFace(Number($<HTMLInputElement>('#extrude-distance').value)); toast('Triangle extruded. Move the selected cap or extrude again.'); } catch (error) { toast((error as Error).message); } });
 $('#mirror').insertAdjacentHTML('beforebegin', '<label class="property-row">Inset distance<input id="inset-distance" aria-label="Inset distance" type="number" min="0.0001" max="1000" step="0.05" value="0.1"></label><button class="wide-button" id="inset-face">Inset selected triangle</button><p class="field-help">Moves each edge inward by the local distance. Must be smaller than the triangle inradius.</p>');
 on('inset-face', () => { try { editor.extrudeFace(Number($<HTMLInputElement>('#inset-distance').value), true); toast('Triangle inset. The inner face remains selected.'); } catch (error) { toast((error as Error).message); } });
+$('#mirror').insertAdjacentHTML('beforebegin', '<label class="property-row">Proportional editing<input id="proportional-enabled" aria-label="Proportional editing" type="checkbox"></label><label class="property-row">Influence radius<input id="proportional-radius" aria-label="Proportional radius" type="number" min="0.0001" step="0.1" value="2"></label><p class="field-help">Edit Mode: nearby vertices follow with smooth falloff. Radius uses local units and can reach disconnected geometry.</p>');
+let proportionalEnabled = false, proportionalRadius = 2;
+for (const id of ['proportional-enabled', 'proportional-radius']) $<HTMLInputElement>(`#${id}`).onchange = () => {
+  try {
+    const enabled = $<HTMLInputElement>('#proportional-enabled').checked, radius = Number($<HTMLInputElement>('#proportional-radius').value);
+    editor.setProportionalEditing(enabled, radius);
+    proportionalEnabled = enabled; proportionalRadius = radius;
+  } catch (error) {
+    $<HTMLInputElement>('#proportional-enabled').checked = proportionalEnabled;
+    $<HTMLInputElement>('#proportional-radius').value = String(proportionalRadius);
+    toast((error as Error).message);
+  }
+};
 $<HTMLSelectElement>('#component-mode').onchange = e => editor.setComponentMode((e.target as HTMLSelectElement).value as 'vertex' | 'edge' | 'face');
 $<HTMLSelectElement>('#mode').onchange = e => { if (!editor.setEditMode((e.target as HTMLSelectElement).value === 'edit')) { $<HTMLSelectElement>('#mode').value = 'object'; toast('Select a mesh and pause playback first.'); } tool('translate'); };
 $<HTMLSelectElement>('#space').onchange = e => { editor.transform.setSpace((e.target as HTMLSelectElement).value as 'world' | 'local'); editor.invalidate(); };
