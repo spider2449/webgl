@@ -85,5 +85,5 @@ test('viewport-selected face extrudes repeatedly through UI with history and pro
   expect(result.redone).toBe(result.after);
   expect(result.restored).toBe(result.after);
   await page.locator('#extrude-face').click();
-  await expect(page.locator('#toast')).toContainText('Select a triangle');
+  await expect(page.locator('#toast')).toContainText('Select exactly one triangle');
 });

@@ -243,7 +243,7 @@ editor.addEventListener('change', updateUI);
 editor.addEventListener('transform', updateTransforms);
 editor.addEventListener('history-limit', () => toast('Scene exceeds the 24 MiB undo budget. History disabled; save a project file.'));
 editor.addEventListener('frame', updateTimeline);
-editor.addEventListener('mode', () => { $('#component-mode').classList.toggle('hidden', !editor.editMode); $<HTMLSelectElement>('#mode').value = editor.editMode ? 'edit' : 'object'; $('#mode-hint').textContent = editor.editMode ? `Select a ${editor.componentMode === 'face' ? 'triangle face' : editor.componentMode}, then drag its move gizmo.` : 'Build something extraordinary.'; });
+editor.addEventListener('mode', () => { $('#component-mode').classList.toggle('hidden', !editor.editMode); $<HTMLSelectElement>('#mode').value = editor.editMode ? 'edit' : 'object'; $('#mode-hint').textContent = editor.editMode ? `Select a ${editor.componentMode === 'face' ? 'triangle face' : editor.componentMode}, Shift-click to toggle more; drag the move gizmo.` : 'Build something extraordinary.'; });
 editor.addEventListener('view', () => { $('#view-label').textContent = editor.camera instanceof THREE.OrthographicCamera ? 'User Orthographic' : 'User Perspective'; });
 let cachedStats = '';
 editor.addEventListener('stats', () => {
@@ -291,18 +291,39 @@ document.querySelectorAll<HTMLInputElement>('[data-transform]').forEach(input =>
 });
 on('reset-transform', () => { if (editor.selected) { editor.selected.position.set(0,0,0); editor.selected.rotation.set(0,0,0); editor.selected.scale.set(1,1,1); editor.commit(); } });
 on('extrude-face', () => { try { editor.extrudeFace(Number($<HTMLInputElement>('#extrude-distance').value)); toast('Triangle extruded. Move the selected cap or extrude again.'); } catch (error) { toast((error as Error).message); } });
+$('#extrude-face').insertAdjacentHTML('afterend', '<button class="wide-button" id="extrude-region">Extrude planar region</button><p class="field-help">Shift-select connected coplanar triangle faces. Uses Extrusion distance and adds walls only along the region boundary.</p>');
+on('extrude-region', () => { try { editor.extrudePlanarRegion(Number($<HTMLInputElement>('#extrude-distance').value)); toast('Planar region extruded. The cap faces remain selected.'); } catch (error) { toast((error as Error).message); } });
 $('#mirror').insertAdjacentHTML('beforebegin', '<label class="property-row">Inset distance<input id="inset-distance" aria-label="Inset distance" type="number" min="0.0001" max="1000" step="0.05" value="0.1"></label><button class="wide-button" id="inset-face">Inset selected triangle</button><p class="field-help">Moves each edge inward by the local distance. Must be smaller than the triangle inradius.</p>');
 on('inset-face', () => { try { editor.extrudeFace(Number($<HTMLInputElement>('#inset-distance').value), true); toast('Triangle inset. The inner face remains selected.'); } catch (error) { toast((error as Error).message); } });
 $('#mirror').insertAdjacentHTML('beforebegin', '<label class="property-row">Proportional editing<input id="proportional-enabled" aria-label="Proportional editing" type="checkbox"></label><label class="property-row">Influence radius<input id="proportional-radius" aria-label="Proportional radius" type="number" min="0.0001" step="0.1" value="2"></label><p class="field-help">Edit Mode: nearby vertices follow with smooth falloff. Radius uses local units and can reach disconnected geometry.</p>');
-let proportionalEnabled = false, proportionalRadius = 2;
-for (const id of ['proportional-enabled', 'proportional-radius']) $<HTMLInputElement>(`#${id}`).onchange = () => {
+$('#proportional-radius').closest('label')!.insertAdjacentHTML('afterend', '<label class="property-row">Connected only<input id="proportional-connected" aria-label="Connected only" type="checkbox"></label><p class="field-help">Connected only measures distance along mesh edges, including triangle diagonals. Disconnected islands stay fixed.</p>');
+$('#mirror').insertAdjacentHTML('beforebegin', '<button class="wide-button" id="vertex-snap">Pick snap target</button><p class="field-help">Edit Mode: move the selection center to an unselected vertex in this mesh. Click a target; Escape cancels. Grid and proportional settings do not affect this action.</p>');
+$('#mirror').insertAdjacentHTML('beforebegin', '<button class="wide-button" id="subdivide-edge">Subdivide selected edges</button><p class="field-help">Select edges in Edit Mode; Shift-click to select more. Splits adjacent triangles and selects all new midpoint vertices.</p>');
+on('subdivide-edge', () => { try { editor.subdivideSelectedEdge(); toast('Edges subdivided. Move the selected midpoint vertices.'); } catch (error) { toast((error as Error).message); } });
+editor.addEventListener('mode', () => { $<HTMLSelectElement>('#component-mode').value = editor.componentMode; });
+on('vertex-snap', () => {
+  try {
+    if (editor.snapTargetPending) editor.cancelVertexSnap();
+    else { editor.beginVertexSnap(); toast('Click an unselected vertex in the active mesh. Escape cancels.'); }
+  } catch (error) { toast((error as Error).message); }
+});
+editor.addEventListener('snap-target', () => {
+  $('#vertex-snap').textContent = editor.snapTargetPending ? 'Cancel snap target' : 'Pick snap target';
+  $('#vertex-snap').setAttribute('aria-pressed', String(editor.snapTargetPending));
+});
+editor.addEventListener('snap-complete', () => toast('Selection center snapped to vertex.'));
+editor.addEventListener('snap-error', event => toast((event as CustomEvent<string>).detail));
+let proportionalEnabled = false, proportionalRadius = 2, proportionalConnected = false;
+for (const id of ['proportional-enabled', 'proportional-radius', 'proportional-connected']) $<HTMLInputElement>(`#${id}`).onchange = () => {
   try {
     const enabled = $<HTMLInputElement>('#proportional-enabled').checked, radius = Number($<HTMLInputElement>('#proportional-radius').value);
-    editor.setProportionalEditing(enabled, radius);
-    proportionalEnabled = enabled; proportionalRadius = radius;
+    const connected = $<HTMLInputElement>('#proportional-connected').checked;
+    editor.setProportionalEditing(enabled, radius, connected);
+    proportionalEnabled = enabled; proportionalRadius = radius; proportionalConnected = connected;
   } catch (error) {
     $<HTMLInputElement>('#proportional-enabled').checked = proportionalEnabled;
     $<HTMLInputElement>('#proportional-radius').value = String(proportionalRadius);
+    $<HTMLInputElement>('#proportional-connected').checked = proportionalConnected;
     toast((error as Error).message);
   }
 };
@@ -426,7 +447,7 @@ document.addEventListener('keydown', e => {
   if (key === ' ') { e.preventDefault(); editor.togglePlayback(); }
   if (key === '1') $('#axis-z').click(); if (key === '3') $('#axis-x').click(); if (key === '7') $('#axis-y').click(); if (key === '5') editor.toggleProjection();
   if (key === '/') { e.preventDefault(); $('#object-search').focus(); }
-  if (key === 'escape') { closeMenus(); if (editor.transform.dragging) editor.transform.reset(); else editor.select(null); }
+  if (key === 'escape') { closeMenus(); if (editor.snapTargetPending) editor.cancelVertexSnap(); else if (editor.transform.dragging) editor.transform.reset(); else editor.select(null); }
 });
 document.addEventListener('keyup', e => { if (e.key === 'Alt') editor.orbit.mouseButtons.LEFT = null as unknown as THREE.MOUSE; });
 window.addEventListener('blur', () => { editor.orbit.mouseButtons.LEFT = null as unknown as THREE.MOUSE; if (editor.playing) editor.togglePlayback(); });

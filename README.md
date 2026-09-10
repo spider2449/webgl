@@ -27,7 +27,7 @@ The browser tests use port 5174. Production output is in `dist/`. No backend, ac
 - Use **Add** to create a cube, sphere, cylinder, cone, torus, plane or icosphere.
 - Select in the viewport or outliner. Move, rotate and scale using gizmos or numeric properties. Choose Global/Local orientation and enable snapping for 0.5-unit translations, 15-degree rotations and 0.1 scale steps.
 - Orbit with middle mouse or Alt + left drag; pan with right mouse or Shift + middle mouse; zoom with the wheel. F frames the selection; 1/3/7 show front/right/top; 5 switches projection.
-- Edit Mode offers Vertex, Edge and Triangle face selection. Click a component and drag its move gizmo to translate all its vertices together; selected vertices appear orange. Exactly coincident positions move together across normal and UV seams. Edges include triangulation diagonals; faces are individual triangles. Vertex and edge selection can reach through the mesh. Use **Extrude selected triangle** in the Object panel to add an offset cap and three walls along the face normal. Set a positive **Extrusion distance** in local mesh units; the cap stays selected for movement or repeated extrusion. Each operation accepts up to 100k input vertices. Existing UVs/colors and material groups are retained; wall UVs copy the boundary values and need later unwrapping. Unsupported attributes, morph targets and partial draw ranges are rejected. Multi-face regions, inward extrusion and polygon merging are not implemented.
+- Edit Mode offers Vertex, Edge and Triangle face selection. Click a component and drag its move gizmo to translate all its vertices together; selected vertices appear orange. Exactly coincident positions move together across normal and UV seams. Edges include triangulation diagonals; faces are individual triangles. Vertex and edge selection can reach through the mesh. Use **Extrude selected triangle** in the Object panel to add an offset cap and three walls along the face normal. Set a positive **Extrusion distance** in local mesh units; the cap stays selected for movement or repeated extrusion. Each operation accepts up to 100k input vertices. Existing UVs/colors and material groups are retained; wall UVs copy the boundary values and need later unwrapping. Unsupported attributes, morph targets and partial draw ranges are rejected. Use **Extrude planar region** for connected coplanar face selections. Inward extrusion and polygon merging are not implemented.
 - Material properties edit the first standard material of a selected mesh. Imported groups expose child meshes in the outliner. Solid and wireframe views are temporary viewport overrides.
 - Use the timeline to insert transform keys, move to another frame, change the object, and insert another key. Playback interpolates at a 24 fps timeline timebase across frames 1–250.
 - Ctrl+Z / Ctrl+Shift+Z undo and redo. Shift+D duplicates objects; Delete removes them. Individual bones cannot be deleted or duplicated; duplicate the armature to make an independent character.
@@ -38,7 +38,38 @@ In Edit Mode, select a triangle face and use **Inset selected triangle** in the 
 
 ### Proportional editing
 
-Enable **Proportional editing** in the Object panel, set a positive **Influence radius**, then move a selected vertex, edge or triangle in Edit Mode. Selected vertices move fully; nearby vertices follow with smooth falloff to zero at the radius. Distance is measured in local mesh units from the nearest selected vertex, including across disconnected geometry. Welded seams stay together. Each drag uses its starting positions and radius; Escape resets the current drag. Geometry changes support undo/redo and project saving. The toggle and radius are session preferences. Connected-only influence, radius overlays and proportional rotation/scale are not implemented.
+Enable **Proportional editing** in the Object panel, set a positive **Influence radius**, then move a selected vertex, edge or triangle in Edit Mode. Selected vertices move fully; nearby vertices follow with smooth falloff to zero at the radius. Distance is measured in local mesh units from the nearest selected vertex, including across disconnected geometry. Welded seams stay together. Each drag uses its starting positions and radius; Escape resets the current drag. Geometry changes support undo/redo and project saving. The toggle and radius are session preferences. Enable **Connected only** to measure shortest-path distance along mesh edges and keep disconnected islands fixed. Triangle diagonals participate; this is an edge-path approximation, not continuous surface distance. Exact coincident positions still share connectivity across seams. The setting is captured at drag start and remains a session preference. Radius overlays and proportional rotation/scale are not implemented.
+
+### Component multi-selection
+
+In Edit Mode, **Shift-click** to add or remove vertices, edges or triangle faces.
+Plain component clicks replace the selection. Click empty viewport space to clear
+it; Shift-clicking empty space preserves it. Drag the move gizmo to move the
+selection from the centroid of its unique logical vertices. Shared vertices and
+welded seams move once, and proportional editing uses all selected vertices.
+Shift-click takes priority over the gizmo so you can deselect its center component.
+Switching component modes or leaving Edit Mode clears the selection. Selection is
+temporary; moved geometry supports undo/redo and project saving. The single-triangle extrusion and
+inset buttons require exactly one selected triangle and select their resulting cap.
+**Extrude planar region** accepts connected coplanar face selections.
+
+### Planar region extrusion
+
+In Edit Mode with Triangle face selection, Shift-click connected coplanar triangles and choose **Extrude planar region**. The existing **Extrusion distance** sets the positive offset in local units. The selected faces move together along their common normal; only region boundaries get side walls, including hole boundaries. Cap faces remain selected for another extrusion or group movement. UV/color seams and material groups are retained; wall UVs inherit boundary coordinates. Undo/redo and Forge projects retain the result.
+
+The operation accepts up to 100k input vertices and 200k triangles and rejects disconnected/nonplanar selections, invalid topology, ambiguous boundaries, unsupported attributes and precision collapse before changing the mesh. Planarity uses a relative tolerance of one millionth of the region diagonal (minimum 0.0000001 local units). Curved-surface extrusion, inward extrusion, collision checks and automatic wall UV unwrapping remain future work.
+
+### Edge subdivision
+
+In Edit Mode, choose **Edge**, select one or more edges (Shift-click to add or remove), then click **Subdivide selected edges**. The operation inserts a midpoint on every selected edge and splits adjacent triangles, including across UV/normal seams. Triangles with one, two or three selected edges become two, three or four triangles. It switches to Vertex mode with all new midpoints selected for movement. Existing attributes are retained, midpoint UVs/colors interpolate separately across seams, material groups are remapped and normals are recomputed. Undo/redo and Forge projects retain the result.
+
+Boundary edges and consistently oriented two-face manifold edges are supported, with limits of 100k input vertices and 200k triangles. Unsupported attributes, morph targets, partial draw ranges, invalid groups, degenerate results and midpoint collisions with existing vertices or other new midpoints are rejected. If any selected edge is invalid or the result exceeds the scene vertex limit, the entire operation leaves geometry and selection unchanged. Output is independent of selection order. Full loop cuts and quad reconstruction remain future work.
+
+### Vertex target snapping
+
+In Edit Mode, select vertices, edges or triangles and click **Pick snap target** in the Object panel. Click an unselected vertex in the active mesh to move the unique selection centroid to that vertex. Selected vertices retain their relative spacing and welded seam copies move together; unselected geometry stays fixed. Picking can reach through geometry, as with vertex selection. Empty or selected-target clicks keep the action active. Escape or **Cancel snap target** cancels without changing geometry. Switching modes also cancels.
+
+This discrete operation ignores grid snap and proportional editing settings. Undo/redo and Forge projects retain the geometry. It does not merge topology; as with ordinary component movement, coincident positions weld when re-entering Edit Mode. Continuous drag snapping, other-object targets, and edge/surface targets remain future work.
 
 ## Kimodo rigging
 
@@ -81,6 +112,6 @@ The automated WebGL tests use Chromium's software renderer for repeatability. Th
 
 ## Current limits and next stages
 
-The editor does not yet include polygon face editing, region extrusion or inset, bevel, topology modifiers, sculpting, UV editing, texture painting, weight painting, IK pole vectors/joint limits, retargeting, geometry nodes, physics, compositing or offline rendering. Kimodo text-to-motion inference is not connected. The UI exposes only implemented local workflows and labels the basic rigging limitations.
+The editor does not yet include polygon face editing, curved-surface region extrusion or region inset, bevel, topology modifiers, sculpting, UV editing, texture painting, weight painting, IK pole vectors/joint limits, retargeting, geometry nodes, physics, compositing or offline rendering. Kimodo text-to-motion inference is not connected. The UI exposes only implemented local workflows and labels the basic rigging limitations.
 
 The development plan is [docs/plans/2026-09-08-forge-studio.md](docs/plans/2026-09-08-forge-studio.md).
