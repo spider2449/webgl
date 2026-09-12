@@ -58,7 +58,7 @@ test('snap invalid targets and cancellation leave geometry and selection intact'
   });
   expect(invalid.errors).toHaveLength(4); expect(invalid.snapshot).toBe(before); expect(invalid.pending).toBe(true);
   // Empty target clicks do not discard the source selection or pending action.
-  const box=await page.locator('canvas').boundingBox();
+  const box=await page.getByLabel('Interactive 3D viewport').boundingBox();
   await page.mouse.click(box!.x+20,box!.y+100);
   await expect(page.locator('#vertex-snap')).toHaveText('Cancel snap target');
   await page.keyboard.press('Escape');

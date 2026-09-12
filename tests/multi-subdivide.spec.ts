@@ -94,6 +94,7 @@ test('Shift-selected adjacent edges subdivide atomically and new midpoints move 
   });
   expect(guarded.error).toContain('scene vertex limit');expect(guarded.snapshot).toBe(before);expect(guarded.selected).toBe(2);
   await page.locator('#subdivide-edge').click();
+  await page.waitForFunction(() => !(window as any).__forge.modelingBusy);
   await expect(page.getByLabel('Mesh component')).toHaveValue('vertex');
   const result=await page.evaluate(()=>{
     const e=(window as any).__forge,p=e.selected.geometry.attributes.position;

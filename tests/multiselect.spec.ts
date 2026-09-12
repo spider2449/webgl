@@ -56,7 +56,7 @@ for (const mode of ['vertex', 'edge', 'face'] as const) test(`Shift-click ${mode
   await page.evaluate(() => (window as any).__forge.setTool('select'));
   await click(0);
   expect((await state()).ids).toEqual([targets[0].id]);
-  const viewport = await page.locator('canvas').boundingBox();
+  const viewport = await page.getByLabel('Interactive 3D viewport').boundingBox();
   await page.keyboard.down('Shift');
   await page.mouse.click(viewport!.x+150, viewport!.y+200);
   await page.keyboard.up('Shift');

@@ -1,6 +1,7 @@
 import './style.css';
 import * as THREE from 'three';
 import { createIcons, Box, ChevronDown, ChevronRight, Plus, MousePointer2, Move, Rotate3d, Scaling, Magnet, Grid2x2, Scan, Eye, EyeOff, Search, SlidersHorizontal, Layers, Diamond, Play, Pause, SkipBack, SkipForward, ChevronFirst, ChevronLast, Undo2, Redo2, Copy, Trash2, X, HelpCircle, Download, Upload, Camera, Check, Circle, Triangle, Hexagon, FolderOpen, Save, FilePlus2, Maximize, Globe, Settings2, Crosshair, Sun, Activity, PanelRightClose } from 'lucide';
+import { mountModelingUI } from './modeling-ui';
 import { Editor, type Primitive, type Project, type Keyframe } from './editor';
 import { RigSystem, rigBones, RIG_SOURCE } from './rig';
 
@@ -145,7 +146,7 @@ document.querySelectorAll<HTMLButtonElement>('[data-workspace]').forEach(b => b.
   const name = b.dataset.workspace;
   panel(name === 'material' ? 'material' : name === 'rigging' ? 'rig' : 'object');
   document.body.classList.toggle('animation-workspace', name === 'animation');
-  if (name === 'modeling') { if (!editor.setEditMode(true)) toast('Select a mesh to enter Edit Mode.'); tool('translate'); }
+  if (name === 'modeling') { void editor.enterEditMode(true).then(ok => { if (!ok) toast('Select a mesh and apply its modifiers to enter Edit Mode.'); tool('translate'); }).catch(error => toast(error.message)); }
   else editor.setEditMode(false);
 });
 function updateTransforms() {
@@ -164,7 +165,7 @@ function updateUI() {
   if (document.activeElement !== $('#project-name')) $<HTMLInputElement>('#project-name').value = editor.name;
   $('#selection-label').textContent = object ? `Scene Collection / ${object.name}` : 'Scene Collection';
   $('#timeline-object').textContent = object?.name ?? 'No selection';
-  $('#selection-count').textContent = object ? '1 object selected' : 'No selection';
+  $('#selection-count').textContent = editor.selectedObjects.size ? `${editor.selectedObjects.size} object${editor.selectedObjects.size === 1 ? '' : 's'} selected` : 'No selection';
   $('#object-count').textContent = String(editor.content.children.length);
   $('#no-selection').classList.toggle('hidden', !!object);
   $('#object-fields').classList.toggle('hidden', !object);
@@ -199,7 +200,7 @@ function renderOutliner() {
   for (const {object,depth} of entries) {
     if (!object.name.toLowerCase().includes(filter)) continue;
     const row = document.createElement('div');
-    row.className = `object-row ${object === editor.selected ? 'selected' : ''} ${object.visible ? '' : 'dimmed'}`;
+    row.className = `object-row ${editor.selectedObjects.has(object) ? 'selected' : ''} ${object.visible ? '' : 'dimmed'}`;
     row.dataset.uuid = object.uuid;
     row.style.paddingLeft = `${37 + Math.min(depth,4)*12}px`;
     const select = document.createElement('button');
@@ -208,7 +209,7 @@ function renderOutliner() {
     const label = document.createElement('span');
     label.textContent = object.name;
     select.append(label);
-    select.onclick = () => { editor.select(object); editor.setTool(activeTool as 'translate'); };
+    select.onclick = event => { editor.select(object, event.shiftKey); editor.setTool(activeTool as 'translate'); };
     const visibility = document.createElement('button');
     visibility.className = 'object-visibility';
     visibility.title = `${object.visible ? 'Hide' : 'Show'} ${object.name}`;
@@ -290,28 +291,33 @@ document.querySelectorAll<HTMLInputElement>('[data-transform]').forEach(input =>
   editor.commit();
 });
 on('reset-transform', () => { if (editor.selected) { editor.selected.position.set(0,0,0); editor.selected.rotation.set(0,0,0); editor.selected.scale.set(1,1,1); editor.commit(); } });
-on('extrude-face', () => { try { editor.extrudeFace(Number($<HTMLInputElement>('#extrude-distance').value)); toast('Triangle extruded. Move the selected cap or extrude again.'); } catch (error) { toast((error as Error).message); } });
+on('extrude-face', async () => { try { if (!editor.editMode || editor.componentMode !== 'face' || editor.componentSelection.length !== 1) throw new Error('Select exactly one triangle face in Edit Mode first.'); await editor.runModeling({kind:'extrude',face:editor.componentSelection[0],distance:Number($<HTMLInputElement>('#extrude-distance').value)}); toast('Triangle extruded. Move the selected cap or extrude again.'); } catch (error) { toast((error as Error).message); } });
 $('#extrude-face').insertAdjacentHTML('afterend', '<button class="wide-button" id="extrude-region">Extrude planar region</button><p class="field-help">Shift-select connected coplanar triangle faces. Uses Extrusion distance and adds walls only along the region boundary.</p>');
-on('extrude-region', () => { try { editor.extrudePlanarRegion(Number($<HTMLInputElement>('#extrude-distance').value)); toast('Planar region extruded. The cap faces remain selected.'); } catch (error) { toast((error as Error).message); } });
+on('extrude-region', async () => { try { if (!editor.editMode || editor.componentMode !== 'face' || !editor.componentSelection.length) throw new Error('Select connected coplanar triangle faces in Edit Mode first.'); await editor.runModeling({kind:'region',faces:editor.componentSelection,distance:Number($<HTMLInputElement>('#extrude-distance').value)}); toast('Planar region extruded. The cap faces remain selected.'); } catch (error) { toast((error as Error).message); } });
 $('#mirror').insertAdjacentHTML('beforebegin', '<label class="property-row">Inset distance<input id="inset-distance" aria-label="Inset distance" type="number" min="0.0001" max="1000" step="0.05" value="0.1"></label><button class="wide-button" id="inset-face">Inset selected triangle</button><p class="field-help">Moves each edge inward by the local distance. Must be smaller than the triangle inradius.</p>');
-on('inset-face', () => { try { editor.extrudeFace(Number($<HTMLInputElement>('#inset-distance').value), true); toast('Triangle inset. The inner face remains selected.'); } catch (error) { toast((error as Error).message); } });
+on('inset-face', async () => { try { if (!editor.editMode || editor.componentMode !== 'face' || editor.componentSelection.length !== 1) throw new Error('Select exactly one triangle face in Edit Mode first.'); await editor.runModeling({kind:'inset',face:editor.componentSelection[0],distance:Number($<HTMLInputElement>('#inset-distance').value)}); toast('Triangle inset. The inner face remains selected.'); } catch (error) { toast((error as Error).message); } });
 $('#mirror').insertAdjacentHTML('beforebegin', '<label class="property-row">Proportional editing<input id="proportional-enabled" aria-label="Proportional editing" type="checkbox"></label><label class="property-row">Influence radius<input id="proportional-radius" aria-label="Proportional radius" type="number" min="0.0001" step="0.1" value="2"></label><p class="field-help">Edit Mode: nearby vertices follow with smooth falloff. Radius uses local units and can reach disconnected geometry.</p>');
 $('#proportional-radius').closest('label')!.insertAdjacentHTML('afterend', '<label class="property-row">Connected only<input id="proportional-connected" aria-label="Connected only" type="checkbox"></label><p class="field-help">Connected only measures distance along mesh edges, including triangle diagonals. Disconnected islands stay fixed.</p>');
-$('#mirror').insertAdjacentHTML('beforebegin', '<button class="wide-button" id="vertex-snap">Pick snap target</button><p class="field-help">Edit Mode: move the selection center to an unselected vertex in this mesh. Click a target; Escape cancels. Grid and proportional settings do not affect this action.</p>');
+$('#mirror').insertAdjacentHTML('beforebegin', '<label class="property-row">Snap target<select id="snap-target-kind" aria-label="Snap target"><option value="vertex">Vertex</option><option value="edge">Edge midpoint</option><option value="surface">Surface point</option></select></label><button class="wide-button" id="vertex-snap">Pick snap target</button><p class="field-help">Edit Mode: move the selection center to a vertex, edge midpoint or clicked surface point in this mesh. Target vertices must be unselected. Click a target; Escape cancels. Grid and proportional settings do not affect this action.</p>');
 $('#mirror').insertAdjacentHTML('beforebegin', '<button class="wide-button" id="subdivide-edge">Subdivide selected edges</button><p class="field-help">Select edges in Edit Mode; Shift-click to select more. Splits adjacent triangles and selects all new midpoint vertices.</p>');
-on('subdivide-edge', () => { try { editor.subdivideSelectedEdge(); toast('Edges subdivided. Move the selected midpoint vertices.'); } catch (error) { toast((error as Error).message); } });
+on('subdivide-edge', async () => { try { if (!editor.editMode || editor.componentMode !== 'edge' || !editor.componentSelection.length) throw new Error('Select one or more edges in Edit Mode first.'); await editor.runModeling({kind:'subdivide',edges:editor.componentSelection.map(id=>editor.meshTopology!.edges[id].map(v=>editor.meshTopology!.vertices[v][0]) as [number,number])}); toast('Edges subdivided. Move the selected midpoint vertices.'); } catch (error) { toast((error as Error).message); } });
 editor.addEventListener('mode', () => { $<HTMLSelectElement>('#component-mode').value = editor.componentMode; });
+$('#snap-target-kind').onchange = () => editor.cancelVertexSnap();
 on('vertex-snap', () => {
   try {
     if (editor.snapTargetPending) editor.cancelVertexSnap();
-    else { editor.beginVertexSnap(); toast('Click an unselected vertex in the active mesh. Escape cancels.'); }
+    else {
+      const kind = $<HTMLSelectElement>('#snap-target-kind').value as 'vertex' | 'edge' | 'surface';
+      editor.beginVertexSnap(kind);
+      toast(kind === 'surface' ? 'Click a triangle with all vertices unselected. Escape cancels.' : kind === 'edge' ? 'Click an edge with both endpoints unselected. Escape cancels.' : 'Click an unselected vertex in the active mesh. Escape cancels.');
+    }
   } catch (error) { toast((error as Error).message); }
 });
 editor.addEventListener('snap-target', () => {
   $('#vertex-snap').textContent = editor.snapTargetPending ? 'Cancel snap target' : 'Pick snap target';
   $('#vertex-snap').setAttribute('aria-pressed', String(editor.snapTargetPending));
 });
-editor.addEventListener('snap-complete', () => toast('Selection center snapped to vertex.'));
+editor.addEventListener('snap-complete', () => toast(editor.snapTargetKind === 'surface' ? 'Selection center snapped to surface point.' : editor.snapTargetKind === 'edge' ? 'Selection center snapped to edge midpoint.' : 'Selection center snapped to vertex.'));
 editor.addEventListener('snap-error', event => toast((event as CustomEvent<string>).detail));
 let proportionalEnabled = false, proportionalRadius = 2, proportionalConnected = false;
 for (const id of ['proportional-enabled', 'proportional-radius', 'proportional-connected']) $<HTMLInputElement>(`#${id}`).onchange = () => {
@@ -328,7 +334,7 @@ for (const id of ['proportional-enabled', 'proportional-radius', 'proportional-c
   }
 };
 $<HTMLSelectElement>('#component-mode').onchange = e => editor.setComponentMode((e.target as HTMLSelectElement).value as 'vertex' | 'edge' | 'face');
-$<HTMLSelectElement>('#mode').onchange = e => { if (!editor.setEditMode((e.target as HTMLSelectElement).value === 'edit')) { $<HTMLSelectElement>('#mode').value = 'object'; toast('Select a mesh and pause playback first.'); } tool('translate'); };
+$<HTMLSelectElement>('#mode').onchange = async e => { try { if (!await editor.enterEditMode((e.target as HTMLSelectElement).value === 'edit')) { $<HTMLSelectElement>('#mode').value = 'object'; toast('Select a mesh, apply its modifiers and pause playback first.'); } tool('translate'); } catch (error) { toast((error as Error).message); } };
 $<HTMLSelectElement>('#space').onchange = e => { editor.transform.setSpace((e.target as HTMLSelectElement).value as 'world' | 'local'); editor.invalidate(); };
 function snap() { const enabled = !$('#snap').classList.contains('active'); $('#snap').classList.toggle('active', enabled); editor.transform.setTranslationSnap(enabled ? 0.5 : null); editor.transform.setRotationSnap(enabled ? Math.PI / 12 : null); editor.transform.setScaleSnap(enabled ? 0.1 : null); toast(enabled ? 'Snap: 0.5 units · 15° · 0.1 scale' : 'Snapping disabled'); }
 on('snap', snap);
@@ -341,6 +347,7 @@ for (const id of ['duplicate','duplicate-rail']) on(id, () => editor.duplicate()
 for (const id of ['delete','delete-outliner']) on(id, () => editor.remove());
 on('menu-undo', () => editor.undo()); on('menu-redo', () => editor.redo());
 on('smooth', () => editor.smooth(false)); on('flat', () => editor.smooth(true));
+mountModelingUI(editor, toast);
 on('mirror', () => toast(editor.mirror() ? 'Mirrored mesh geometry on the local X axis.' : 'Select a mesh to mirror.'));
 on('add-outliner', () => { $('#add-menu').classList.toggle('hidden'); });
 $('#add-outliner').addEventListener('click', e => e.stopPropagation());
@@ -442,12 +449,12 @@ document.addEventListener('keydown', e => {
   if (key === 'f') editor.focus();
   if (key === 'd' && e.shiftKey) { e.preventDefault(); editor.duplicate(); }
   if (key === 'delete' || key === 'backspace') { e.preventDefault(); editor.remove(); }
-  if (key === 'tab') { e.preventDefault(); if (e.shiftKey) snap(); else { editor.setEditMode(!editor.editMode); tool('translate'); } }
+  if (key === 'tab') { e.preventDefault(); if (e.shiftKey) snap(); else { if (editor.modelingBusy) editor.cancelModeling(); else void editor.enterEditMode(!editor.editMode).then(ok => { if (!ok) toast('Select a mesh and apply its modifiers first.'); tool('translate'); }).catch(error => toast(error.message)); } }
   if (key === 'i') insertKey();
   if (key === ' ') { e.preventDefault(); editor.togglePlayback(); }
   if (key === '1') $('#axis-z').click(); if (key === '3') $('#axis-x').click(); if (key === '7') $('#axis-y').click(); if (key === '5') editor.toggleProjection();
   if (key === '/') { e.preventDefault(); $('#object-search').focus(); }
-  if (key === 'escape') { closeMenus(); if (editor.snapTargetPending) editor.cancelVertexSnap(); else if (editor.transform.dragging) editor.transform.reset(); else editor.select(null); }
+  if (key === 'escape') { closeMenus(); if (editor.modelingBusy) editor.cancelModeling(); else if (editor.snapTargetPending) editor.cancelVertexSnap(); else if (editor.transform.dragging) editor.transform.reset(); else editor.select(null); }
 });
 document.addEventListener('keyup', e => { if (e.key === 'Alt') editor.orbit.mouseButtons.LEFT = null as unknown as THREE.MOUSE; });
 window.addEventListener('blur', () => { editor.orbit.mouseButtons.LEFT = null as unknown as THREE.MOUSE; if (editor.playing) editor.togglePlayback(); });

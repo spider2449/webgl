@@ -7,8 +7,17 @@
     "dev": "vite --host 127.0.0.1",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview --host 127.0.0.1",
-    "test": "playwright test"
+    "test": "playwright test",
+    "benchmark": "playwright test --config playwright.benchmark.config.ts"
   },
-  "dependencies": { "three": "0.185.1", "lucide": "^0.468.0" },
-  "devDependencies": { "@types/three": "^0.185.0", "typescript": "~5.9.3", "vite": "^8.2.2", "@playwright/test": "^1.58.2" }
+  "dependencies": {
+    "three": "0.185.1",
+    "lucide": "^0.468.0"
+  },
+  "devDependencies": {
+    "@types/three": "^0.185.0",
+    "typescript": "~5.9.3",
+    "vite": "^8.2.2",
+    "@playwright/test": "^1.58.2"
+  }
 }

@@ -65,11 +65,59 @@ In Edit Mode, choose **Edge**, select one or more edges (Shift-click to add or r
 
 Boundary edges and consistently oriented two-face manifold edges are supported, with limits of 100k input vertices and 200k triangles. Unsupported attributes, morph targets, partial draw ranges, invalid groups, degenerate results and midpoint collisions with existing vertices or other new midpoints are rejected. If any selected edge is invalid or the result exceeds the scene vertex limit, the entire operation leaves geometry and selection unchanged. Output is independent of selection order. Full loop cuts and quad reconstruction remain future work.
 
-### Vertex target snapping
+### Mesh target snapping
 
-In Edit Mode, select vertices, edges or triangles and click **Pick snap target** in the Object panel. Click an unselected vertex in the active mesh to move the unique selection centroid to that vertex. Selected vertices retain their relative spacing and welded seam copies move together; unselected geometry stays fixed. Picking can reach through geometry, as with vertex selection. Empty or selected-target clicks keep the action active. Escape or **Cancel snap target** cancels without changing geometry. Switching modes also cancels.
+In Edit Mode, select vertices, edges or triangles and click **Pick snap target** in the Object panel. Choose **Vertex**, **Edge midpoint**, or **Surface point** under **Snap target**. Click an unselected vertex, or an edge with both endpoints unselected, in the active mesh to move the unique selection centroid to that target. Surface targets use the actual clicked point on the nearest triangle; all three target vertices must be unselected. Rotation and non-uniform object scale are supported. Edge targets use the local midpoint and include triangle diagonals; edge guides appear while picking even in Vertex mode. Selected vertices retain their relative spacing and welded seam copies move together; unselected geometry stays fixed. Picking can reach through geometry, as with vertex selection. Empty or invalid-target clicks keep the action active. Escape or **Cancel snap target** cancels without changing geometry. Switching modes or target kinds also cancels.
 
-This discrete operation ignores grid snap and proportional editing settings. Undo/redo and Forge projects retain the geometry. It does not merge topology; as with ordinary component movement, coincident positions weld when re-entering Edit Mode. Continuous drag snapping, other-object targets, and edge/surface targets remain future work.
+This discrete operation ignores grid snap and proportional editing settings. Undo/redo and Forge projects retain the geometry. It does not merge topology; as with ordinary component movement, coincident positions weld when re-entering Edit Mode. Continuous drag snapping, other-object targets, and arbitrary edge-point targets remain future work.
+
+## Phase 2 modeling core
+
+The Object panel includes collapsible **Mesh operations**, **UV editor**,
+**Modifiers**, and **Multiple objects** sections.
+
+| Feature | Supported workflow |
+| --- | --- |
+| Bevel | In Edit Mode, select sharp edges and use **Bevel selected edges**. Creates one flat bevel segment on a closed, consistently oriented convex mesh. Width is a local distance along adjacent faces. |
+| Loop cut | Select exactly one quad boundary edge, then **Cut quad loop**. Reconstructs planar convex quads from their longer triangulation diagonals and cuts the opposite-edge ring or boundary-to-boundary strip at its midpoint. |
+| UV editing | Select triangle faces, open **UV editor**, project UVs or translate/rotate/scale existing UVs around their selected-corner center. UV seams split without moving geometry or changing normals; the canvas fits up to 2,000 selected triangles. |
+| Multiple objects | Shift-click in the viewport or outliner. Use **Multiple objects** for world translation, rotation about the shared center, uniform scaling, or atomic subdivision of all selected meshes. Ordinary gizmos and numeric object properties still target the active object. |
+| Modifier stack | Add **Mirror X**, **Subdivision**, or **Smooth**, change smooth strength, enable/disable, move up/down, remove, or apply. The stack evaluates from a retained source, not from its previous result. |
+| Surface snapping | **Snap target → Surface point** moves the selection center to a clicked point in the active mesh. Target triangle vertices must all be unselected. |
+
+Bevel rejects open, concave, nonmanifold or inconsistently oriented input,
+coplanar diagonals, excessive widths, degenerate results and work-budget overflow.
+At most 128 sharp edges can be beveled in one operation. Loop cuts reject
+ambiguous quad pairing, triangle continuations and self-intersecting rings.
+Bevel and loop cuts clear obsolete component selection. New bevel faces inherit
+an adjacent material and boundary attributes; automatic bevel UV unwrap is not
+provided. Quads are inferred from triangles, so arbitrary polygon reconstruction
+and repeated cuts of every possible triangulation are not guaranteed.
+
+Modifiers are saved with their source in Forge projects and history. Apply the
+stack before component editing or skin binding. Removing the last modifier
+restores source geometry; applying keeps the evaluated result. Mirror duplicates
+across local X with reversed winding: use a half mesh away from the plane to
+avoid overlapping faces. It does not merge the center seam. Subdivision splits
+all triangle edges once per stack entry; Smooth averages welded logical neighbors.
+Up to eight modifiers are allowed. General Blender modifier parity, Catmull–Clark
+surfaces, arbitrary boolean stacks and automatic UV packing are outside this core.
+
+Extrusion, inset, subdivision, bevel, loop cuts, UV editing and modifier evaluation run in a cancellable worker. Scene or selection
+changes discard stale results; multi-object subdivision prepares every result
+before installing any. Escape or **Cancel operation** cancels a pending job.
+Entering Edit Mode on meshes with at least 10,000 vertices also builds connectivity
+in a worker. Supported modeling inputs are bounded to 100,000 vertices and
+200,000 triangles, with 32 MB geometry payload/result and two-million scene-vertex
+limits. Expanded outputs can reach 600,000 rendering vertices; another operation
+may require a smaller mesh. Morph targets and custom/skinning attributes are
+rejected for these operations.
+
+Run `npm run benchmark` for the reproducible large-mesh worker benchmark.
+[Measured results](docs/benchmarks/2026-09-12-modeling.md) include worker time,
+round-trip time and main-thread timer gaps. Serialization, result cloning,
+helper-buffer setup and history snapshots still run on the main thread;
+off-thread calculation does not imply stall-free interaction or a universal FPS.
 
 ## Kimodo rigging
 

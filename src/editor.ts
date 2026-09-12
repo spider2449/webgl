@@ -8,6 +8,8 @@ import { buildTopology, type MeshTopology, type ComponentMode } from './topology
 import { proportionalWeights } from './proportional';
 import { subdivideEdges } from './subdivide';
 import { extrudeRegion } from './extrude-region';
+import { modelingJob, type ModelingOperation } from './modeling-worker-client';
+import { validateModifierStack, type Modifier, type ModifierStack } from './modifiers';
 
 export type Primitive = 'cube' | 'sphere' | 'cylinder' | 'cone' | 'torus' | 'plane' | 'icosphere';
 export type Keyframe = { frame: number; position: number[]; quaternion: number[]; scale: number[] };
@@ -26,6 +28,10 @@ export class Editor extends EventTarget {
   readonly grid = createGrid();
   readonly selectionBox = new THREE.BoxHelper(new THREE.Object3D(), 0xd6ac78);
   selected: THREE.Object3D | null = null;
+  readonly selectedObjects = new Set<THREE.Object3D>();
+  modelingBusy = false;
+  private cancelJob: (() => void) | null = null;
+  private modelingVersion = 0;
   name = 'Untitled scene';
   frame = 1;
   playing = false;
@@ -46,6 +52,7 @@ export class Editor extends EventTarget {
   private proportionalRadius = 2;
   private proportionalConnected = false;
   snapTargetPending = false;
+  snapTargetKind: 'vertex' | 'edge' | 'surface' = 'vertex';
   private componentDrag: { positions: number[]; weights: Float32Array; center: THREE.Vector3 } | null = null;
   private history: string[] = [];
   private historyIndex = -1;
@@ -103,7 +110,7 @@ export class Editor extends EventTarget {
     // Shift selection must also work where a selected component meets the gizmo.
     let selectionPointer: number | null = null;
     this.renderer.domElement.addEventListener('pointerdown', e => {
-      if (this.editMode && (e.shiftKey || this.snapTargetPending) && e.button === 0 && !this.transform.dragging) {
+      if ((e.shiftKey || (this.editMode && this.snapTargetPending)) && e.button === 0 && !this.transform.dragging) {
         selectionPointer = e.pointerId;
         this.transform.enabled = false;
         this.renderer.domElement.setPointerCapture(e.pointerId);
@@ -122,15 +129,30 @@ export class Editor extends EventTarget {
       this.raycaster.setFromCamera(new THREE.Vector2((e.clientX - rect.left) / rect.width * 2 - 1, -(e.clientY - rect.top) / rect.height * 2 + 1), this.camera);
       if (this.editMode) {
         if (this.snapTargetPending) {
-          this.raycaster.params.Points.threshold = this.camera.position.distanceTo(this.orbit.target) * 0.012;
-          const hit = this.vertexPoints && this.raycaster.intersectObject(this.vertexPoints, false)[0];
-          if (hit && hit.index !== undefined && this.topology) {
-            const vertex = this.topology.bufferToVertex[hit.index];
-            if (!this.vertexIndices.includes(hit.index)) {
-              try { this.snapSelectionToVertex(vertex); }
-              catch (error) { this.dispatchEvent(new CustomEvent('snap-error', { detail: (error as Error).message })); }
+          const threshold = this.camera.position.distanceTo(this.orbit.target) * 0.012;
+          try {
+            if (this.snapTargetKind === 'surface' && this.selected instanceof THREE.Mesh && this.topology) {
+              this.selected.updateWorldMatrix(true, false);
+              const hit = this.raycaster.intersectObject(this.selected, false)[0];
+              if (hit?.faceIndex !== undefined && hit.faceIndex !== null) {
+                const attribute = this.selected.geometry.getAttribute('position');
+                const points = this.topology.faces[hit.faceIndex].map(v => this.selected!.localToWorld(new THREE.Vector3().fromBufferAttribute(attribute, this.topology!.vertices[v][0])));
+                const weights = THREE.Triangle.getBarycoord(hit.point, points[0], points[1], points[2], new THREE.Vector3());
+                if (!weights) throw new Error('Cannot snap to a collapsed surface.');
+                this.snapSelectionToSurface(hit.faceIndex, weights.toArray());
+              }
+            } else if (this.snapTargetKind === 'edge' && this.componentEdges) {
+              this.raycaster.params.Line.threshold = threshold;
+              const hit = this.raycaster.intersectObject(this.componentEdges, false)[0];
+              if (hit?.index !== undefined) this.snapSelectionToEdge(Math.floor(hit.index / 2));
+            } else {
+              this.raycaster.params.Points.threshold = threshold;
+              const hit = this.vertexPoints && this.raycaster.intersectObject(this.vertexPoints, false)[0];
+              if (hit && hit.index !== undefined && this.topology && !this.vertexIndices.includes(hit.index)) {
+                this.snapSelectionToVertex(this.topology.bufferToVertex[hit.index]);
+              }
             }
-          }
+          } catch (error) { this.dispatchEvent(new CustomEvent('snap-error', { detail: (error as Error).message })); }
         } else this.pickVertex(e.shiftKey);
         return;
       }
@@ -139,7 +161,7 @@ export class Editor extends EventTarget {
       const hit = this.raycaster.intersectObjects(this.content.children, true).find(h => this.isVisible(h.object));
       let object = hit?.object ?? null;
       while (object && object.parent !== this.content) object = object.parent;
-      this.select(object);
+      this.select(object, e.shiftKey);
     });
     this.renderer.domElement.addEventListener('pointerup', restoreTransform);
     this.renderer.domElement.addEventListener('pointercancel', restoreTransform);
@@ -227,7 +249,14 @@ export class Editor extends EventTarget {
     while (names.has(`${base}.${String(i).padStart(3, '0')}`)) i++;
     return `${base}.${String(i).padStart(3, '0')}`;
   }
-  select(object: THREE.Object3D | null) {
+  select(object: THREE.Object3D | null, toggle = false) {
+    if (toggle && !object) return;
+    this.modelingVersion++;
+    if (!toggle) this.selectedObjects.clear();
+    if (object) {
+      if (toggle && this.selectedObjects.has(object)) { this.selectedObjects.delete(object); object = [...this.selectedObjects].at(-1) ?? null; }
+      else this.selectedObjects.add(object);
+    }
     if (object !== this.selected) this.setEditMode(false);
     this.selected = object;
     if (object && object.visible) this.transform.attach(object);
@@ -350,6 +379,7 @@ export class Editor extends EventTarget {
   }
   mirror() {
     if (!(this.selected instanceof THREE.Mesh)) return false;
+    if (this.selected.userData.modifierStack) return false;
     this.setEditMode(false);
     const geometry = this.selected.geometry;
     geometry.scale(-1, 1, 1);
@@ -373,9 +403,22 @@ export class Editor extends EventTarget {
     this.commit();
     return true;
   }
-  setEditMode(enabled: boolean) {
+  async enterEditMode(enabled: boolean) {
+    if (!enabled || !(this.selected instanceof THREE.Mesh) || this.selected.geometry.getAttribute('position').count < 10_000) return this.setEditMode(enabled);
+    if (this.modelingBusy || this.selected instanceof THREE.SkinnedMesh || this.selected.userData.modifierStack || this.playing) return false;
+    const mesh = this.selected, before = this.snapshot(), version = this.modelingVersion;
+    this.modelingBusy = true; this.emit('modeling');
+    try {
+      const job = modelingJob(mesh.geometry, { kind: 'topology' }); this.cancelJob = job.cancel;
+      const result = await job.promise;
+      if (this.selected !== mesh || this.snapshot() !== before || this.modelingVersion !== version) throw new Error('Scene changed; discarded topology result.');
+      return this.setEditMode(true, result.topology);
+    } finally { this.cancelJob = null; this.modelingBusy = false; this.emit('modeling'); }
+  }
+  setEditMode(enabled: boolean, preparedTopology?: MeshTopology) {
+    this.modelingVersion++;
     this.cancelVertexSnap();
-    if (enabled && (!(this.selected instanceof THREE.Mesh) || this.selected instanceof THREE.SkinnedMesh || this.playing)) return false;
+    if (enabled && (!(this.selected instanceof THREE.Mesh) || this.selected instanceof THREE.SkinnedMesh || this.playing || this.selected.userData.modifierStack)) return false;
     this.editMode = enabled;
     this.selectedComponents.clear();
     this.componentDrag = null;
@@ -399,8 +442,7 @@ export class Editor extends EventTarget {
       this.vertexPoints.renderOrder = 10;
       this.selected.add(this.vertexPoints);
       const position = this.selected.geometry.getAttribute('position');
-      const coordinates = Array.from({ length: position.count }, (_, i) => [position.getX(i), position.getY(i), position.getZ(i)]).flat();
-      this.topology = buildTopology(coordinates, this.selected.geometry.index?.array);
+      this.topology = preparedTopology ?? buildTopology(position.array, this.selected.geometry.index?.array);
       geometry.setAttribute('color', new THREE.Float32BufferAttribute(new Float32Array(position.count * 3).fill(1), 3));
       (this.vertexPoints.material as THREE.PointsMaterial).vertexColors = true;
       this.componentEdges = new THREE.LineSegments(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({ color: 0xe4b578, transparent: true, opacity: 0.65, depthTest: false }));
@@ -414,6 +456,7 @@ export class Editor extends EventTarget {
     return true;
   }
   setComponentMode(mode: ComponentMode) {
+    this.modelingVersion++;
     this.cancelVertexSnap();
     this.componentDrag = null;
     this.componentMode = mode;
@@ -440,7 +483,7 @@ export class Editor extends EventTarget {
     }
     edges.needsUpdate = true;
     this.componentEdges.geometry.computeBoundingSphere();
-    this.componentEdges.visible = this.componentMode !== 'vertex';
+    this.componentEdges.visible = this.componentMode !== 'vertex' || (this.snapTargetPending && this.snapTargetKind === 'edge');
     const colors = this.vertexPoints.geometry.getAttribute('color');
     const selected = new Set(this.vertexIndices);
     for (let i = 0; i < colors.count; i++) colors.setXYZ(i, 1, selected.has(i) ? 0.3 : 1, selected.has(i) ? 0.05 : 1);
@@ -465,6 +508,7 @@ export class Editor extends EventTarget {
     this.selectComponent(component, toggle);
   }
   private selectComponent(component: number | undefined, toggle = false) {
+    this.modelingVersion++;
     if (!this.topology) return;
     if (!toggle) this.selectedComponents.clear();
     if (component !== undefined) {
@@ -474,6 +518,7 @@ export class Editor extends EventTarget {
     this.selectedFace = this.componentMode === 'face' && this.selectedComponents.size === 1 ? [...this.selectedComponents][0] : null;
     const vertices = [...this.selectedComponents].flatMap(id => this.componentMode === 'vertex' ? [id] : this.componentMode === 'edge' ? this.topology!.edges[id] : this.topology!.faces[id]);
     this.selectComponentVertices(vertices);
+    this.emit('component-selection');
   }
   private selectComponentVertices(vertices?: number[]) {
     this.componentDrag = null;
@@ -553,11 +598,16 @@ export class Editor extends EventTarget {
   cancelVertexSnap() {
     if (!this.snapTargetPending) return;
     this.snapTargetPending = false;
+    this.refreshComponents();
+    this.invalidate();
     this.emit('snap-target');
   }
-  beginVertexSnap() {
+  beginVertexSnap(kind: 'vertex' | 'edge' | 'surface' = 'vertex') {
     if (!this.editMode || !this.vertexIndices.length || this.playing || this.transform.dragging) throw new Error('Select mesh components in Edit Mode and finish the current drag first.');
+    this.snapTargetKind = kind;
     this.snapTargetPending = true;
+    this.refreshComponents();
+    this.invalidate();
     this.emit('snap-target');
   }
   snapSelectionToVertex(vertex: number) {
@@ -567,6 +617,21 @@ export class Editor extends EventTarget {
     if (this.vertexIndices.includes(targetIndex)) throw new Error('Choose an unselected target vertex.');
     const attribute = this.selected.geometry.getAttribute('position');
     const target = new THREE.Vector3().fromBufferAttribute(attribute, targetIndex);
+    this.snapSelectionToPoint(target);
+  }
+  snapSelectionToEdge(edge: number) {
+    if (!this.editMode || !this.topology || !(this.selected instanceof THREE.Mesh) || !this.vertexIndices.length || this.playing || this.transform.dragging) throw new Error('Select mesh components in Edit Mode and finish the current drag first.');
+    if (!Number.isInteger(edge) || !this.topology.edges[edge]) throw new Error('Invalid snap target edge.');
+    const indices = this.topology.edges[edge].map(vertex => this.topology!.vertices[vertex][0]);
+    if (indices.some(index => this.vertexIndices.includes(index))) throw new Error('Choose an edge with both endpoints unselected.');
+    const attribute = this.selected.geometry.getAttribute('position');
+    const target = new THREE.Vector3().fromBufferAttribute(attribute, indices[0])
+      .lerp(new THREE.Vector3().fromBufferAttribute(attribute, indices[1]), 0.5);
+    this.snapSelectionToPoint(target);
+  }
+  private snapSelectionToPoint(target: THREE.Vector3) {
+    if (!(this.selected instanceof THREE.Mesh)) return;
+    const attribute = this.selected.geometry.getAttribute('position');
     const delta = target.clone().sub(this.componentCenter);
     if (![delta.x, delta.y, delta.z].every(Number.isFinite)) throw new Error('Invalid snap coordinates.');
     const positions = Array.from({ length: attribute.count }, (_, i) => [attribute.getX(i), attribute.getY(i), attribute.getZ(i)]).flat();
@@ -582,6 +647,109 @@ export class Editor extends EventTarget {
     this.cancelVertexSnap();
     this.commit();
     this.emit('snap-complete');
+  }
+  snapSelectionToSurface(face: number, weights: number[]) {
+    if (!this.editMode || !this.topology || !(this.selected instanceof THREE.Mesh) || !this.vertexIndices.length || this.playing || this.transform.dragging) throw new Error('Select mesh components in Edit Mode first.');
+    if (!Number.isInteger(face) || !this.topology.faces[face] || weights.length !== 3 || weights.some(w => !Number.isFinite(w) || w < -1e-7 || w > 1 + 1e-7) || Math.abs(weights.reduce((a, b) => a + b, 0) - 1) > 1e-6) throw new Error('Invalid surface target.');
+    const indices = this.topology.faces[face].map(v => this.topology!.vertices[v][0]);
+    if (indices.some(i => this.vertexIndices.includes(i))) throw new Error('Choose a triangle with all three vertices unselected.');
+    const target = new THREE.Vector3(), attribute = this.selected.geometry.getAttribute('position');
+    const clamped = weights.map(w => Math.max(0, Math.min(1, w))), sum = clamped.reduce((a, b) => a + b, 0);
+    indices.forEach((i, j) => target.addScaledVector(new THREE.Vector3().fromBufferAttribute(attribute, i), clamped[j] / sum));
+    this.snapSelectionToPoint(target);
+  }
+
+  get componentSelection() { return [...this.selectedComponents]; }
+  get meshTopology() { return this.topology; }
+  cancelModeling() { this.cancelJob?.(); }
+  private replaceGeometry(mesh: THREE.Mesh, geometry: THREE.BufferGeometry) {
+    const old = mesh.geometry; mesh.geometry = geometry;
+    let retained = false;
+    this.content.traverse(o => { if (o instanceof THREE.Mesh && o.geometry === old) retained = true; });
+    if (!retained) old.dispose();
+  }
+  async runModeling(operation: ModelingOperation, batch = false) {
+    if (this.modelingBusy || this.playing || this.transform.dragging) throw new Error('Finish the current operation first.');
+    const targets = batch ? [...this.selectedObjects] : [this.selected];
+    if (!targets.length || targets.some(o => !(o instanceof THREE.Mesh) || o instanceof THREE.SkinnedMesh || o.userData.modifierStack)) throw new Error('Select ordinary meshes without unapplied modifiers.');
+    const meshes = targets as THREE.Mesh[], before = this.snapshot(), active = this.selected, editing = this.editMode, version = this.modelingVersion;
+    const results: THREE.BufferGeometry[] = [], topologies: (MeshTopology | undefined)[] = [];
+    this.modelingBusy = true; this.emit('modeling');
+    try {
+      for (const mesh of meshes) {
+        let op = operation;
+        if (batch && operation.kind === 'subdivide') {
+          op = { kind: 'subdivide-all' };
+        }
+        const job = modelingJob(mesh.geometry, op); this.cancelJob = job.cancel;
+        const result = await job.promise;
+        if (!result.geometry) throw new Error('No geometry result.');
+        results.push(new THREE.BufferGeometryLoader().parse(result.geometry));
+        topologies.push(result.topology);
+      }
+      if (this.snapshot() !== before || this.modelingVersion !== version || this.selected !== active || this.editMode !== editing || (batch && (meshes.length !== this.selectedObjects.size || meshes.some(m => !this.selectedObjects.has(m))))) throw new Error('Scene or selection changed; discarded the modeling result.');
+      const total = this.stats().vertices + results.reduce((sum, g, i) => sum + g.getAttribute('position').count - meshes[i].geometry.getAttribute('position').count, 0);
+      if (total > 2_000_000) throw new Error('Modeling exceeds the scene vertex budget.');
+      const oldMode = this.componentMode, oldSelection = this.componentSelection;
+      const midpoint = meshes[0].geometry.getAttribute('position').count;
+      this.setEditMode(false);
+      meshes.forEach((mesh, i) => this.replaceGeometry(mesh, results[i])); results.length = 0;
+      if (editing) {
+        this.setEditMode(true, topologies[0]);
+        if (operation.kind === 'subdivide') {
+          this.setComponentMode('vertex');
+          const ids = [...new Set(this.topology!.bufferToVertex.slice(midpoint))]; this.selectedComponents = new Set(ids); this.selectComponentVertices(ids);
+        } else if (['uv', 'inset', 'extrude', 'region'].includes(operation.kind)) {
+          this.setComponentMode(oldMode); this.selectedComponents = new Set(oldSelection);
+          this.selectedFace = oldSelection.length === 1 ? oldSelection[0] : null;
+          this.selectComponentVertices(oldSelection.flatMap(f => this.topology!.faces[f]));
+        }
+      }
+      this.commit();
+    } finally { results.forEach(g => g.dispose()); this.cancelJob = null; this.modelingBusy = false; this.emit('modeling'); }
+  }
+
+  async setModifiers(items: Modifier[]) {
+    if (!(this.selected instanceof THREE.Mesh) || this.selected instanceof THREE.SkinnedMesh || this.modelingBusy || this.playing || this.transform.dragging) throw new Error('Select a mesh and finish the current operation.');
+    const mesh = this.selected, before = this.snapshot(), version = this.modelingVersion, stored = mesh.userData.modifierStack as ModifierStack | undefined;
+    const source = stored ? new THREE.BufferGeometryLoader().parse(stored.source) : mesh.geometry.clone();
+    const sourceJSON = source.toJSON();
+    this.modelingBusy = true; this.emit('modeling');
+    try {
+      const job = modelingJob(source, { kind: 'modifiers', items }); this.cancelJob = job.cancel;
+      const response = await job.promise;
+      if (this.selected !== mesh || this.snapshot() !== before || this.modelingVersion !== version) throw new Error('Scene changed; discarded modifier result.');
+      const geometry = new THREE.BufferGeometryLoader().parse(response.geometry!);
+      if (this.stats().vertices - mesh.geometry.getAttribute('position').count + geometry.getAttribute('position').count > 2_000_000) { geometry.dispose(); throw new Error('Modifier exceeds the scene vertex budget.'); }
+      this.setEditMode(false); this.replaceGeometry(mesh, geometry);
+      if (items.length) mesh.userData.modifierStack = { source: sourceJSON, items: structuredClone(items) } satisfies ModifierStack;
+      else delete mesh.userData.modifierStack;
+      this.commit();
+    } finally { source.dispose(); this.cancelJob = null; this.modelingBusy = false; this.emit('modeling'); }
+  }
+  applyModifiers() {
+    if (!(this.selected instanceof THREE.Mesh) || this.modelingBusy || this.playing || this.transform.dragging) throw new Error('Finish the current operation first.');
+    delete this.selected.userData.modifierStack; this.commit();
+  }
+
+  transformObjects(kind: 'translate' | 'rotate' | 'scale', values: number[]) {
+    if (this.editMode || this.playing || this.transform.dragging || this.modelingBusy || !this.selectedObjects.size) throw new Error('Select objects in Object Mode first.');
+    if (values.length !== 3 || values.some(v => !Number.isFinite(v) || Math.abs(v) > 10000) || (kind === 'scale' && values.some(v => Math.abs(v) < 0.001))) throw new Error('Invalid object transform.');
+    const objects = [...this.selectedObjects];
+    if (objects.some(o => o.parent !== this.content || o instanceof THREE.Bone)) throw new Error('Group transforms require top-level objects.');
+    const center = objects.reduce((sum, o) => sum.add(o.position), new THREE.Vector3()).divideScalar(objects.length);
+    const rotation = new THREE.Quaternion().setFromEuler(new THREE.Euler(...values.map(v => v * Math.PI / 180) as [number, number, number]));
+    // Uniform group scale is representable without introducing shear on rotated objects.
+    if (kind === 'scale' && (values[0] !== values[1] || values[1] !== values[2])) throw new Error('Group scale must be uniform on all three axes.');
+    const prepared = objects.map(o => {
+      const position = o.position.clone(), quaternion = o.quaternion.clone(), scale = o.scale.clone();
+      if (kind === 'translate') position.add(new THREE.Vector3().fromArray(values));
+      if (kind === 'rotate') { position.sub(center).applyQuaternion(rotation).add(center); quaternion.premultiply(rotation); }
+      if (kind === 'scale') { position.sub(center).multiplyScalar(values[0]).add(center); scale.multiplyScalar(values[0]); }
+      if ([...position.toArray(), ...scale.toArray()].some(v => !Number.isFinite(v) || Math.abs(v) > 10000)) throw new Error('Group transform exceeds coordinate limits.');
+      return { o, position, quaternion, scale };
+    });
+    prepared.forEach(({ o, position, quaternion, scale }) => { o.position.copy(position); o.quaternion.copy(quaternion); o.scale.copy(scale); }); this.commit();
   }
   setProportionalEditing(enabled: boolean, radius: number, connected = false) {
     if (!Number.isFinite(radius) || radius <= 0) throw new Error('Proportional radius must be a finite positive number.');
@@ -680,12 +848,16 @@ export class Editor extends EventTarget {
     const root = new THREE.ObjectLoader().parse(project.scene);
     if (!(root instanceof THREE.Group)) { this.disposeObject(root); throw new Error('Project scene must be a group.'); }
     let vertices = 0;
-    root.traverse(o => {
+    try { root.traverse(o => {
       if (o instanceof THREE.Mesh) vertices += o.geometry.getAttribute('position')?.count ?? 0;
+      if (o.userData.modifierStack !== undefined) {
+        if (!(o instanceof THREE.Mesh) || o instanceof THREE.SkinnedMesh) throw new Error('Only ordinary meshes support modifiers.');
+        validateModifierStack(o.userData.modifierStack);
+      }
       if (o.userData.keyframes) {
         if (!Array.isArray(o.userData.keyframes) || o.userData.keyframes.some((k: Keyframe) => !Number.isFinite(k.frame) || ![k.position, k.quaternion, k.scale].every((v, i) => Array.isArray(v) && v.length === (i === 1 ? 4 : 3) && v.every(Number.isFinite)))) throw new Error('Invalid animation keyframes.');
       }
-    });
+    }); } catch (error) { this.disposeObject(root); throw error; }
     if (vertices > 2_000_000) { this.disposeObject(root); throw new Error('Scene exceeds the 2 million vertex limit.'); }
     this.playing = false;
     this.select(null);

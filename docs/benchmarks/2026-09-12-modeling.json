@@ -1,0 +1,108 @@
+{
+  "timestamp": "2026-09-12T09:40:17.909Z",
+  "cpu": "AMD Ryzen 5 3600 6-Core Processor              ",
+  "os": "win32 10.0.26100",
+  "samples": [
+    {
+      "divisions": 100,
+      "vertices": 10201,
+      "triangles": 20000,
+      "repetition": 1,
+      "workerMs": 151.8,
+      "roundTripMs": 252.2,
+      "maxHeartbeatGapMs": 16.8,
+      "beats": 15,
+      "edges": 30200
+    },
+    {
+      "divisions": 100,
+      "vertices": 10201,
+      "triangles": 20000,
+      "repetition": 2,
+      "workerMs": 146.4,
+      "roundTripMs": 249.4,
+      "maxHeartbeatGapMs": 16.9,
+      "beats": 15,
+      "edges": 30200
+    },
+    {
+      "divisions": 100,
+      "vertices": 10201,
+      "triangles": 20000,
+      "repetition": 3,
+      "workerMs": 143.2,
+      "roundTripMs": 240.4,
+      "maxHeartbeatGapMs": 17.3,
+      "beats": 14,
+      "edges": 30200
+    },
+    {
+      "divisions": 200,
+      "vertices": 40401,
+      "triangles": 80000,
+      "repetition": 1,
+      "workerMs": 505.4,
+      "roundTripMs": 700,
+      "maxHeartbeatGapMs": 53.4,
+      "beats": 39,
+      "edges": 120400
+    },
+    {
+      "divisions": 200,
+      "vertices": 40401,
+      "triangles": 80000,
+      "repetition": 2,
+      "workerMs": 488.7,
+      "roundTripMs": 690.2,
+      "maxHeartbeatGapMs": 60.2,
+      "beats": 38,
+      "edges": 120400
+    },
+    {
+      "divisions": 200,
+      "vertices": 40401,
+      "triangles": 80000,
+      "repetition": 3,
+      "workerMs": 539.4,
+      "roundTripMs": 746.5,
+      "maxHeartbeatGapMs": 57.4,
+      "beats": 41,
+      "edges": 120400
+    },
+    {
+      "divisions": 300,
+      "vertices": 90601,
+      "triangles": 180000,
+      "repetition": 1,
+      "workerMs": 1314.5,
+      "roundTripMs": 1714.6,
+      "maxHeartbeatGapMs": 125.1,
+      "beats": 95,
+      "edges": 270600
+    },
+    {
+      "divisions": 300,
+      "vertices": 90601,
+      "triangles": 180000,
+      "repetition": 2,
+      "workerMs": 1302.1,
+      "roundTripMs": 1691,
+      "maxHeartbeatGapMs": 128.5,
+      "beats": 94,
+      "edges": 270600
+    },
+    {
+      "divisions": 300,
+      "vertices": 90601,
+      "triangles": 180000,
+      "repetition": 3,
+      "workerMs": 1304.3,
+      "roundTripMs": 1700.3,
+      "maxHeartbeatGapMs": 123.1,
+      "beats": 94,
+      "edges": 270600
+    }
+  ],
+  "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.8010.12 Safari/537.36",
+  "concurrency": 12
+}

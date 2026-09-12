@@ -67,9 +67,11 @@ test('viewport-selected face extrudes repeatedly through UI with history and pro
   const before=await page.evaluate(()=>(window as any).__forge.snapshot());
   await page.getByLabel('Extrusion distance').fill('0.5');
   await page.locator('#extrude-face').click();
+  await page.waitForFunction(() => !(window as any).__forge.modelingBusy);
   await expect(page.locator('#toast')).toContainText('Triangle extruded');
   expect(await page.evaluate(()=>(window as any).__forge.stats().triangles)).toBe(18);
   await page.locator('#extrude-face').click();
+  await page.waitForFunction(() => !(window as any).__forge.modelingBusy);
   expect(await page.evaluate(()=>(window as any).__forge.stats().triangles)).toBe(24);
   await page.screenshot({ path: 'test-results/extrusion.png' });
   const result=await page.evaluate(()=>{
@@ -85,5 +87,6 @@ test('viewport-selected face extrudes repeatedly through UI with history and pro
   expect(result.redone).toBe(result.after);
   expect(result.restored).toBe(result.after);
   await page.locator('#extrude-face').click();
+  await page.waitForFunction(() => !(window as any).__forge.modelingBusy);
   await expect(page.locator('#toast')).toContainText('Select exactly one triangle');
 });

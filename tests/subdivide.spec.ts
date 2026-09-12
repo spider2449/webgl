@@ -79,6 +79,7 @@ test('viewport selected edge subdivides, selects movable midpoint and restores h
   });
   await page.mouse.click(target.x,target.y);
   await page.locator('#subdivide-edge').click();
+  await page.waitForFunction(() => !(window as any).__forge.modelingBusy);
   await expect(page.locator('#toast')).toContainText('Edges subdivided');
   await expect(page.getByLabel('Mesh component')).toHaveValue('vertex');
   const result=await page.evaluate(()=>{
@@ -99,8 +100,10 @@ test('viewport selected edge subdivides, selects movable midpoint and restores h
 test('subdivision UI rejects object mode and empty edge selection without mutation', async ({page})=>{
   await page.goto('/'); await page.waitForFunction(()=>(window as any).__forge?.selected);
   const before=await page.evaluate(()=>(window as any).__forge.snapshot());
-  await page.locator('#subdivide-edge').click(); await expect(page.locator('#toast')).toContainText('one or more edges');
+  await page.locator('#subdivide-edge').click();
+  await page.waitForFunction(() => !(window as any).__forge.modelingBusy); await expect(page.locator('#toast')).toContainText('one or more edges');
   await page.locator('#mode').selectOption('edit'); await page.getByLabel('Mesh component').selectOption('edge');
-  await page.locator('#subdivide-edge').click(); await expect(page.locator('#toast')).toContainText('one or more edges');
+  await page.locator('#subdivide-edge').click();
+  await page.waitForFunction(() => !(window as any).__forge.modelingBusy); await expect(page.locator('#toast')).toContainText('one or more edges');
   expect(await page.evaluate(()=>(window as any).__forge.snapshot())).toBe(before);
 });

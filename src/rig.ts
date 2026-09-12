@@ -181,6 +181,7 @@ export class RigSystem {
     const mesh = this.editor.selected;
     const rig = this.activeRig;
     if (!(mesh instanceof THREE.Mesh) || mesh instanceof THREE.SkinnedMesh || mesh.parent !== this.editor.content) throw new Error('Select a standalone mesh to bind.');
+    if (mesh.userData.modifierStack || this.editor.modelingBusy) throw new Error('Apply modifiers and finish modeling before skin binding.');
     if (!rig) throw new Error('Create a Kimodo rig first.');
     const bones = rigBones(rig);
     if (bones.some(b => b.quaternion.angleTo(new THREE.Quaternion().fromArray(b.userData.restQuaternion)) > 1e-5 || b.position.distanceTo(new THREE.Vector3().fromArray(b.userData.restPosition)) > 1e-5 || b.scale.distanceTo(new THREE.Vector3(1,1,1)) > 1e-5)) throw new Error('Reset the rig to its rest pose before binding.');
