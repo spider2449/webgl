@@ -39,6 +39,8 @@ Status: complete for the supported modeling core; see [Phase 2 completion](2026-
 
 Add texture painting, sculpting with multiresolution and spatial acceleration, node-based materials, texture management, collections, linked instances and animation curves. Use resource sharing, worker jobs and streaming where useful.
 
+Status: collections, bounded texture painting and local texture management are implemented; see [collections](2026-09-14-collections.md), [texture painting](2026-09-14-texture-painting.md) and [texture management](2026-09-14-texture-management.md). Object-wide Linear, Constant and Smooth animation interpolation is also implemented; see [animation interpolation](2026-09-14-animation-interpolation.md). Single-key selection, move and copy are implemented; see [keyframe timing](2026-09-14-keyframe-timing.md). Sculpting, node-based materials, linked instances and editable per-channel animation curves remain open.
+
 ## Phase 4: Advanced production
 
 Add rigging/skinning, constraints, geometry nodes, physics, compositing and offline rendering through separately designed backends. Native .blend compatibility is not part of Phase 1; GLB/OBJ are interchange formats. Blender feature parity requires ongoing development and explicit acceptance criteria per subsystem.

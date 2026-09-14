@@ -29,6 +29,7 @@ The browser tests use port 5174. Production output is in `dist/`. No backend, ac
 - Orbit with middle mouse or Alt + left drag; pan with right mouse or Shift + middle mouse; zoom with the wheel. F frames the selection; 1/3/7 show front/right/top; 5 switches projection.
 - Edit Mode offers Vertex, Edge and Triangle face selection. Click a component and drag its move gizmo to translate all its vertices together; selected vertices appear orange. Exactly coincident positions move together across normal and UV seams. Edges include triangulation diagonals; faces are individual triangles. Vertex and edge selection can reach through the mesh. Use **Extrude selected triangle** in the Object panel to add an offset cap and three walls along the face normal. Set a positive **Extrusion distance** in local mesh units; the cap stays selected for movement or repeated extrusion. Each operation accepts up to 100k input vertices. Existing UVs/colors and material groups are retained; wall UVs copy the boundary values and need later unwrapping. Unsupported attributes, morph targets and partial draw ranges are rejected. Use **Extrude planar region** for connected coplanar face selections. Inward extrusion and polygon merging are not implemented.
 - Material properties edit the first standard material of a selected mesh. Imported groups expose child meshes in the outliner. Solid and wireframe views are temporary viewport overrides.
+- The Material workspace includes bounded **Texture paint** and texture management tools for UV-mapped meshes. Enable an embedded 256×256 canvas, choose a brush color and size, paint directly on the UV layout, or import PNG/JPEG/WebP pixels and export the active canvas as PNG; clear, undo/redo and Forge project save/load retain the bitmap. Layers, alpha masks and packing are not included.
 - Use the timeline to insert transform keys, move to another frame, change the object, and insert another key. Playback interpolates at a 24 fps timeline timebase across frames 1–250.
 - Ctrl+Z / Ctrl+Shift+Z undo and redo. Shift+D duplicates objects; Delete removes them. Individual bones cannot be deleted or duplicated; duplicate the armature to make an independent character.
 
@@ -119,6 +120,27 @@ round-trip time and main-thread timer gaps. Serialization, result cloning,
 helper-buffer setup and history snapshots still run on the main thread;
 off-thread calculation does not imply stall-free interaction or a universal FPS.
 
+## Animation interpolation
+
+In the Object panel, choose **Linear**, **Constant**, or **Smooth** under
+**Animation > Interpolation**. The mode applies to all transform keyframe
+segments on the selected object, including position, quaternion rotation and
+scale. Constant holds the earlier pose until the next key; Smooth eases time
+with smoothstep. Existing projects use Linear. Undo/redo and Forge projects
+retain the mode.
+
+Use **Keyframe** to jump to an authored transform key. Set **Target frame**
+(1-250), then **Move keyframe** or **Copy keyframe** to change its timing or
+repeat its pose. The destination must be empty. Actions follow the resulting
+key, preserve interpolation and support undo/redo and project saving. Pause
+playback and use Object Mode first. These actions affect one complete transform
+key on the selected object; batch retiming and per-channel editing are deferred.
+
+GLB export preserves Constant as STEP. Smooth exports 32 evenly spaced samples
+per segment and uses linear interpolation between them, so exported motion is
+an approximation. Editable Bezier handles, per-channel curves and per-key
+interpolation remain future work.
+
 ## Kimodo rigging
 
 1. Open **Rigging** and choose **Create SOMA77 armature**.
@@ -160,6 +182,6 @@ The automated WebGL tests use Chromium's software renderer for repeatability. Th
 
 ## Current limits and next stages
 
-The editor does not yet include polygon face editing, curved-surface region extrusion or region inset, bevel, topology modifiers, sculpting, UV editing, texture painting, weight painting, IK pole vectors/joint limits, retargeting, geometry nodes, physics, compositing or offline rendering. Kimodo text-to-motion inference is not connected. The UI exposes only implemented local workflows and labels the basic rigging limitations.
+The editor does not yet include polygon face editing, curved-surface region extrusion or region inset, sculpting, weight painting, linked instances, IK pole vectors/joint limits, retargeting, geometry nodes, physics, compositing or offline rendering. The modeling core includes bevel, loop cuts, UV editing, modifiers and mesh snapping within the supported limits documented above. Kimodo text-to-motion inference is not connected. The UI exposes only implemented local workflows and labels the basic rigging limitations.
 
 The development plan is [docs/plans/2026-09-08-forge-studio.md](docs/plans/2026-09-08-forge-studio.md).

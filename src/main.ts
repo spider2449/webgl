@@ -1,11 +1,12 @@
+import { animationTracks, type AnimationInterpolation } from './animation';
 import './style.css';
 import * as THREE from 'three';
-import { createIcons, Box, ChevronDown, ChevronRight, Plus, MousePointer2, Move, Rotate3d, Scaling, Magnet, Grid2x2, Scan, Eye, EyeOff, Search, SlidersHorizontal, Layers, Diamond, Play, Pause, SkipBack, SkipForward, ChevronFirst, ChevronLast, Undo2, Redo2, Copy, Trash2, X, HelpCircle, Download, Upload, Camera, Check, Circle, Triangle, Hexagon, FolderOpen, Save, FilePlus2, Maximize, Globe, Settings2, Crosshair, Sun, Activity, PanelRightClose } from 'lucide';
+import { createIcons, Box, ChevronDown, ChevronRight, Plus, MousePointer2, Move, Rotate3d, Scaling, Magnet, Grid2x2, Scan, Eye, EyeOff, Search, SlidersHorizontal, Layers, Diamond, Play, Pause, SkipBack, SkipForward, ChevronFirst, ChevronLast, Undo2, Redo2, Copy, Trash2, X, HelpCircle, Download, Upload, Camera, Check, Circle, Triangle, Hexagon, FolderOpen, FolderPlus, LogOut, Save, FilePlus2, Maximize, Globe, Settings2, Crosshair, Sun, Activity, PanelRightClose } from 'lucide';
 import { mountModelingUI } from './modeling-ui';
 import { Editor, type Primitive, type Project, type Keyframe } from './editor';
 import { RigSystem, rigBones, RIG_SOURCE } from './rig';
 
-const icons = { Box, ChevronDown, ChevronRight, Plus, MousePointer2, Move, Rotate3d, Scaling, Magnet, Grid2x2, Scan, Eye, EyeOff, Search, SlidersHorizontal, Layers, Diamond, Play, Pause, SkipBack, SkipForward, ChevronFirst, ChevronLast, Undo2, Redo2, Copy, Trash2, X, HelpCircle, Download, Upload, Camera, Check, Circle, Triangle, Hexagon, FolderOpen, Save, FilePlus2, Maximize, Globe, Settings2, Crosshair, Sun, Activity, PanelRightClose };
+const icons = { Box, ChevronDown, ChevronRight, Plus, MousePointer2, Move, Rotate3d, Scaling, Magnet, Grid2x2, Scan, Eye, EyeOff, Search, SlidersHorizontal, Layers, Diamond, Play, Pause, SkipBack, SkipForward, ChevronFirst, ChevronLast, Undo2, Redo2, Copy, Trash2, X, HelpCircle, Download, Upload, Camera, Check, Circle, Triangle, Hexagon, FolderOpen, FolderPlus, LogOut, Save, FilePlus2, Maximize, Globe, Settings2, Crosshair, Sun, Activity, PanelRightClose };
 const icon = (name: string, cls = '') => `<i data-lucide="${name}" class="${cls}"></i>`;
 const button = (id: string, name: string, label: string, extra = '') => `<button id="${id}" class="icon-button ${extra}" title="${label}" aria-label="${label}">${icon(name)}</button>`;
 const $ = <T extends HTMLElement = HTMLElement>(selector: string) => document.querySelector<T>(selector)!;
@@ -38,9 +39,9 @@ $('#app').innerHTML = `
       <section class="timeline" aria-label="Animation timeline"><div class="timeline-header"><span class="panel-title">${icon('diamond')} Timeline</span><span class="timeline-selection" id="timeline-object">Cube</span><div class="playback">${button('first-frame','chevron-first','First frame')}${button('previous-key','skip-back','Previous keyframe')}${button('play','play','Play / pause (Space)')}${button('next-key','skip-forward','Next keyframe')}${button('last-frame','chevron-last','Last frame')}</div><div class="frame-settings"><input id="current-frame" aria-label="Current frame" type="number" min="1" max="250" value="1"><span>/ 250</span><span class="fps">24 fps</span>${button('insert-key','diamond','Insert transform keyframe (I)')}${button('remove-key','x','Remove current keyframe')}</div></div><div class="timeline-track" id="timeline-track"><div class="timeline-ruler">${[1,25,50,75,100,125,150,175,200,225,250].map(n => `<span style="left:${(n-1)/249*100}%">${n}</span>`).join('')}</div><div id="keyframe-markers"></div><div class="playhead" id="playhead"><span>1</span></div><input type="range" id="scrubber" aria-label="Timeline frame" min="1" max="250" value="1"></div></section>
     </section>
     <aside class="sidebar">
-      <section class="outliner"><div class="panel-heading"><span class="panel-title">${icon('layers')} Scene Collection</span><span class="count" id="object-count">1</span>${button('add-outliner','plus','Add mesh')}</div><div class="search-field">${icon('search')}<input id="object-search" placeholder="Search objects…" aria-label="Search objects"><kbd>/</kbd></div><div class="collection-row">${icon('chevron-down')}${icon('folder-open')}<span>Collection</span></div><div id="object-list" class="object-list"></div><div class="outliner-footer"><span id="selection-count">1 object selected</span>${button('delete-outliner','trash-2','Delete selected object')}</div></section>
+      <section class="outliner"><div class="panel-heading"><span class="panel-title">${icon('layers')} Scene Collection</span><span class="count" id="object-count">1</span>${button('add-outliner','plus','Add mesh')}</div><div class="search-field">${icon('search')}<input id="object-search" placeholder="Search objects…" aria-label="Search objects"><kbd>/</kbd></div><div class="collection-row">${icon('chevron-down')}${icon('folder-open')}<span>Scene Collection</span>${button('add-collection','plus','Create collection')}</div><div id="object-list" class="object-list"></div><div class="outliner-footer"><span id="selection-count">1 object selected</span>${button('delete-outliner','trash-2','Delete selected object')}<input id="collection-name" aria-label="New collection name" value="Collection" maxlength="100"><select id="collection-target" aria-label="Target collection"><option value="">Move selected to…</option></select>${button('move-to-collection','folder-open','Move selected to collection')}${button('unlink-collection','log-out','Unlink from collection')}${button('delete-collection','trash-2','Delete empty collection')}</div></section>
       <section class="properties"><div class="properties-tabs"><button class="active" data-panel="object">${icon('sliders-horizontal')} Object</button><button data-panel="material">${icon('circle')} Material</button><button data-panel="scene">${icon('settings-2')} Scene</button></div><div class="properties-content">
-        <div id="panel-object" class="property-panel"><div class="object-title">${icon('box')}<input id="object-name" aria-label="Object name" maxlength="100" value="Cube"><span class="object-type" id="object-type">MESH</span></div><div id="no-selection" class="empty-state hidden">Select an object to edit its properties.</div><div id="object-fields"><div class="section-heading"><span>${icon('chevron-down')} Transform</span><button id="reset-transform" title="Reset transform" aria-label="Reset transform">${icon('undo-2')}</button></div>${['position','rotation','scale'].map((group) => `<div class="transform-group"><label>${group === 'position' ? 'Location' : group[0].toUpperCase()+group.slice(1)}</label><div class="vector-inputs">${['x','y','z'].map(axis => `<label class="axis-input ${axis}"><span>${axis.toUpperCase()}</span><input type="number" step="${group === 'rotation' ? 1 : 0.1}" data-transform="${group}" data-axis="${axis}" aria-label="${group} ${axis}" value="0"></label>`).join('')}</div></div>`).join('')}<div class="property-note">${icon('globe')} World units · Rotation in degrees</div><div class="section-heading border-top"><span>${icon('chevron-down')} Geometry</span></div><div class="geometry-stats"><div><span>Vertices</span><strong id="mesh-vertices">24</strong></div><div><span>Triangles</span><strong id="mesh-triangles">12</strong></div></div><div class="action-row"><button id="smooth">Shade smooth</button><button id="flat">Shade flat</button></div><label class="property-row">Extrusion distance<input id="extrude-distance" aria-label="Extrusion distance" type="number" min="0.0001" max="1000" step="0.1" value="0.5"></label><button class="wide-button" id="extrude-face">Extrude selected triangle</button><p class="field-help">Select a triangle face in Edit Mode. Extrusion follows its normal in local units.</p><button class="wide-button" id="mirror">${icon('copy')} Mirror geometry on X</button><p class="field-help">Mirror is applied to the mesh. Use Edit Mode to move vertices, edges or triangle faces.</p><div class="section-heading border-top"><span>${icon('chevron-down')} Animation</span></div><button class="wide-button" id="key-property">${icon('diamond')} Insert transform keyframe <kbd>I</kbd></button><p class="field-help">Move to another frame, change the transform, then insert a second keyframe.</p></div></div>
+        <div id="panel-object" class="property-panel"><div class="object-title">${icon('box')}<input id="object-name" aria-label="Object name" maxlength="100" value="Cube"><span class="object-type" id="object-type">MESH</span></div><div id="no-selection" class="empty-state hidden">Select an object to edit its properties.</div><div id="object-fields"><div class="section-heading"><span>${icon('chevron-down')} Transform</span><button id="reset-transform" title="Reset transform" aria-label="Reset transform">${icon('undo-2')}</button></div>${['position','rotation','scale'].map((group) => `<div class="transform-group"><label>${group === 'position' ? 'Location' : group[0].toUpperCase()+group.slice(1)}</label><div class="vector-inputs">${['x','y','z'].map(axis => `<label class="axis-input ${axis}"><span>${axis.toUpperCase()}</span><input type="number" step="${group === 'rotation' ? 1 : 0.1}" data-transform="${group}" data-axis="${axis}" aria-label="${group} ${axis}" value="0"></label>`).join('')}</div></div>`).join('')}<div class="property-note">${icon('globe')} World units · Rotation in degrees</div><div class="section-heading border-top"><span>${icon('chevron-down')} Geometry</span></div><div class="geometry-stats"><div><span>Vertices</span><strong id="mesh-vertices">24</strong></div><div><span>Triangles</span><strong id="mesh-triangles">12</strong></div></div><div class="action-row"><button id="smooth">Shade smooth</button><button id="flat">Shade flat</button></div><label class="property-row">Extrusion distance<input id="extrude-distance" aria-label="Extrusion distance" type="number" min="0.0001" max="1000" step="0.1" value="0.5"></label><button class="wide-button" id="extrude-face">Extrude selected triangle</button><p class="field-help">Select a triangle face in Edit Mode. Extrusion follows its normal in local units.</p><button class="wide-button" id="mirror">${icon('copy')} Mirror geometry on X</button><p class="field-help">Mirror is applied to the mesh. Use Edit Mode to move vertices, edges or triangle faces.</p><div class="section-heading border-top"><span>${icon('chevron-down')} Animation</span></div><label class="property-row">Interpolation<select id="animation-interpolation" aria-label="Animation interpolation"><option value="linear">Linear</option><option value="constant">Constant</option><option value="smooth">Smooth</option></select></label><button class="wide-button" id="key-property">${icon('diamond')} Insert transform keyframe <kbd>I</kbd></button><p class="field-help">Move to another frame, change the transform, then insert a second keyframe.</p><label class="property-row">Keyframe<select id="animation-key" aria-label="Select keyframe"><option value="">Choose a keyframe</option></select></label><label class="property-row">Target frame<input id="key-target-frame" aria-label="Keyframe target frame" type="number" min="1" max="250" step="1" value="25"></label><div class="action-row"><button id="move-key">Move keyframe</button><button id="copy-key">Copy keyframe</button></div><p class="field-help">Select a key, then move or copy its pose to an empty frame.</p></div></div>
         <div id="panel-material" class="property-panel hidden"><div class="section-heading"><span>${icon('circle')} Surface material</span></div><div id="material-fields"><div class="material-swatch" id="material-preview"><span></span><small>STANDARD SURFACE</small></div><label class="property-row">Base color<input type="color" id="material-color" value="#b8b6b2"></label><label class="range-property">Roughness<output id="roughness-value">0.42</output><input type="range" id="roughness" min="0" max="1" step="0.01" value="0.42"></label><label class="range-property">Metallic<output id="metalness-value">0.12</output><input type="range" id="metalness" min="0" max="1" step="0.01" value="0.12"></label><p class="field-help">Edits the first standard material of the selected mesh. Lighting is provided by the studio environment.</p></div><div id="no-material" class="empty-state hidden">Select a mesh with a standard material.</div></div>
         <div id="panel-scene" class="property-panel hidden"><div class="section-heading"><span>${icon('settings-2')} Viewport settings</span></div><label class="property-row">Quality<select id="quality"><option value="low">Performance</option><option value="balanced" selected>Balanced</option><option value="high">High quality</option></select></label><label class="property-row">Background<input type="color" id="background" value="#25282e"></label><label class="range-property">Exposure<output id="exposure-value">1.30</output><input id="exposure" type="range" min="0.2" max="3" step="0.05" value="1.3"></label><div class="performance-card">${icon('activity')}<strong>Performance by design</strong><p>The viewport redraws only when something changes. Pixel density is capped to keep interaction responsive.</p></div><p class="field-help">Viewport settings are session-only. Projects store objects, materials and transform keyframes.</p><button class="wide-button" id="restore-local">${icon('folder-open')} Recover last local scene</button></div>
       </div></section><div class="sidebar-bottom">FORGE <span>EARLY ACCESS · 0.1</span></div>
@@ -77,7 +78,8 @@ $('.properties-content').insertAdjacentHTML('beforeend', `
     </div>
   </div>`);
 $('#add-menu').insertAdjacentHTML('beforeend', `<hr><button id="add-rig-menu">${icon('activity')}Kimodo SOMA77 rig</button>`);
-$('.dialog-note').textContent = 'This release supports vertex, edge and triangle face editing, Kimodo SOMA77 FK/IK posing and basic skinning. Polygon modeling, sculpting, physics and native .blend files are planned.';
+$('.dialog-note').textContent = 'This release supports vertex, edge and triangle face editing, modeling-core tools, scene collections, Kimodo SOMA77 FK/IK posing and basic skinning. Polygon modeling, sculpting, physics and native .blend files are planned.';
+$('#material-fields').insertAdjacentHTML('beforeend', `<details class="painting-section" open><summary>Texture paint</summary><canvas id="paint-view" width="256" height="256" aria-label="Texture paint canvas"></canvas><p class="field-help">Paints an embedded 256×256 texture in the mesh UV layout. Mesh geometry and UV coordinates stay unchanged.</p><button class="wide-button" id="paint-enable">Enable texture painting</button><button class="wide-button" id="texture-import">Import PNG / JPEG / WebP</button><button class="wide-button" id="texture-export">Export texture PNG</button><input id="texture-input" type="file" accept="image/png,image/jpeg,image/webp" hidden><label class="property-row">Brush color<input id="paint-color" aria-label="Brush color" type="color" value="#e08050"></label><label class="property-row">Brush size<input id="paint-size" aria-label="Brush size" type="number" min="1" max="128" step="1" value="16"></label><button class="wide-button" id="paint-clear">Clear texture</button></details>`);
 refreshIcons();
 
 let editor: Editor;
@@ -89,6 +91,40 @@ catch (error) {
 let toastTimer: ReturnType<typeof setTimeout>;
 function toast(message: string) { $('#toast').textContent = message; $('#toast').classList.remove('hidden'); clearTimeout(toastTimer); toastTimer = setTimeout(() => $('#toast').classList.add('hidden'), 4200); }
 function on(id: string, handler: () => void) { $(`#${id}`).addEventListener('click', handler); }
+const paintView = $<HTMLCanvasElement>('#paint-view');
+let painting = false;
+function drawTexturePaint() {
+  const context = paintView.getContext('2d')!;
+  context.clearRect(0, 0, paintView.width, paintView.height);
+  const source = editor.texturePaintCanvas ?? editor.texturePaintImage;
+  if (source) { try { context.drawImage(source, 0, 0, paintView.width, paintView.height); } catch { /* Keep the placeholder while an image is loading. */ } }
+  else { context.fillStyle = '#202329'; context.fillRect(0, 0, paintView.width, paintView.height); context.fillStyle = '#6d7480'; context.font = '12px sans-serif'; context.textAlign = 'center'; context.fillText('Enable texture painting', paintView.width / 2, paintView.height / 2); }
+}
+function paintPoint(event: PointerEvent) {
+  const rect = paintView.getBoundingClientRect();
+  editor.paintTextureAt((event.clientX - rect.left) / rect.width, (event.clientY - rect.top) / rect.height, $<HTMLInputElement>('#paint-color').value, Number($<HTMLInputElement>('#paint-size').value));
+  drawTexturePaint();
+}
+paintView.addEventListener('pointerdown', event => { if (event.button !== 0 || !editor.texturePaintCanvas) return; painting = true; paintView.setPointerCapture(event.pointerId); paintPoint(event); });
+paintView.addEventListener('pointermove', event => { if (painting) paintPoint(event); });
+const finishPaint = (event: PointerEvent) => { if (!painting) return; painting = false; if (paintView.hasPointerCapture(event.pointerId)) paintView.releasePointerCapture(event.pointerId); editor.finishTexturePaint(); };
+paintView.addEventListener('pointerup', finishPaint); paintView.addEventListener('pointercancel', finishPaint);
+on('paint-enable', () => { try { editor.ensureTexturePaint(); drawTexturePaint(); toast('Embedded texture painting enabled.'); } catch (error) { toast((error as Error).message); } });
+on('paint-clear', () => { try { editor.clearTexturePaint(); drawTexturePaint(); toast('Texture cleared to its base color.'); } catch (error) { toast((error as Error).message); } });
+on('texture-import', () => $<HTMLInputElement>('#texture-input').click());
+$<HTMLInputElement>('#texture-input').onchange = async event => {
+  const input = event.target as HTMLInputElement, file = input.files?.[0];
+  if (!file) return;
+  try { await editor.importTexture(file); drawTexturePaint(); toast('Texture imported into the embedded canvas.'); }
+  catch (error) { toast((error as Error).message); }
+  finally { input.value = ''; }
+};
+on('texture-export', () => {
+  try {
+    const canvas = editor.ensureTexturePaint();
+    canvas.toBlob(blob => { if (blob) { download(blob, `${editor.name}-texture.png`, 'image/png'); toast('Texture PNG downloaded.'); } else toast('Texture export failed.'); }, 'image/png');
+  } catch (error) { toast((error as Error).message); }
+});
 const rigSystem = new RigSystem(editor);
 function rigAction(action: () => void) { try { action(); } catch (error) { toast((error as Error).message); } }
 function refreshRig() {
@@ -166,7 +202,7 @@ function updateUI() {
   $('#selection-label').textContent = object ? `Scene Collection / ${object.name}` : 'Scene Collection';
   $('#timeline-object').textContent = object?.name ?? 'No selection';
   $('#selection-count').textContent = editor.selectedObjects.size ? `${editor.selectedObjects.size} object${editor.selectedObjects.size === 1 ? '' : 's'} selected` : 'No selection';
-  $('#object-count').textContent = String(editor.content.children.length);
+  $('#object-count').textContent = String(editor.stats().objects);
   $('#no-selection').classList.toggle('hidden', !!object);
   $('#object-fields').classList.toggle('hidden', !object);
   $<HTMLInputElement>('#object-name').value = object?.name ?? 'No selection';
@@ -189,16 +225,42 @@ function updateUI() {
   $<HTMLButtonElement>('#menu-redo').disabled = !editor.canRedo;
   renderOutliner();
   updateTimeline();
+  drawTexturePaint();
 }
+let activeCollection: THREE.Group | null = null;
 function renderOutliner() {
   const list = $('#object-list');
   list.replaceChildren();
   const filter = $<HTMLInputElement>('#object-search').value.toLowerCase();
   const entries: { object: THREE.Object3D; depth: number }[] = [];
-  const collect = (object: THREE.Object3D, depth: number) => { if (object instanceof THREE.Bone) return; entries.push({object,depth}); object.children.forEach(child => { if (!(child instanceof THREE.Points)) collect(child,depth+1); }); };
-  editor.content.children.forEach(object => collect(object,0));
+  const collect = (object: THREE.Object3D, depth: number) => { if (object instanceof THREE.Bone || object instanceof THREE.Points) return; entries.push({object,depth}); object.children.forEach(child => collect(child,depth+1)); };
+  editor.content.children.forEach(object => {
+    if (object instanceof THREE.Group && object.userData.forgeCollection === true) {
+      entries.push({ object, depth: 0 });
+      object.children.forEach(child => collect(child, 1));
+    } else collect(object, 0);
+  });
+  if (!activeCollection || !editor.collections.includes(activeCollection)) activeCollection = editor.collections[0] ?? null;
+  const target = $<HTMLSelectElement>('#collection-target');
+  target.replaceChildren(new Option('Move selected to…', ''), ...editor.collections.map(collection => new Option(collection.name, collection.uuid)));
+  if (activeCollection) target.value = activeCollection.uuid;
   for (const {object,depth} of entries) {
     if (!object.name.toLowerCase().includes(filter)) continue;
+    if (object instanceof THREE.Group && object.userData.forgeCollection === true) {
+      const row = document.createElement('div');
+      row.className = `collection-entry ${activeCollection === object ? 'active' : ''}`;
+      row.dataset.uuid = object.uuid;
+      row.style.paddingLeft = `${25 + Math.min(depth,4)*12}px`;
+      const select = document.createElement('button');
+      select.className = 'object-select';
+      select.innerHTML = icon('folder-open');
+      const label = document.createElement('span'); label.textContent = object.name; select.append(label);
+      select.title = 'Choose collection as move target';
+      select.onclick = () => { activeCollection = object; renderOutliner(); };
+      row.append(select);
+      list.append(row);
+      continue;
+    }
     const row = document.createElement('div');
     row.className = `object-row ${editor.selectedObjects.has(object) ? 'selected' : ''} ${object.visible ? '' : 'dimmed'}`;
     row.dataset.uuid = object.uuid;
@@ -225,10 +287,23 @@ function renderOutliner() {
 let timelineState = '';
 let markerState = '';
 let wasPlaying = false;
+let keyOptionsState = '';
 function updateTimeline() {
+  const interpolation = $<HTMLSelectElement>('#animation-interpolation');
+  interpolation.value = editor.selected?.userData.animationInterpolation ?? 'linear';
+  interpolation.disabled = !editor.selected || editor.editMode;
   const frame = Math.round(editor.frame);
   const keys: Keyframe[] = editor.selected?.userData.keyframes ?? [];
   const markers = keys.map(k => k.frame).join(',');
+  const keySelect = $<HTMLSelectElement>('#animation-key');
+  if (keyOptionsState !== markers) {
+    keySelect.replaceChildren(new Option('Choose a keyframe', ''), ...keys.map(key => new Option('Frame ' + key.frame, String(key.frame))));
+    keyOptionsState = markers;
+  }
+  const hasKey = keys.some(key => key.frame === editor.frame);
+  keySelect.value = hasKey ? String(editor.frame) : '';
+  keySelect.disabled = !keys.length || editor.editMode || editor.playing;
+  for (const id of ['move-key', 'copy-key']) $<HTMLButtonElement>('#' + id).disabled = !hasKey || editor.editMode || editor.playing;
   const state = `${frame}|${editor.playing}|${markers}`;
   if (timelineState === state) return;
   timelineState = state;
@@ -244,6 +319,7 @@ editor.addEventListener('change', updateUI);
 editor.addEventListener('transform', updateTransforms);
 editor.addEventListener('history-limit', () => toast('Scene exceeds the 24 MiB undo budget. History disabled; save a project file.'));
 editor.addEventListener('frame', updateTimeline);
+editor.addEventListener('mode', updateTimeline);
 editor.addEventListener('mode', () => { $('#component-mode').classList.toggle('hidden', !editor.editMode); $<HTMLSelectElement>('#mode').value = editor.editMode ? 'edit' : 'object'; $('#mode-hint').textContent = editor.editMode ? `Select a ${editor.componentMode === 'face' ? 'triangle face' : editor.componentMode}, Shift-click to toggle more; drag the move gizmo.` : 'Build something extraordinary.'; });
 editor.addEventListener('view', () => { $('#view-label').textContent = editor.camera instanceof THREE.OrthographicCamera ? 'User Orthographic' : 'User Perspective'; });
 let cachedStats = '';
@@ -351,6 +427,39 @@ mountModelingUI(editor, toast);
 on('mirror', () => toast(editor.mirror() ? 'Mirrored mesh geometry on the local X axis.' : 'Select a mesh to mirror.'));
 on('add-outliner', () => { $('#add-menu').classList.toggle('hidden'); });
 $('#add-outliner').addEventListener('click', e => e.stopPropagation());
+on('add-collection', () => {
+  try {
+    activeCollection = editor.createCollection($<HTMLInputElement>('#collection-name').value);
+    toast(`Collection “${activeCollection.name}” created.`);
+  } catch (error) { toast((error as Error).message); }
+});
+$<HTMLSelectElement>('#collection-target').onchange = event => {
+  const uuid = (event.target as HTMLSelectElement).value;
+  activeCollection = editor.collections.find(collection => collection.uuid === uuid) ?? null;
+  renderOutliner();
+};
+on('move-to-collection', () => {
+  try {
+    const uuid = $<HTMLSelectElement>('#collection-target').value;
+    const collection = editor.collections.find(candidate => candidate.uuid === uuid);
+    if (!collection) throw new Error('Choose a collection first.');
+    editor.moveSelectedToCollection(collection);
+    toast(`Selected objects moved to ${collection.name}.`);
+  } catch (error) { toast((error as Error).message); }
+});
+on('unlink-collection', () => {
+  try { editor.unlinkSelectedFromCollection(); toast('Selected objects unlinked from their collection.'); }
+  catch (error) { toast((error as Error).message); }
+});
+on('delete-collection', () => {
+  try {
+    if (!activeCollection) throw new Error('Choose a collection first.');
+    const name = activeCollection.name;
+    editor.deleteCollection(activeCollection);
+    activeCollection = editor.collections[0] ?? null;
+    toast(`Empty collection ${name} deleted.`);
+  } catch (error) { toast((error as Error).message); }
+});
 on('toggle-sidebar', () => document.body.classList.toggle('sidebar-collapsed'));
 $<HTMLInputElement>('#material-color').oninput = e => { if (editor.material) { editor.material.color.set((e.target as HTMLInputElement).value); $('#material-preview').style.setProperty('--material-color', (e.target as HTMLInputElement).value); editor.invalidate(); } };
 $<HTMLInputElement>('#material-color').onchange = () => editor.commit();
@@ -364,7 +473,20 @@ $<HTMLInputElement>('#exposure').oninput = e => { editor.renderer.toneMappingExp
 on('play', () => editor.togglePlayback());
 on('first-frame', () => editor.scrub(1)); on('last-frame', () => editor.scrub(250));
 for (const [id, direction] of [['previous-key',-1],['next-key',1]] as const) on(id, () => { const keys: Keyframe[] = editor.selected?.userData.keyframes ?? []; const next = direction === 1 ? keys.find(k => k.frame > editor.frame) : [...keys].reverse().find(k => k.frame < editor.frame); if (next) editor.scrub(next.frame); });
+$('#animation-interpolation').addEventListener('change', event => {
+  editor.setAnimationInterpolation((event.target as HTMLSelectElement).value as AnimationInterpolation);
+});
 function insertKey() { toast(editor.insertKey() ? `Transform keyframe inserted at frame ${Math.round(editor.frame)}.` : 'Select an object in Object Mode first.'); }
+$('#animation-key').addEventListener('change', event => {
+  const value = (event.target as HTMLSelectElement).value;
+  if (value) editor.scrub(Number(value));
+});
+for (const [id, copy] of [['move-key', false], ['copy-key', true]] as const) on(id, () => {
+  try {
+    editor.retimeKey(Number($<HTMLInputElement>('#key-target-frame').value), copy);
+    toast(copy ? 'Keyframe copied.' : 'Keyframe moved.');
+  } catch (error) { toast((error as Error).message); }
+});
 on('insert-key', insertKey); on('key-property', insertKey); on('remove-key', () => editor.removeKey());
 $<HTMLInputElement>('#scrubber').oninput = e => { if (editor.playing) editor.togglePlayback(); editor.scrub(Number((e.target as HTMLInputElement).value)); };
 $<HTMLInputElement>('#current-frame').onchange = e => { const frame = Number((e.target as HTMLInputElement).value); if (Number.isFinite(frame)) editor.scrub(frame); };
@@ -422,8 +544,7 @@ async function exportGLB() {
     editor.content.traverse(o => {
       const keys: Keyframe[] = o.userData.keyframes ?? [];
       if (!keys.length) return;
-      const times = keys.map(k => (k.frame - 1) / 24);
-      clips.push(new THREE.AnimationClip(`${o.name}Action`, -1, [new THREE.VectorKeyframeTrack(`${o.uuid}.position`, times, keys.flatMap(k => k.position)), new THREE.QuaternionKeyframeTrack(`${o.uuid}.quaternion`, times, keys.flatMap(k => k.quaternion)), new THREE.VectorKeyframeTrack(`${o.uuid}.scale`, times, keys.flatMap(k => k.scale))]));
+      clips.push(new THREE.AnimationClip(`${o.name}Action`, -1, animationTracks(o)));
     });
     const result = await new GLTFExporter().parseAsync(editor.content, { binary: true, animations: clips });
     download(result as ArrayBuffer, `${editor.name}.glb`, 'model/gltf-binary'); toast('GLB exported with transform animations.');

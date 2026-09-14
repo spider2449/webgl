@@ -13,3 +13,16 @@
 .modifier-row { display: flex; flex-wrap: wrap; gap: 4px; padding: 8px 0; }
 .modifier-row span { width: 100%; }
 .modifier-row button { padding: 4px 7px; border: 1px solid #454953; border-radius: 4px; }
+.collection-row { padding-right: 8px; }
+.collection-row > .icon-button { margin-left: auto; width: 22px; height: 22px; }
+.collection-entry { display: flex; align-items: center; height: 28px; padding-right: 13px; border-left: 2px solid transparent; }
+.collection-entry.active { background: #b2936221; border-left-color: #c2a273; }
+.collection-entry .object-select { color: #b2b7c0; }
+.collection-entry.active .object-select { color: #e4c69f; }
+.outliner-footer { flex-wrap: wrap; gap: 4px; }
+.outliner-footer > span { flex: 1 1 100%; }
+.outliner-footer > input, .outliner-footer > select { height: 23px; min-width: 0; flex: 1 1 90px; font-size: 9px; padding: 3px 5px; }
+.outliner-footer > .icon-button { width: 22px; height: 22px; }
+.painting-section { margin: 14px 0; border-top: 1px solid #3a3d43; padding-top: 10px; }
+.painting-section summary { cursor: pointer; color: #dfbb87; margin-bottom: 10px; }
+#paint-view { display: block; width: 100%; height: auto; aspect-ratio: 1; image-rendering: auto; border: 1px solid #444; background: #202329; cursor: crosshair; }

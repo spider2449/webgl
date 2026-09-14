@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { sampleAnimation, validInterpolation, type AnimationInterpolation } from './animation';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { TransformControls } from 'three/addons/controls/TransformControls.js';
 import { clone as cloneSkeleton } from 'three/addons/utils/SkeletonUtils.js';
@@ -160,7 +161,7 @@ export class Editor extends EventTarget {
       if (special) { this.select(special); this.setTool('rotate'); return; }
       const hit = this.raycaster.intersectObjects(this.content.children, true).find(h => this.isVisible(h.object));
       let object = hit?.object ?? null;
-      while (object && object.parent !== this.content) object = object.parent;
+      while (object && object.parent && object.parent !== this.content && !this.isCollection(object.parent)) object = object.parent;
       this.select(object, e.shiftKey);
     });
     this.renderer.domElement.addEventListener('pointerup', restoreTransform);
@@ -242,8 +243,56 @@ export class Editor extends EventTarget {
     if (commit) this.commit();
     return mesh;
   }
+  get collections(): THREE.Group[] {
+    return this.content.children.filter((object): object is THREE.Group => object instanceof THREE.Group && object.userData.forgeCollection === true);
+  }
+  private isCollection(object: THREE.Object3D | null): object is THREE.Group {
+    return object instanceof THREE.Group && object.userData.forgeCollection === true && object.parent === this.content;
+  }
+  private isSceneMember(object: THREE.Object3D): boolean {
+    return object.parent === this.content || this.isCollection(object.parent);
+  }
+  uniqueCollectionName(base = 'Collection') {
+    const names = new Set(this.collections.map(collection => collection.name));
+    if (!names.has(base)) return base;
+    let i = 1;
+    while (names.has(`${base}.${String(i).padStart(3, '0')}`)) i++;
+    return `${base}.${String(i).padStart(3, '0')}`;
+  }
+  createCollection(name = 'Collection') {
+    const trimmed = name.trim().slice(0, 100);
+    if (!trimmed) throw new Error('Collection name cannot be empty.');
+    const collection = new THREE.Group();
+    collection.name = this.uniqueCollectionName(trimmed);
+    collection.userData.forgeCollection = true;
+    this.content.add(collection);
+    this.commit();
+    return collection;
+  }
+  moveSelectedToCollection(collection: THREE.Object3D) {
+    if (this.editMode || this.playing || this.modelingBusy || !this.selectedObjects.size) throw new Error('Select objects in Object Mode first.');
+    if (!this.isCollection(collection)) throw new Error('Choose a scene collection.');
+    const objects = [...this.selectedObjects];
+    if (objects.some(object => !this.isSceneMember(object) || object instanceof THREE.Bone || this.isCollection(object))) throw new Error('Only scene objects can be moved into a collection.');
+    objects.forEach(object => collection.add(object));
+    this.commit();
+  }
+  unlinkSelectedFromCollection() {
+    if (this.editMode || this.playing || this.modelingBusy || !this.selectedObjects.size) throw new Error('Select objects in Object Mode first.');
+    const objects = [...this.selectedObjects];
+    if (objects.some(object => !this.isCollection(object.parent))) throw new Error('Select objects inside a collection first.');
+    objects.forEach(object => this.content.add(object));
+    this.commit();
+  }
+  deleteCollection(collection: THREE.Object3D) {
+    if (!this.isCollection(collection)) throw new Error('Choose a scene collection.');
+    if (collection.children.length) throw new Error('Only empty collections can be deleted.');
+    collection.removeFromParent();
+    this.commit();
+  }
   uniqueName(base: string) {
-    const names = new Set(this.content.children.map(o => o.name));
+    const names = new Set<string>();
+    this.content.traverse(object => names.add(object.name));
     if (!names.has(base)) return base;
     let i = 1;
     while (names.has(`${base}.${String(i).padStart(3, '0')}`)) i++;
@@ -295,7 +344,8 @@ export class Editor extends EventTarget {
     });
     copy.name = this.uniqueName(this.selected.name);
     copy.position.x += 2.5;
-    this.content.add(copy);
+    const parent = this.isCollection(this.selected.parent) ? this.selected.parent : this.content;
+    parent.add(copy);
     this.select(copy);
     this.commit();
   }
@@ -368,6 +418,107 @@ export class Editor extends EventTarget {
     const m = Array.isArray(this.selected.material) ? this.selected.material[0] : this.selected.material;
     return m instanceof THREE.MeshStandardMaterial ? m : null;
   }
+  private paintMaterial(): THREE.MeshStandardMaterial {
+    if (!(this.selected instanceof THREE.Mesh) || !this.selected.geometry.getAttribute('uv')) throw new Error('Select a mesh with UV coordinates first.');
+    const materials = Array.isArray(this.selected.material) ? this.selected.material : [this.selected.material];
+    const current = materials[0];
+    if (!(current instanceof THREE.MeshStandardMaterial)) throw new Error('Select a mesh with a standard material first.');
+    let users = 0;
+    this.content.traverse(object => {
+      if (object instanceof THREE.Mesh && (Array.isArray(object.material) ? object.material : [object.material]).includes(current)) users++;
+    });
+    if (users > 1) {
+      const copy = current.clone();
+      if (Array.isArray(this.selected.material)) this.selected.material[0] = copy;
+      else this.selected.material = copy;
+      return copy;
+    }
+    return current;
+  }
+  get texturePaintCanvas(): HTMLCanvasElement | null {
+    const material = this.material;
+    return material?.map?.image instanceof HTMLCanvasElement ? material.map.image : null;
+  }
+  get texturePaintImage(): HTMLImageElement | null {
+    const image = this.material?.map?.image;
+    return image instanceof HTMLImageElement ? image : null;
+  }
+  private installTextureCanvas(material: THREE.MeshStandardMaterial, canvas: HTMLCanvasElement, baseColor: string) {
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.colorSpace = THREE.SRGBColorSpace;
+    material.map = texture;
+    material.color.set(0xffffff);
+    material.userData.forgePaintBaseColor = baseColor;
+    material.needsUpdate = true;
+  }
+  ensureTexturePaint() {
+    const material = this.paintMaterial();
+    if (material.map?.image instanceof HTMLCanvasElement && material.map.image.width === 256 && material.map.image.height === 256) return material.map.image;
+    const canvas = document.createElement('canvas');
+    canvas.width = canvas.height = 256;
+    const context = canvas.getContext('2d');
+    if (!context) throw new Error('Texture painting is unavailable in this browser.');
+    const baseColor = typeof material.userData.forgePaintBaseColor === 'string' ? material.userData.forgePaintBaseColor : `#${material.color.getHexString()}`;
+    context.fillStyle = baseColor; context.fillRect(0, 0, canvas.width, canvas.height);
+    const source = material.map?.image;
+    if (source && !(source instanceof HTMLCanvasElement)) {
+      try { context.drawImage(source as CanvasImageSource, 0, 0, canvas.width, canvas.height); } catch { /* Keep the base-color canvas when an image is not ready. */ }
+    }
+    this.installTextureCanvas(material, canvas, baseColor);
+    this.commit();
+    return canvas;
+  }
+  async importTexture(file: File) {
+    if (file.size > 8 * 1024 * 1024) throw new Error('Texture exceeds the 8 MB limit.');
+    if (!['image/png', 'image/jpeg', 'image/webp'].includes(file.type)) throw new Error('Use a PNG, JPEG or WebP texture.');
+    const dataURL = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onerror = () => reject(new Error('Texture could not be read.'));
+      reader.onload = () => typeof reader.result === 'string' ? resolve(reader.result) : reject(new Error('Texture could not be read.'));
+      reader.readAsDataURL(file);
+    });
+    const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const element = new Image();
+      element.onerror = () => reject(new Error('Texture could not be decoded.'));
+      element.onload = () => resolve(element);
+      element.src = dataURL;
+    });
+    const material = this.paintMaterial();
+    const canvas = document.createElement('canvas'); canvas.width = canvas.height = 256;
+    const context = canvas.getContext('2d');
+    if (!context) throw new Error('Texture management is unavailable in this browser.');
+    context.drawImage(image, 0, 0, canvas.width, canvas.height);
+    const baseColor = typeof material.userData.forgePaintBaseColor === 'string' ? material.userData.forgePaintBaseColor : `#${material.color.getHexString()}`;
+    this.installTextureCanvas(material, canvas, baseColor);
+    material.userData.forgePaintSourceName = file.name.slice(0, 100);
+    this.commit();
+  }
+  paintTextureAt(x: number, y: number, color: string, radius: number) {
+    if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(radius) || radius <= 0 || radius > 128 || !/^#[\da-f]{6}$/i.test(color)) throw new Error('Enter a valid paint color and brush size.');
+    const material = this.paintMaterial();
+    const canvas = this.ensureTexturePaint();
+    const context = canvas.getContext('2d');
+    if (!context) throw new Error('Texture painting is unavailable in this browser.');
+    context.fillStyle = color;
+    context.beginPath();
+    context.arc(THREE.MathUtils.clamp(x, 0, 1) * canvas.width, THREE.MathUtils.clamp(y, 0, 1) * canvas.height, radius, 0, Math.PI * 2);
+    context.fill();
+    if (material.map) material.map.needsUpdate = true;
+    material.needsUpdate = true;
+    this.invalidate();
+  }
+  clearTexturePaint() {
+    const material = this.paintMaterial();
+    const canvas = this.ensureTexturePaint();
+    const context = canvas.getContext('2d');
+    if (!context) throw new Error('Texture painting is unavailable in this browser.');
+    context.fillStyle = typeof material.userData.forgePaintBaseColor === 'string' ? material.userData.forgePaintBaseColor : '#ffffff';
+    context.fillRect(0, 0, canvas.width, canvas.height);
+    if (material.map) material.map.needsUpdate = true;
+    material.needsUpdate = true;
+    this.commit();
+  }
+  finishTexturePaint() { this.commit(); }
   smooth(flat: boolean) {
     if (!this.selected) return;
     this.selected.traverse(o => {
@@ -736,7 +887,7 @@ export class Editor extends EventTarget {
     if (this.editMode || this.playing || this.transform.dragging || this.modelingBusy || !this.selectedObjects.size) throw new Error('Select objects in Object Mode first.');
     if (values.length !== 3 || values.some(v => !Number.isFinite(v) || Math.abs(v) > 10000) || (kind === 'scale' && values.some(v => Math.abs(v) < 0.001))) throw new Error('Invalid object transform.');
     const objects = [...this.selectedObjects];
-    if (objects.some(o => o.parent !== this.content || o instanceof THREE.Bone)) throw new Error('Group transforms require top-level objects.');
+    if (objects.some(o => !this.isSceneMember(o) || o instanceof THREE.Bone || this.isCollection(o))) throw new Error('Group transforms require scene objects.');
     const center = objects.reduce((sum, o) => sum.add(o.position), new THREE.Vector3()).divideScalar(objects.length);
     const rotation = new THREE.Quaternion().setFromEuler(new THREE.Euler(...values.map(v => v * Math.PI / 180) as [number, number, number]));
     // Uniform group scale is representable without introducing shear on rotated objects.
@@ -854,6 +1005,7 @@ export class Editor extends EventTarget {
         if (!(o instanceof THREE.Mesh) || o instanceof THREE.SkinnedMesh) throw new Error('Only ordinary meshes support modifiers.');
         validateModifierStack(o.userData.modifierStack);
       }
+      if (o.userData.animationInterpolation !== undefined && !validInterpolation(o.userData.animationInterpolation)) throw new Error('Invalid animation interpolation.');
       if (o.userData.keyframes) {
         if (!Array.isArray(o.userData.keyframes) || o.userData.keyframes.some((k: Keyframe) => !Number.isFinite(k.frame) || ![k.position, k.quaternion, k.scale].every((v, i) => Array.isArray(v) && v.length === (i === 1 ? 4 : 3) && v.every(Number.isFinite)))) throw new Error('Invalid animation keyframes.');
       }
@@ -869,6 +1021,15 @@ export class Editor extends EventTarget {
     if (commit) this.commit();
   }
   newProject() { this.playing = false; this.select(null); this.disposeObject(this.content); this.content.clear(); this.name = 'Untitled scene'; this.frame = 1; this.seed(); }
+  setAnimationInterpolation(mode: AnimationInterpolation) {
+    if (!validInterpolation(mode)) throw new Error('Invalid animation interpolation.');
+    if (!this.selected || this.editMode) return false;
+    if ((this.selected.userData.animationInterpolation ?? 'linear') === mode) return true;
+    this.selected.userData.animationInterpolation = mode;
+    this.evaluateAnimation();
+    this.commit();
+    return true;
+  }
   insertKey() {
     if (!this.selected || this.editMode) return false;
     const keys: Keyframe[] = this.selected.userData.keyframes ?? [];
@@ -878,6 +1039,20 @@ export class Editor extends EventTarget {
     this.selected.userData.keyframes = next.sort((a, b) => a.frame - b.frame);
     this.commit();
     return true;
+  }
+  retimeKey(targetFrame: number, copy = false) {
+    if (!Number.isInteger(targetFrame) || targetFrame < 1 || targetFrame > 250) throw new Error('Choose an integer frame from 1 to 250.');
+    if (!this.selected || this.editMode || this.playing) throw new Error('Select an object in Object Mode and pause playback first.');
+    const keys: Keyframe[] = this.selected.userData.keyframes ?? [];
+    const source = keys.find(key => key.frame === this.frame);
+    if (!source) throw new Error('Move to an existing keyframe first.');
+    if (!copy && targetFrame === source.frame) return;
+    if (keys.some(key => key.frame === targetFrame)) throw new Error('The target frame already has a keyframe.');
+    const next = copy ? [...keys] : keys.filter(key => key !== source);
+    next.push({ frame: targetFrame, position: [...source.position], quaternion: [...source.quaternion], scale: [...source.scale] });
+    this.selected.userData.keyframes = next.sort((a, b) => a.frame - b.frame);
+    this.scrub(targetFrame);
+    this.commit();
   }
   removeKey() {
     if (!this.selected) return;
@@ -897,19 +1072,16 @@ export class Editor extends EventTarget {
     this.content.traverse(o => {
       const keys = o.userData.keyframes as Keyframe[] | undefined;
       if (!keys?.length) return;
-      const end = keys.findIndex(k => k.frame >= this.frame);
-      const b = keys[end === -1 ? keys.length - 1 : end];
-      const a = keys[Math.max(0, (end === -1 ? keys.length : end) - 1)];
-      const t = a.frame === b.frame ? 0 : THREE.MathUtils.clamp((this.frame - a.frame) / (b.frame - a.frame), 0, 1);
-      o.position.fromArray(a.position).lerp(new THREE.Vector3().fromArray(b.position), t);
-      o.quaternion.fromArray(a.quaternion).slerp(new THREE.Quaternion().fromArray(b.quaternion), t);
-      o.scale.fromArray(a.scale).lerp(new THREE.Vector3().fromArray(b.scale), t);
+      const sample = sampleAnimation(keys, this.frame, o.userData.animationInterpolation ?? 'linear');
+      o.position.fromArray(sample.position);
+      o.quaternion.fromArray(sample.quaternion);
+      o.scale.fromArray(sample.scale);
     });
     this.updateSelection();
   }
   stats() {
     let vertices = 0, triangles = 0;
     this.content.traverse(o => { if (o instanceof THREE.Mesh) { vertices += o.geometry.getAttribute('position')?.count ?? 0; triangles += (o.geometry.index?.count ?? o.geometry.getAttribute('position')?.count ?? 0) / 3; } });
-    return { objects: this.content.children.length, vertices, triangles: Math.round(triangles), calls: this.renderer.info.render.calls, frames: this.renderedFrames };
+    return { objects: this.content.children.filter(object => !this.isCollection(object)).length + this.collections.reduce((count, collection) => count + collection.children.length, 0), vertices, triangles: Math.round(triangles), calls: this.renderer.info.render.calls, frames: this.renderedFrames };
   }
 }
