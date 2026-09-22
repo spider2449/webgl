@@ -340,22 +340,39 @@ function updateTimeline() {
   for (const id of ['move-key', 'copy-key']) $<HTMLButtonElement>('#' + id).disabled = !hasKey || editor.editMode || editor.playing;
   const channelSelect = $<HTMLSelectElement>('#animation-channel');
   const channelInterpolation = $<HTMLSelectElement>('#animation-channel-interpolation');
+  const keyInterpolation = $<HTMLSelectElement>('#graph-key-interpolation');
   const channelValue = $<HTMLInputElement>('#animation-channel-value');
   const applyChannel = $<HTMLButtonElement>('#apply-channel-value');
   const channel = channelSelect.value as ScalarAnimationChannel;
-  const defaultInterpolation = editor.selected?.userData.animationInterpolation ?? 'linear';
+  const defaultInterpolation: AnimationInterpolation = editor.selected?.userData.animationInterpolation ?? 'linear';
   const channelOverrides = editor.selected?.userData.animationChannelInterpolation ?? {};
   animationGraph.update(editor.selected, channel, editor.frame);
+
+  const shortMode = (mode: string) => mode === 'constant' ? 'CST' : mode === 'smooth' ? 'SMT' : mode === 'bezier' ? 'BEZ' : mode === 'mixed' ? 'MIX' : 'LIN';
   document.querySelectorAll<HTMLButtonElement>('[data-graph-channel]').forEach(button => {
     const graphChannel = button.dataset.graphChannel as ScalarAnimationChannel;
-    const effective = channelOverrides[graphChannel] ?? defaultInterpolation;
+    const modes = keys.slice(0, -1).map(key => effectiveSegmentInterpolation(key, graphChannel, defaultInterpolation, channelOverrides));
+    const unique = [...new Set(modes)];
+    const effective = unique.length > 1 ? 'mixed' : unique[0] ?? (channelOverrides[graphChannel] ?? defaultInterpolation);
     button.classList.toggle('active', graphChannel === channel);
     button.disabled = !editor.selected;
-    button.querySelector('small')!.textContent = effective === 'linear' ? 'LIN' : effective === 'constant' ? 'CST' : 'SMT';
+    button.querySelector('small')!.textContent = shortMode(effective);
+    button.title = `${animationChannelLabel(graphChannel)} · ${effective}`;
   });
+
   channelInterpolation.options[0].textContent = `Object default (${defaultInterpolation[0].toUpperCase() + defaultInterpolation.slice(1)})`;
   channelInterpolation.value = channelOverrides[channel] ?? '';
   channelInterpolation.disabled = !editor.selected || !keys.length || editor.editMode;
+
+  const selectedGraphFrame = animationGraph.selectedKeyFrame;
+  const selectedGraphIndex = selectedGraphFrame === null ? -1 : keys.findIndex(key => key.frame === selectedGraphFrame);
+  const selectedGraphKey = selectedGraphIndex >= 0 ? keys[selectedGraphIndex] : null;
+  const inheritedMode = selectedGraphKey
+    ? (channelOverrides[channel] ?? defaultInterpolation)
+    : defaultInterpolation;
+  keyInterpolation.options[0].textContent = `Inherit (${inheritedMode[0].toUpperCase() + inheritedMode.slice(1)})`;
+  keyInterpolation.value = selectedGraphKey?.curves?.[channel]?.interpolation ?? '';
+  keyInterpolation.disabled = !selectedGraphKey || selectedGraphIndex === keys.length - 1 || editor.editMode || editor.playing;
   if (currentKey && document.activeElement !== channelValue) {
     const [property, axis] = channel.split('.') as ['position' | 'rotation' | 'scale', 'x' | 'y' | 'z'];
     const component = axis === 'x' ? 0 : axis === 'y' ? 1 : 2;
@@ -551,13 +568,32 @@ $('#animation-interpolation').addEventListener('change', event => {
 function insertKey() { toast(editor.insertKey() ? `Transform keyframe inserted at frame ${Math.round(editor.frame)}.` : 'Select an object in Object Mode first.'); }
 $('#animation-key').addEventListener('change', event => {
   const value = (event.target as HTMLSelectElement).value;
-  if (value) editor.scrub(Number(value));
+  if (value) {
+    animationGraph.selectKeyFrame(Number(value));
+    editor.scrub(Number(value));
+  }
 });
 $('#animation-channel').addEventListener('change', () => updateTimeline());
 document.querySelectorAll<HTMLButtonElement>('[data-graph-channel]').forEach(button => button.addEventListener('click', () => {
   $<HTMLSelectElement>('#animation-channel').value = button.dataset.graphChannel!;
   updateTimeline();
 }));
+$('#graph-key-interpolation').addEventListener('change', event => {
+  const frame = animationGraph.selectedKeyFrame;
+  if (frame === null) return;
+  const value = (event.target as HTMLSelectElement).value as KeyInterpolation | '';
+  try {
+    editor.setKeyInterpolation(
+      frame,
+      $<HTMLSelectElement>('#animation-channel').value as ScalarAnimationChannel,
+      value || null,
+    );
+    updateTimeline();
+  } catch (error) {
+    toast((error as Error).message);
+    updateTimeline();
+  }
+});
 $('#animation-channel-interpolation').addEventListener('change', event => {
   const value = (event.target as HTMLSelectElement).value as AnimationInterpolation | '';
   editor.setAnimationChannelInterpolation(
