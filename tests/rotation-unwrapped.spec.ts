@@ -71,3 +71,66 @@ test('unwrapped gizmo rotation keeps the same quaternion orientation', async ({ 
   const dot = result.canonical.reduce((sum: number, value: number, index: number) => sum + value * result.unwrapped[index], 0);
   expect(Math.abs(dot)).toBeCloseTo(1, 10);
 });
+
+
+test('keyframes preserve authored multi-turn rotation through scrub and project reload', async ({ page }) => {
+  const result = await page.evaluate(() => {
+    const e = (window as any).__forge;
+    const object = e.selected;
+    const degrees = (radians: number) => radians * 180 / Math.PI;
+
+    object.rotation.z = 540 * Math.PI / 180;
+    e.insertKey();
+
+    e.frame = 25;
+    object.rotation.z = 720 * Math.PI / 180;
+    e.insertKey();
+
+    const stored = object.userData.keyframes.map((key: any) => key.rotation?.[2] * 180 / Math.PI);
+
+    e.scrub(1);
+    const first = degrees(object.rotation.z);
+    e.scrub(13);
+    const midpoint = degrees(object.rotation.z);
+    e.scrub(25);
+    const second = degrees(object.rotation.z);
+
+    const saved = e.snapshot();
+    e.load(JSON.parse(saved));
+    const restored = e.selected;
+    e.scrub(1);
+    const reloadedFirst = degrees(restored.rotation.z);
+    e.scrub(25);
+    const reloadedSecond = degrees(restored.rotation.z);
+
+    return { stored, first, midpoint, second, reloadedFirst, reloadedSecond };
+  });
+
+  expect(result.stored[0]).toBeCloseTo(540, 6);
+  expect(result.stored[1]).toBeCloseTo(720, 6);
+  expect(result.first).toBeCloseTo(540, 6);
+  expect(result.midpoint).toBeCloseTo(630, 6);
+  expect(result.second).toBeCloseTo(720, 6);
+  expect(result.reloadedFirst).toBeCloseTo(540, 6);
+  expect(result.reloadedSecond).toBeCloseTo(720, 6);
+});
+
+test('legacy quaternion-only keyframes remain readable', async ({ page }) => {
+  const result = await page.evaluate(() => {
+    const e = (window as any).__forge;
+    const object = e.selected;
+    object.rotation.z = 270 * Math.PI / 180;
+    e.insertKey();
+    const key = object.userData.keyframes[0];
+    delete key.rotation;
+    delete key.rotationOrder;
+    e.scrub(1);
+    return {
+      finite: [object.rotation.x, object.rotation.y, object.rotation.z].every(Number.isFinite),
+      quaternion: object.quaternion.toArray(),
+    };
+  });
+
+  expect(result.finite).toBe(true);
+  expect(result.quaternion.every((value: number) => Number.isFinite(value))).toBe(true);
+});
