@@ -36,7 +36,7 @@ test('Graph Editor visualizes Linear, Constant and Smooth for the selected scala
 
   const linearPath = await graph.locator('.graph-curve').getAttribute('d');
   expect(linearPath).toBeTruthy();
-  expect(await graph.locator('.graph-curve').getAttribute('data-sample-count')).toBe('33');
+  expect(await graph.locator('.graph-curve').getAttribute('data-sample-count')).toBe('3');
 
   await page.getByLabel('Animation channel interpolation', { exact: true }).selectOption('constant');
   await expect(graph).toHaveAttribute('data-mode', 'constant');
@@ -201,4 +201,133 @@ test('Graph Editor horizontal drag retimes the whole transform key and rejects o
   expect(keys).toContain(25);
   expect(new Set(keys).size).toBe(2);
   expect(keys.filter((frame: number) => frame !== 25)[0]).toBeLessThan(25);
+});
+
+
+test('Graph Editor supports per-key outbound interpolation with mixed segments', async ({ page }) => {
+  await page.evaluate(() => {
+    const e = (window as any).__forge;
+    const object = e.selected;
+    object.userData.keyframes = [];
+    e.frame = 1;
+    object.position.set(0, 0, 0);
+    e.insertKey();
+    e.frame = 25;
+    object.position.set(8, 0, 0);
+    e.insertKey();
+    e.frame = 49;
+    object.position.set(0, 0, 0);
+    e.insertKey();
+    e.setAnimationInterpolation('linear');
+    e.scrub(1);
+  });
+  await page.getByRole('button', { name: 'Animation', exact: true }).click();
+
+  const graph = page.getByLabel('Animation graph editor');
+  await graph.locator('.graph-key-point[data-frame="1"]').click();
+  await page.getByLabel('Selected key interpolation').selectOption('bezier');
+  await expect(page.getByLabel('Selected key interpolation')).toHaveValue('bezier');
+  await expect(graph.locator('.graph-handle[data-handle="right"]')).toHaveCount(1);
+
+  await graph.locator('.graph-key-point[data-frame="25"]').click();
+  await page.getByLabel('Selected key interpolation').selectOption('constant');
+  await expect(graph).toHaveAttribute('data-mode', 'mixed');
+  await expect(page.locator('[data-graph-channel="position.x"] small')).toHaveText('MIX');
+  await expect(graph.locator('.graph-handle[data-handle="left"]')).toHaveCount(1);
+
+  const stored = await page.evaluate(() => {
+    const e = (window as any).__forge;
+    const keys = e.selected.userData.keyframes;
+    e.scrub(13);
+    const firstMidpoint = e.selected.position.x;
+    e.scrub(37);
+    const secondMidpoint = e.selected.position.x;
+    return {
+      first: structuredClone(keys[0].curves['position.x']),
+      second: structuredClone(keys[1].curves['position.x']),
+      firstMidpoint,
+      secondMidpoint,
+      saved: e.snapshot(),
+    };
+  });
+
+  expect(stored.first.interpolation).toBe('bezier');
+  expect(stored.first.right[0]).toBeCloseTo(8, 6);
+  expect(stored.first.right[1]).toBeCloseTo(8 / 3, 6);
+  expect(stored.second.interpolation).toBe('constant');
+  expect(stored.second.left[0]).toBeCloseTo(-8, 6);
+  expect(stored.second.left[1]).toBeCloseTo(-8 / 3, 6);
+  expect(stored.firstMidpoint).toBeCloseTo(4, 5);
+  expect(stored.secondMidpoint).toBeCloseTo(8, 6);
+
+  const restored = await page.evaluate((saved) => {
+    const e = (window as any).__forge;
+    e.load(JSON.parse(saved));
+    return e.selected.userData.keyframes.map((key: any) => key.curves?.['position.x'] ?? null);
+  }, stored.saved);
+  expect(restored[0].interpolation).toBe('bezier');
+  expect(restored[1].interpolation).toBe('constant');
+});
+
+test('Graph Editor tangent handles change the real Bezier curve and undo in one step', async ({ page }) => {
+  await page.evaluate(() => {
+    const e = (window as any).__forge;
+    const object = e.selected;
+    object.userData.keyframes = [];
+    e.frame = 1;
+    object.position.set(0, 0, 0);
+    e.insertKey();
+    e.frame = 25;
+    object.position.set(8, 0, 0);
+    e.insertKey();
+    e.setAnimationInterpolation('linear');
+    e.scrub(1);
+  });
+  await page.getByRole('button', { name: 'Animation', exact: true }).click();
+
+  const graph = page.getByLabel('Animation graph editor');
+  await graph.locator('.graph-key-point[data-frame="1"]').click();
+  await page.getByLabel('Selected key interpolation').selectOption('bezier');
+
+  let handle = graph.locator('.graph-handle[data-handle="right"]');
+  const beforeBox = await handle.boundingBox();
+  expect(beforeBox).not.toBeNull();
+  await page.mouse.move(beforeBox!.x + beforeBox!.width / 2, beforeBox!.y + beforeBox!.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(beforeBox!.x + beforeBox!.width / 2, beforeBox!.y - 32, { steps: 8 });
+  await page.mouse.up();
+
+  const edited = await page.evaluate(() => {
+    const e = (window as any).__forge;
+    const right = e.selected.userData.keyframes[0].curves['position.x'].right;
+    e.scrub(13);
+    return { right: [...right], midpoint: e.selected.position.x };
+  });
+  expect(edited.right[0]).toBeCloseTo(8, 1);
+  expect(edited.right[1]).toBeGreaterThan(8 / 3);
+  expect(edited.midpoint).toBeGreaterThan(4);
+
+  await page.evaluate(() => (window as any).__forge.undo());
+  const undone = await page.evaluate(() => {
+    const e = (window as any).__forge;
+    const curve = e.selected.userData.keyframes[0].curves['position.x'];
+    e.scrub(13);
+    return { interpolation: curve.interpolation, right: [...curve.right], midpoint: e.selected.position.x };
+  });
+  expect(undone.interpolation).toBe('bezier');
+  expect(undone.right[0]).toBeCloseTo(8, 6);
+  expect(undone.right[1]).toBeCloseTo(8 / 3, 6);
+  expect(undone.midpoint).toBeCloseTo(4, 5);
+
+  await page.evaluate(() => (window as any).__forge.redo());
+  const redone = await page.evaluate(() => {
+    const e = (window as any).__forge;
+    e.scrub(13);
+    return {
+      right: [...e.selected.userData.keyframes[0].curves['position.x'].right],
+      midpoint: e.selected.position.x,
+    };
+  });
+  expect(redone.right[1]).toBeGreaterThan(8 / 3);
+  expect(redone.midpoint).toBeGreaterThan(4);
 });
