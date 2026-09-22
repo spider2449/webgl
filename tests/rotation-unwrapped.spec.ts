@@ -213,3 +213,80 @@ test('Global and Local gizmo drags avoid Euler branch jumps after small quaterni
   expect(result.global.maxEulerDelta).toBeLessThan(45);
   expect(result.local.maxEulerDelta).toBeLessThan(45);
 });
+
+
+test('Y-axis gizmo preserves XYZ Euler continuity at 90 and 270 degree singularities in both spaces', async ({ page }) => {
+  const result = await page.evaluate(() => {
+    const e = (window as any).__forge;
+    const object = e.selected;
+    const Quaternion = object.quaternion.constructor as any;
+    const Euler = object.rotation.constructor as any;
+    const rad = (degrees: number) => degrees * Math.PI / 180;
+    const deg = (radians: number) => radians * 180 / Math.PI;
+
+    const run = (space: 'world' | 'local', startY: number, targetY: number) => {
+      object.rotation.set(rad(30), rad(startY), rad(20), 'XYZ');
+      e.setTool('rotate');
+      e.transform.setSpace(space);
+      e.transform.axis = 'Y';
+      const target = new Quaternion().setFromEuler(new Euler(rad(30), rad(targetY), rad(20), 'XYZ'));
+      e.transform.dispatchEvent({ type: 'dragging-changed', value: true });
+      object.quaternion.copy(target);
+      const canonical = [deg(object.rotation.x), deg(object.rotation.y), deg(object.rotation.z)];
+      e.transform.dispatchEvent({ type: 'objectChange' });
+      const after = [deg(object.rotation.x), deg(object.rotation.y), deg(object.rotation.z)];
+      const orientationDot = Math.abs(target.dot(object.quaternion));
+      e.transform.dispatchEvent({ type: 'dragging-changed', value: false });
+      return { canonical, after, orientationDot };
+    };
+
+    return {
+      global90: run('world', 89, 90),
+      local90: run('local', 89, 90),
+      global270: run('world', 269, 270),
+      local270: run('local', 269, 270),
+    };
+  });
+
+  for (const sample of Object.values(result)) {
+    expect(sample.after[0]).toBeCloseTo(30, 5);
+    expect(sample.after[2]).toBeCloseTo(20, 5);
+    expect(sample.orientationDot).toBeCloseTo(1, 10);
+  }
+  expect(result.global90.after[1]).toBeCloseTo(90, 5);
+  expect(result.local90.after[1]).toBeCloseTo(90, 5);
+  expect(result.global270.after[1]).toBeCloseTo(270, 5);
+  expect(result.local270.after[1]).toBeCloseTo(270, 5);
+});
+
+test('Y-axis multi-turn keyframes retain authored values and interpolation', async ({ page }) => {
+  const result = await page.evaluate(() => {
+    const e = (window as any).__forge;
+    const object = e.selected;
+    const deg = (radians: number) => radians * 180 / Math.PI;
+
+    object.rotation.set(0, 540 * Math.PI / 180, 0, 'XYZ');
+    e.insertKey();
+    e.frame = 25;
+    object.rotation.set(0, 720 * Math.PI / 180, 0, 'XYZ');
+    e.insertKey();
+
+    e.scrub(1);
+    const first = deg(object.rotation.y);
+    e.scrub(13);
+    const midpoint = deg(object.rotation.y);
+    e.scrub(25);
+    const second = deg(object.rotation.y);
+
+    const saved = e.snapshot();
+    e.load(JSON.parse(saved));
+    e.scrub(13);
+    const restoredMidpoint = deg(e.selected.rotation.y);
+    return { first, midpoint, second, restoredMidpoint };
+  });
+
+  expect(result.first).toBeCloseTo(540, 6);
+  expect(result.midpoint).toBeCloseTo(630, 6);
+  expect(result.second).toBeCloseTo(720, 6);
+  expect(result.restoredMidpoint).toBeCloseTo(630, 6);
+});
