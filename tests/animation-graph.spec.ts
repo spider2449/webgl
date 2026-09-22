@@ -101,6 +101,16 @@ test('Graph Editor preserves unwrapped multi-turn rotation values', async ({ pag
   const detail = await page.locator('#animation-graph-detail').textContent();
   expect(detail).toContain('Linear');
   expect(detail).toContain('to');
+
+  await graph.locator('.graph-key-point[data-frame="1"]').click();
+  await page.getByLabel('Selected key interpolation').selectOption('bezier');
+  const handleValue = Number(await graph.locator('.graph-handle[data-handle="right"]').getAttribute('data-handle-value'));
+  expect(handleValue).toBeCloseTo(420, 4);
+  const nativeHandleDegrees = await page.evaluate(() => {
+    const right = (window as any).__forge.selected.userData.keyframes[0].curves['rotation.y'].right;
+    return right[1] * 180 / Math.PI;
+  });
+  expect(nativeHandleDegrees).toBeCloseTo(150, 5);
 });
 
 
@@ -267,6 +277,9 @@ test('Graph Editor supports per-key outbound interpolation with mixed segments',
   }, stored.saved);
   expect(restored[0].interpolation).toBe('bezier');
   expect(restored[1].interpolation).toBe('constant');
+
+  await graph.locator('.graph-key-point[data-frame="49"]').click();
+  await expect(page.getByLabel('Selected key interpolation')).toBeDisabled();
 });
 
 test('Graph Editor tangent handles change the real Bezier curve and undo in one step', async ({ page }) => {
@@ -292,9 +305,12 @@ test('Graph Editor tangent handles change the real Bezier curve and undo in one 
   let handle = graph.locator('.graph-handle[data-handle="right"]');
   const beforeBox = await handle.boundingBox();
   expect(beforeBox).not.toBeNull();
+  const pathBefore = await graph.locator('.graph-curve').getAttribute('d');
   await page.mouse.move(beforeBox!.x + beforeBox!.width / 2, beforeBox!.y + beforeBox!.height / 2);
   await page.mouse.down();
   await page.mouse.move(beforeBox!.x + beforeBox!.width / 2, beforeBox!.y - 32, { steps: 8 });
+  const pathDuring = await graph.locator('.graph-curve').getAttribute('d');
+  expect(pathDuring).not.toBe(pathBefore);
   await page.mouse.up();
 
   const edited = await page.evaluate(() => {
