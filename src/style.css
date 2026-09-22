@@ -36,6 +36,7 @@
 .animation-graph-header{height:32px;display:flex;align-items:center;gap:12px;padding:0 22px;border-bottom:1px solid #2f3239;background:#1f2127}
 .animation-graph-header>span:first-child{font:500 10px var(--mono);color:#d7b487;letter-spacing:.2px}
 .animation-graph-header>span:last-child{font:9px var(--mono);color:#6f7886}
+.graph-editor-badge{margin-left:auto!important;font:8px var(--mono)!important;letter-spacing:.8px;color:#6c746f!important;border:1px solid #3c443f;border-radius:3px;padding:2px 5px}
 #animation-graph{display:block;width:100%;height:182px;background:#1b1d22}
 .graph-grid,.graph-key-grid,.graph-curve,.graph-playhead{vector-effect:non-scaling-stroke}
 .graph-grid{stroke:#30333b;stroke-width:1}
@@ -44,7 +45,7 @@
 .graph-key-point{fill:#e1bd8c;stroke:#17191e;stroke-width:1;vector-effect:non-scaling-stroke}
 .graph-playhead{stroke:#d8b382;stroke-width:1.5;pointer-events:none;vector-effect:non-scaling-stroke}
 .graph-playhead.outside{opacity:.3;stroke-dasharray:3 3}
-.graph-value-label{fill:#687180;font:9px var(--mono);pointer-events:none}
+.graph-value-label,.graph-frame-label{fill:#687180;font:9px var(--mono);pointer-events:none}
 @media(max-width:760px){
   .animation-workspace .animation-graph{display:none}
   .animation-workspace .timeline{height:115px}
