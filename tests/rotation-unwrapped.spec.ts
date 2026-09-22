@@ -292,90 +292,102 @@ test('Y-axis multi-turn keyframes retain authored values and interpolation', asy
 });
 
 
-test('Gimbal orientation edits the selected Euler channel directly across Y lock angles', async ({ page }) => {
+
+test('Gimbal renders true XYZ Euler axes and replaces stock rotation controls', async ({ page }) => {
   await page.getByLabel('Transform orientation').selectOption('gimbal');
+  await page.evaluate(() => {
+    const e = (window as any).__forge;
+    e.selected.rotation.set(30 * Math.PI / 180, 60 * Math.PI / 180, 20 * Math.PI / 180, 'XYZ');
+    e.setTool('rotate');
+    e.gimbal.update();
+  });
+
   const result = await page.evaluate(() => {
     const e = (window as any).__forge;
     const object = e.selected;
-    const Euler = object.rotation.constructor as any;
+    const Vector3 = object.position.constructor as any;
     const Quaternion = object.quaternion.constructor as any;
-    const rad = (degrees: number) => degrees * Math.PI / 180;
-    const deg = (radians: number) => radians * 180 / Math.PI;
-
-    const run = (startY: number, delta: number) => {
-      object.rotation.set(rad(30), rad(startY), rad(20), 'XYZ');
-      e.setTool('rotate');
-      e.transform.axis = 'Y';
-      e.transform.dispatchEvent({ type: 'dragging-changed', value: true });
-
-      // Emulate the canonical quaternion/Euler state TransformControls may produce
-      // before Forge handles objectChange. Gimbal mode must ignore that branch.
-      const expectedEuler = new Euler(rad(30), rad(startY + delta), rad(20), 'XYZ');
-      const expectedQuaternion = new Quaternion().setFromEuler(expectedEuler);
-      object.quaternion.copy(expectedQuaternion);
-      e.transform.rotationAngle = rad(delta);
-      e.transform.dispatchEvent({ type: 'objectChange' });
-
-      const after = [deg(object.rotation.x), deg(object.rotation.y), deg(object.rotation.z)];
-      const orientationDot = Math.abs(expectedQuaternion.dot(object.quaternion));
-      e.transform.dispatchEvent({ type: 'dragging-changed', value: false });
-      return { after, orientationDot };
+    const rings = (e.gimbal as any).rings as Map<'X' | 'Y' | 'Z', any>;
+    const worldNormal = (axis: 'X' | 'Y' | 'Z') => {
+      const ring = rings.get(axis)!;
+      return new Vector3(0, 0, 1).applyQuaternion(ring.getWorldQuaternion(new Quaternion())).normalize();
     };
+
+    const x = worldNormal('X'), y = worldNormal('Y'), z = worldNormal('Z');
+    const qx = new Quaternion().setFromAxisAngle(new Vector3(1, 0, 0), object.rotation.x);
+    const qy = new Quaternion().setFromAxisAngle(new Vector3(0, 1, 0), object.rotation.y);
+    const expectedY = new Vector3(0, 1, 0).applyQuaternion(qx).normalize();
+    const expectedZ = new Vector3(0, 0, 1).applyQuaternion(qx.clone().multiply(qy)).normalize();
 
     return {
-      ninety: run(89, 5),
-      twoSeventy: run(269, 5),
-      multiTurn: run(540, 15),
-      orientation: e.transformOrientation,
-      space: e.transform.space,
-      showE: e.transform.showE,
-      showXYZE: e.transform.showXYZE,
+      visible: e.gimbal.group.visible,
+      stockAttached: !!e.transform.object,
+      xDotY: x.dot(y),
+      xDotZ: x.dot(z),
+      yMatch: y.dot(expectedY),
+      zMatch: z.dot(expectedZ),
     };
   });
 
-  expect(result.orientation).toBe('gimbal');
-  expect(result.space).toBe('local');
-  expect(result.showE).toBe(false);
-  expect(result.showXYZE).toBe(false);
-  for (const sample of [result.ninety, result.twoSeventy, result.multiTurn]) {
-    expect(sample.after[0]).toBeCloseTo(30, 6);
-    expect(sample.after[2]).toBeCloseTo(20, 6);
-    expect(sample.orientationDot).toBeCloseTo(1, 10);
-  }
-  expect(result.ninety.after[1]).toBeCloseTo(94, 6);
-  expect(result.twoSeventy.after[1]).toBeCloseTo(274, 6);
-  expect(result.multiTurn.after[1]).toBeCloseTo(555, 6);
+  expect(result.visible).toBe(true);
+  expect(result.stockAttached).toBe(false);
+  expect(Math.abs(result.xDotY)).toBeLessThan(1e-6);
+  expect(Math.abs(result.xDotZ)).toBeGreaterThan(0.5);
+  expect(result.yMatch).toBeCloseTo(1, 6);
+  expect(result.zMatch).toBeCloseTo(1, 6);
 });
 
-test('Gimbal orientation changes only the chosen Euler axis', async ({ page }) => {
-  const result = await page.evaluate(() => {
-    const e = (window as any).__forge;
-    const object = e.selected;
-    const rad = (degrees: number) => degrees * Math.PI / 180;
-    const deg = (radians: number) => radians * 180 / Math.PI;
-    e.setTransformOrientation('gimbal');
-    e.setTool('rotate');
+test('dragging the real Gimbal Y ring changes only Euler Y across lock angles', async ({ page }) => {
+  await page.getByLabel('Transform orientation').selectOption('gimbal');
 
-    const run = (axis: 'X' | 'Y' | 'Z') => {
-      object.rotation.set(rad(15), rad(25), rad(35), 'XYZ');
-      e.transform.axis = axis;
-      e.transform.dispatchEvent({ type: 'dragging-changed', value: true });
-      e.transform.rotationAngle = rad(10);
-      e.transform.dispatchEvent({ type: 'objectChange' });
-      const values = [deg(object.rotation.x), deg(object.rotation.y), deg(object.rotation.z)];
-      e.transform.dispatchEvent({ type: 'dragging-changed', value: false });
-      return values;
-    };
+  const dragY = async (startY: number) => {
+    const points = await page.evaluate((degrees) => {
+      const e = (window as any).__forge;
+      const object = e.selected;
+      object.rotation.set(30 * Math.PI / 180, degrees * Math.PI / 180, 20 * Math.PI / 180, 'XYZ');
+      e.setTool('rotate');
+      e.gimbal.update();
 
-    return { x: run('X'), y: run('Y'), z: run('Z') };
-  });
+      const ring = ((e.gimbal as any).rings as Map<string, any>).get('Y');
+      const position = ring.geometry.getAttribute('position');
+      const Vector3 = object.position.constructor as any;
+      const project = (index: number) => {
+        const point = new Vector3().fromBufferAttribute(position, index);
+        ring.localToWorld(point);
+        point.project(e.camera);
+        const rect = e.renderer.domElement.getBoundingClientRect();
+        return {
+          x: rect.left + (point.x + 1) * rect.width / 2,
+          y: rect.top + (1 - point.y) * rect.height / 2,
+        };
+      };
+      return { start: project(0), end: project(4) };
+    }, startY);
 
-  const expected = {
-    x: [25, 25, 35],
-    y: [15, 35, 35],
-    z: [15, 25, 45],
+    await page.mouse.move(points.start.x, points.start.y);
+    await page.mouse.down();
+    await page.mouse.move(points.end.x, points.end.y, { steps: 8 });
+    await page.mouse.up();
+
+    return page.evaluate(() => {
+      const object = (window as any).__forge.selected;
+      const deg = (radians: number) => radians * 180 / Math.PI;
+      return [deg(object.rotation.x), deg(object.rotation.y), deg(object.rotation.z)];
+    });
   };
-  for (const axis of ['x', 'y', 'z'] as const) {
-    result[axis].forEach((value: number, index: number) => expect(value).toBeCloseTo(expected[axis][index], 5));
-  }
+
+  const ninety = await dragY(89);
+  expect(ninety[0]).toBeCloseTo(30, 3);
+  expect(ninety[1]).toBeGreaterThan(90);
+  expect(ninety[2]).toBeCloseTo(20, 3);
+
+  const twoSeventy = await dragY(269);
+  expect(twoSeventy[0]).toBeCloseTo(30, 3);
+  expect(twoSeventy[1]).toBeGreaterThan(270);
+  expect(twoSeventy[2]).toBeCloseTo(20, 3);
+
+  const multiTurn = await dragY(540);
+  expect(multiTurn[0]).toBeCloseTo(30, 3);
+  expect(multiTurn[1]).toBeGreaterThan(540);
+  expect(multiTurn[2]).toBeCloseTo(20, 3);
 });
