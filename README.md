@@ -130,25 +130,24 @@ Linked duplication is intentionally bounded: skinned meshes and meshes with an a
 
 Open the **Animation** workspace to author and edit transform animation. The
 timeline header owns playback, the current frame, and **Insert/Remove transform
-key**. The **Graph Editor is the sole animation editing UI**; the Object panel no
-longer duplicates key, channel, timing, value, or interpolation controls.
+key**. The **Graph Editor is the sole animation editing UI**; the Object panel
+does not duplicate animation controls.
 
 The graph's channel rail exposes all nine scalar transform channels:
 **Location X/Y/Z**, **Rotation X/Y/Z**, and **Scale X/Y/Z**. Click a channel to
-make it active. Click a key to select it.
+make it active, then click a key to select it.
 
-Each authored key can control its outbound segment with **Segment**:
+Every segment is **Linear by default**. A selected key controls the segment from
+that key to the next key and can be set to exactly one of:
 
-- **Inherit** — use legacy project fallback interpolation.
-- **Constant** — hold the current key value until the next key.
-- **Linear** — interpolate linearly.
+- **Linear** — interpolate scalar values linearly.
+- **Constant** — hold the source value until the next key.
 - **Bezier** — evaluate a cubic curve in frame/value space.
 
-Different segments on one channel may use different modes; the channel rail
-shows **MIX** when they differ. Existing projects without per-key curve metadata
-still read their stored object/channel Linear, Constant, or Smooth settings as
-compatibility fallbacks, but those legacy defaults are no longer exposed as
-editing controls.
+There is no object-wide interpolation mode, no channel-wide interpolation
+override, no Smooth fallback, and no Inherit mode. Different segments on the
+same channel may use different modes; the channel rail shows **MIX** when they
+differ.
 
 Bezier creates a right handle on the source key and a left handle on the next
 key. Drag either tangent directly in the graph. Handle time is bounded to the
@@ -169,13 +168,16 @@ time, so horizontal move/copy operates on the complete transform key rather than
 an independent scalar-key time. Key and tangent drags each create one undoable
 history entry; Escape or pointer cancellation restores the original data.
 
-GLB export preserves unchanged legacy object-wide Constant as STEP. glTF
-transform samplers cannot represent Forge's mixed per-axis/per-segment Bezier
-tangents directly, so objects with effective scalar overrides or per-key curve
-modes are baked to LINEAR samples. Smooth and Bezier segments use 32 samples per
-segment; Constant segments add a near-boundary hold sample. This export path is
-an approximation. Independent per-channel key times, arbitrary F-curves, tangent
-coupling modes, and batch curve operations remain future work.
+Project loading rejects the removed `animationInterpolation` and
+`animationChannelInterpolation` fields so the animation model cannot silently
+fall back to the superseded hierarchy.
+
+glTF transform samplers cannot directly represent mixed per-axis/per-segment
+Bezier tangents. Pure Linear animation exports as LINEAR key tracks. Objects
+containing Constant or Bezier segments are baked to LINEAR samples; Bezier uses
+32 samples per segment and Constant adds a near-boundary hold sample. This
+export path is an approximation. Independent per-channel key times, arbitrary
+F-curves, tangent coupling modes, and batch curve operations remain future work.
 
 ## Kimodo rigging
 
