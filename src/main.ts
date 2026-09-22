@@ -500,7 +500,7 @@ on('apply-channel-value', () => {
   try {
     editor.editKeyChannel(
       $<HTMLSelectElement>('#animation-channel').value as ScalarAnimationChannel,
-      Number($<HTMLInputElement>('#animation-channel-value').value),
+      $<HTMLInputElement>('#animation-channel-value').valueAsNumber,
     );
     toast('Animation channel value updated.');
   } catch (error) { toast((error as Error).message); }
