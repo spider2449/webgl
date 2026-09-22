@@ -129,11 +129,14 @@ Linked duplication is intentionally bounded: skinned meshes and meshes with an a
 ## Animation interpolation
 
 In the Object panel, choose **Linear**, **Constant**, or **Smooth** under
-**Animation > Interpolation**. The mode applies to all transform keyframe
-segments on the selected object, including position, quaternion rotation and
-scale. Constant holds the earlier pose until the next key; Smooth eases time
-with smoothstep. Existing projects use Linear. Undo/redo and Forge projects
-retain the mode.
+**Animation > Interpolation** as the object-wide default. Each scalar
+**Location X/Y/Z**, **Rotation X/Y/Z**, and **Scale X/Y/Z** channel can then
+override that default under **Channel interpolation**, or return to **Object
+default**. Constant holds the earlier scalar value until the next key; Smooth
+eases that scalar with smoothstep. Rotation overrides use the unwrapped Euler
+key metadata, while the evaluated quaternion remains synchronized. Existing
+projects without overrides keep their previous object-wide behavior. Undo/redo
+and Forge projects retain both defaults and overrides.
 
 Use **Keyframe** to jump to an authored transform key. Set **Target frame**
 (1-250), then **Move keyframe** or **Copy keyframe** to change its timing or
@@ -149,10 +152,13 @@ upgraded on first rotation-channel edit. Changes evaluate immediately,
 participate in undo/redo and survive Forge project round trips. Playback must be
 paused and Object Mode active.
 
-GLB export preserves Constant as STEP. Smooth exports 32 evenly spaced samples
-per segment and uses linear interpolation between them, so exported motion is
-an approximation. Editable Bezier handles, graph/tangent editing, per-channel
-interpolation and batch curve operations remain future work.
+GLB export preserves the existing object-wide Constant mode as STEP when no
+scalar overrides are present. Mixed scalar interpolation cannot be represented
+natively by glTF's whole-vector transform channels, so objects whose explicit
+channel modes differ from the current object default are baked to LINEAR samples. Smooth uses 32 samples per segment;
+Constant overrides add a near-boundary sample so the hold is preserved with a
+very narrow transition. This export path is an approximation. Editable Bezier
+handles, graph/tangent editing and batch curve operations remain future work.
 
 ## Kimodo rigging
 

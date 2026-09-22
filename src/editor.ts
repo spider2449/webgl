@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { sampleAnimation, validInterpolation, type AnimationInterpolation } from './animation';
+import { sampleAnimation, validAnimationChannel, validChannelInterpolation, validInterpolation, type AnimationChannelInterpolation, type AnimationInterpolation } from './animation';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { TransformControls } from 'three/addons/controls/TransformControls.js';
 import { GimbalControls } from './gimbal-controls';
@@ -1140,6 +1140,7 @@ export class Editor extends EventTarget {
         validateModifierStack(o.userData.modifierStack);
       }
       if (o.userData.animationInterpolation !== undefined && !validInterpolation(o.userData.animationInterpolation)) throw new Error('Invalid animation interpolation.');
+      if (o.userData.animationChannelInterpolation !== undefined && !validChannelInterpolation(o.userData.animationChannelInterpolation)) throw new Error('Invalid animation channel interpolation.');
       if (o.userData.keyframes) {
         if (!Array.isArray(o.userData.keyframes) || o.userData.keyframes.some((k: Keyframe) =>
           !Number.isFinite(k.frame) ||
@@ -1147,6 +1148,12 @@ export class Editor extends EventTarget {
           (k.rotation !== undefined && (!Array.isArray(k.rotation) || k.rotation.length !== 3 || !k.rotation.every(Number.isFinite))) ||
           (k.rotationOrder !== undefined && !['XYZ','YZX','ZXY','XZY','YXZ','ZYX'].includes(k.rotationOrder))
         )) throw new Error('Invalid animation keyframes.');
+        const overrides: AnimationChannelInterpolation = o.userData.animationChannelInterpolation ?? {};
+        if (Object.keys(overrides).some(channel => channel.startsWith('rotation.'))) {
+          const keys = o.userData.keyframes as Keyframe[];
+          if (keys.some(key => !key.rotation)) throw new Error('Rotation channel interpolation requires Euler key metadata.');
+          if (new Set(keys.map(key => key.rotationOrder ?? 'XYZ')).size > 1) throw new Error('Rotation channel interpolation requires one Euler order.');
+        }
       }
     }); } catch (error) { this.disposeObject(root); throw error; }
     if (vertices > 2_000_000) { this.disposeObject(root); throw new Error('Scene exceeds the 2 million vertex limit.'); }
@@ -1165,6 +1172,43 @@ export class Editor extends EventTarget {
     if (!this.selected || this.editMode) return false;
     if ((this.selected.userData.animationInterpolation ?? 'linear') === mode) return true;
     this.selected.userData.animationInterpolation = mode;
+    this.evaluateAnimation();
+    this.commit();
+    return true;
+  }
+  setAnimationChannelInterpolation(channel: ScalarAnimationChannel, mode: AnimationInterpolation | null) {
+    if (!validAnimationChannel(channel) || (mode !== null && !validInterpolation(mode))) throw new Error('Invalid animation channel interpolation.');
+    if (!this.selected || this.editMode) return false;
+    const keys: Keyframe[] = this.selected.userData.keyframes ?? [];
+    if (!keys.length) return false;
+
+    const current: AnimationChannelInterpolation = this.selected.userData.animationChannelInterpolation ?? {};
+    const next: AnimationChannelInterpolation = { ...current };
+    if (mode === null) delete next[channel];
+    else next[channel] = mode;
+
+    let upgradedRotationKeys = false;
+    if (channel.startsWith('rotation.') && next[channel]) {
+      if (new Set(keys.map(key => key.rotationOrder ?? 'XYZ')).size > 1) throw new Error('Rotation channel interpolation requires one Euler order.');
+      this.selected.userData.keyframes = keys.map(key => {
+        if (key.rotation) return key;
+        upgradedRotationKeys = true;
+        const order = key.rotationOrder ?? 'XYZ';
+        const euler = new THREE.Euler().setFromQuaternion(new THREE.Quaternion().fromArray(key.quaternion), order);
+        return {
+          ...key,
+          position: [...key.position],
+          quaternion: [...key.quaternion],
+          scale: [...key.scale],
+          rotation: [euler.x, euler.y, euler.z],
+          rotationOrder: order,
+        };
+      });
+    }
+
+    if (JSON.stringify(current) === JSON.stringify(next) && !upgradedRotationKeys) return true;
+    if (Object.keys(next).length) this.selected.userData.animationChannelInterpolation = next;
+    else delete this.selected.userData.animationChannelInterpolation;
     this.evaluateAnimation();
     this.commit();
     return true;
@@ -1261,7 +1305,12 @@ export class Editor extends EventTarget {
     this.content.traverse(o => {
       const keys = o.userData.keyframes as Keyframe[] | undefined;
       if (!keys?.length) return;
-      const sample = sampleAnimation(keys, this.frame, o.userData.animationInterpolation ?? 'linear');
+      const sample = sampleAnimation(
+        keys,
+        this.frame,
+        o.userData.animationInterpolation ?? 'linear',
+        o.userData.animationChannelInterpolation ?? {},
+      );
       o.position.fromArray(sample.position);
       if (sample.rotation) {
         o.rotation.set(sample.rotation[0], sample.rotation[1], sample.rotation[2], sample.rotationOrder ?? o.rotation.order);
