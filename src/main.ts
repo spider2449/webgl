@@ -425,7 +425,7 @@ for (const id of ['proportional-enabled', 'proportional-radius', 'proportional-c
 $<HTMLSelectElement>('#component-mode').onchange = e => editor.setComponentMode((e.target as HTMLSelectElement).value as 'vertex' | 'edge' | 'face');
 $<HTMLSelectElement>('#mode').onchange = async e => { try { if (!await editor.enterEditMode((e.target as HTMLSelectElement).value === 'edit')) { $<HTMLSelectElement>('#mode').value = 'object'; toast('Select a mesh, apply its modifiers and pause playback first.'); } tool('translate'); } catch (error) { toast((error as Error).message); } };
 $<HTMLSelectElement>('#space').onchange = e => editor.setTransformOrientation((e.target as HTMLSelectElement).value as TransformOrientation);
-function snap() { const enabled = !$('#snap').classList.contains('active'); $('#snap').classList.toggle('active', enabled); editor.transform.setTranslationSnap(enabled ? 0.5 : null); editor.transform.setRotationSnap(enabled ? Math.PI / 12 : null); editor.transform.setScaleSnap(enabled ? 0.1 : null); toast(enabled ? 'Snap: 0.5 units · 15° · 0.1 scale' : 'Snapping disabled'); }
+function snap() { const enabled = !$('#snap').classList.contains('active'); $('#snap').classList.toggle('active', enabled); editor.setTransformSnapping(enabled); toast(enabled ? 'Snap: 0.5 units · 15° · 0.1 scale' : 'Snapping disabled'); }
 on('snap', snap);
 on('grid', () => { editor.grid.visible = !editor.grid.visible; $('#grid').classList.toggle('active', editor.grid.visible); editor.invalidate(); });
 for (const value of ['wire','solid','material']) on(`shading-${value}`, () => { editor.setShading(value); document.querySelectorAll('.shading-group button').forEach(b => b.classList.toggle('active', b.id === `shading-${value}`)); });
