@@ -16,9 +16,9 @@ Continue Phase 3 with bounded interpolation overrides for the nine editable scal
 
 Overrides are stored in `object.userData.animationChannelInterpolation` as a sparse map from scalar channel name to `linear`, `constant` or `smooth`.
 
-Only modes that differ from the current object default need to be authored through the UI. Projects without this map retain the exact previous behavior. Forge project version remains 1.
+Choosing Linear, Constant or Smooth creates an explicit override even when it currently matches the object default; choosing Object default removes it. This preserves the user's intent if the object default changes later. Projects without this map retain the exact previous behavior. Forge project version remains 1.
 
-Load validation rejects unknown channel names, unknown interpolation modes, and Rotation overrides whose keys do not contain Euler rotation metadata.
+Load validation rejects unknown channel names, unknown interpolation modes, Rotation overrides whose keys do not contain Euler rotation metadata, and Rotation overrides across mixed Euler orders.
 
 ## GLB export
 
@@ -29,7 +29,7 @@ Therefore:
 - objects without scalar overrides retain the existing export path,
 - object-wide Constant remains native STEP,
 - object-wide Smooth remains the established 32-sample LINEAR approximation,
-- objects with scalar overrides are baked to LINEAR transform samples,
+- objects with scalar overrides that differ from the current object default are baked to LINEAR transform samples,
 - Smooth overrides use 32 samples per segment,
 - Constant overrides add a sample immediately before the next key so the held value changes only across a very narrow boundary interval,
 - multi-turn rotation sampling remains bounded by the existing angular-step rule.
