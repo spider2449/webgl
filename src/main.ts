@@ -407,6 +407,7 @@ editor.addEventListener('change', updateUI);
 editor.addEventListener('transform', updateTransforms);
 editor.addEventListener('history-limit', () => toast('Scene exceeds the 24 MiB undo budget. History disabled; save a project file.'));
 editor.addEventListener('frame', updateTimeline);
+editor.addEventListener('animation', updateTimeline);
 editor.addEventListener('mode', updateTimeline);
 editor.addEventListener('mode', () => { $('#component-mode').classList.toggle('hidden', !editor.editMode); $<HTMLSelectElement>('#mode').value = editor.editMode ? 'edit' : 'object'; $('#mode-hint').textContent = editor.editMode ? `Select a ${editor.componentMode === 'face' ? 'triangle face' : editor.componentMode}, Shift-click to toggle more; drag the move gizmo.` : 'Build something extraordinary.'; });
 editor.addEventListener('view', () => { $('#view-label').textContent = editor.camera instanceof THREE.OrthographicCamera ? 'User Orthographic' : 'User Perspective'; });
