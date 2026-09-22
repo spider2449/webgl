@@ -1,10 +1,6 @@
 import * as THREE from 'three';
 import type { Keyframe, KeyInterpolation, ScalarAnimationChannel } from './editor';
 
-export type AnimationInterpolation = 'linear' | 'constant' | 'smooth';
-export type AnimationChannelInterpolation = Partial<Record<ScalarAnimationChannel, AnimationInterpolation>>;
-export type EffectiveSegmentInterpolation = KeyInterpolation | 'smooth';
-
 export const animationChannels: ScalarAnimationChannel[] = [
   'position.x', 'position.y', 'position.z',
   'rotation.x', 'rotation.y', 'rotation.z',
@@ -13,21 +9,12 @@ export const animationChannels: ScalarAnimationChannel[] = [
 
 const axes = ['x', 'y', 'z'] as const;
 
-export function validInterpolation(value: unknown): value is AnimationInterpolation {
-  return value === 'linear' || value === 'constant' || value === 'smooth';
-}
-
 export function validKeyInterpolation(value: unknown): value is KeyInterpolation {
   return value === 'linear' || value === 'constant' || value === 'bezier';
 }
 
 export function validAnimationChannel(value: unknown): value is ScalarAnimationChannel {
   return typeof value === 'string' && animationChannels.includes(value as ScalarAnimationChannel);
-}
-
-export function validChannelInterpolation(value: unknown): value is AnimationChannelInterpolation {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
-  return Object.entries(value).every(([channel, mode]) => validAnimationChannel(channel) && validInterpolation(mode));
 }
 
 export function validKeyCurves(value: unknown): value is Keyframe['curves'] {
@@ -66,23 +53,11 @@ function cloneKeyframe(key: Keyframe, frame = key.frame): Keyframe {
   };
 }
 
-function legacyInterpolationT(mode: AnimationInterpolation, t: number) {
-  if (mode === 'constant') return t < 1 ? 0 : 1;
-  if (mode === 'smooth') return t * t * (3 - 2 * t);
-  return t;
-}
-
-function fallbackModeFor(channel: ScalarAnimationChannel, fallback: AnimationInterpolation, overrides: AnimationChannelInterpolation) {
-  return overrides[channel] ?? fallback;
-}
-
 export function effectiveSegmentInterpolation(
   key: Keyframe,
   channel: ScalarAnimationChannel,
-  fallback: AnimationInterpolation,
-  overrides: AnimationChannelInterpolation = {},
-): EffectiveSegmentInterpolation {
-  return key.curves?.[channel]?.interpolation ?? fallbackModeFor(channel, fallback, overrides);
+): KeyInterpolation {
+  return key.curves?.[channel]?.interpolation ?? 'linear';
 }
 
 export function animationChannelNativeValue(key: Keyframe, channel: ScalarAnimationChannel) {
@@ -132,7 +107,8 @@ function bezierValue(
   const { x1, y1, x2, y2, va, vb } = bezierControlPoints(a, b, channel);
   if (b.frame <= a.frame) return va;
 
-  let low = 0, high = 1;
+  let low = 0;
+  let high = 1;
   for (let index = 0; index < 28; index++) {
     const t = (low + high) / 2;
     const x = cubic(a.frame, x1, x2, b.frame, t);
@@ -146,8 +122,6 @@ export function sampleAnimationChannel(
   keys: Keyframe[],
   frame: number,
   channel: ScalarAnimationChannel,
-  fallback: AnimationInterpolation,
-  overrides: AnimationChannelInterpolation = {},
 ) {
   if (!keys.length) return 0;
   const exact = keys.find(key => key.frame === frame);
@@ -158,22 +132,17 @@ export function sampleAnimationChannel(
   const a = keys[Math.max(0, (end === -1 ? keys.length : end) - 1)];
   if (a.frame === b.frame) return animationChannelNativeValue(a, channel);
 
-  const mode = effectiveSegmentInterpolation(a, channel, fallback, overrides);
+  const mode = effectiveSegmentInterpolation(a, channel);
   const va = animationChannelNativeValue(a, channel);
   const vb = animationChannelNativeValue(b, channel);
   const t = THREE.MathUtils.clamp((frame - a.frame) / (b.frame - a.frame), 0, 1);
 
   if (mode === 'constant') return va;
   if (mode === 'bezier') return bezierValue(a, b, channel, frame);
-  return THREE.MathUtils.lerp(va, vb, mode === 'smooth' ? legacyInterpolationT('smooth', t) : t);
+  return THREE.MathUtils.lerp(va, vb, t);
 }
 
-export function sampleAnimation(
-  keys: Keyframe[],
-  frame: number,
-  mode: AnimationInterpolation,
-  overrides: AnimationChannelInterpolation = {},
-): Keyframe {
+export function sampleAnimation(keys: Keyframe[], frame: number): Keyframe {
   const exact = keys.find(key => key.frame === frame);
   if (exact) return cloneKeyframe(exact, frame);
 
@@ -182,19 +151,19 @@ export function sampleAnimation(
   const a = keys[Math.max(0, (end === -1 ? keys.length : end) - 1)];
   const t = a.frame === b.frame ? 0 : THREE.MathUtils.clamp((frame - a.frame) / (b.frame - a.frame), 0, 1);
 
-  const position = axes.map(axis => sampleAnimationChannel(keys, frame, `position.${axis}`, mode, overrides));
-  const scale = axes.map(axis => sampleAnimationChannel(keys, frame, `scale.${axis}`, mode, overrides));
+  const position = axes.map(axis => sampleAnimationChannel(keys, frame, `position.${axis}`));
+  const scale = axes.map(axis => sampleAnimationChannel(keys, frame, `scale.${axis}`));
 
   const aOrder = a.rotationOrder ?? 'XYZ';
   const bOrder = b.rotationOrder ?? 'XYZ';
   const hasContinuousRotation = !!a.rotation && !!b.rotation && aOrder === bOrder;
   const rotation = hasContinuousRotation
-    ? axes.map(axis => sampleAnimationChannel(keys, frame, `rotation.${axis}`, mode, overrides))
+    ? axes.map(axis => sampleAnimationChannel(keys, frame, `rotation.${axis}`))
     : undefined;
   const quaternion = rotation
     ? new THREE.Quaternion().setFromEuler(new THREE.Euler(rotation[0], rotation[1], rotation[2], aOrder)).toArray()
     : new THREE.Quaternion().fromArray(a.quaternion)
-      .slerp(new THREE.Quaternion().fromArray(b.quaternion), legacyInterpolationT(mode, t)).toArray();
+      .slerp(new THREE.Quaternion().fromArray(b.quaternion), t).toArray();
 
   return {
     frame,
@@ -205,16 +174,11 @@ export function sampleAnimation(
   };
 }
 
-function legacyExportSamples(keys: Keyframe[], mode: AnimationInterpolation): Keyframe[] {
-  if (mode === 'smooth') {
-    return keys.flatMap((key, index) => index === keys.length - 1 ? [cloneKeyframe(key)] :
-      Array.from({ length: 32 }, (_, step) => sampleAnimation(keys, key.frame + (keys[index + 1].frame - key.frame) * step / 32, mode)));
-  }
-  if (mode === 'constant' || !keys.some(key => key.rotation)) return keys.map(key => cloneKeyframe(key));
-
+function linearExportSamples(keys: Keyframe[]): Keyframe[] {
   const samples: Keyframe[] = [];
   for (let index = 0; index < keys.length - 1; index++) {
-    const key = keys[index], next = keys[index + 1];
+    const key = keys[index];
+    const next = keys[index + 1];
     const frameSpan = next.frame - key.frame;
     const sameOrder = (key.rotationOrder ?? 'XYZ') === (next.rotationOrder ?? 'XYZ');
     const angularSpan = key.rotation && next.rotation && sameOrder
@@ -222,41 +186,38 @@ function legacyExportSamples(keys: Keyframe[], mode: AnimationInterpolation): Ke
       : 0;
     const steps = angularSpan >= Math.PI - 1e-9 ? Math.max(2, Math.ceil(angularSpan / (Math.PI / 2))) : 1;
     for (let step = 0; step < steps; step++) {
-      samples.push(step === 0 ? cloneKeyframe(key) : sampleAnimation(keys, key.frame + frameSpan * step / steps, mode));
+      samples.push(step === 0 ? cloneKeyframe(key) : sampleAnimation(keys, key.frame + frameSpan * step / steps));
     }
   }
   samples.push(cloneKeyframe(keys[keys.length - 1]));
   return samples;
 }
 
-function bakedExportSamples(
-  keys: Keyframe[],
-  mode: AnimationInterpolation,
-  overrides: AnimationChannelInterpolation,
-): Keyframe[] {
+function bakedExportSamples(keys: Keyframe[]): Keyframe[] {
   const samples: Keyframe[] = [];
 
   for (let index = 0; index < keys.length - 1; index++) {
-    const key = keys[index], next = keys[index + 1];
+    const key = keys[index];
+    const next = keys[index + 1];
     const frameSpan = next.frame - key.frame;
-    const segmentModes = animationChannels.map(channel => effectiveSegmentInterpolation(key, channel, mode, overrides));
-    const hasCurved = segmentModes.some(segmentMode => segmentMode === 'smooth' || segmentMode === 'bezier');
+    const segmentModes = animationChannels.map(channel => effectiveSegmentInterpolation(key, channel));
+    const hasBezier = segmentModes.includes('bezier');
     const hasConstant = segmentModes.includes('constant');
     const sameOrder = (key.rotationOrder ?? 'XYZ') === (next.rotationOrder ?? 'XYZ');
     const angularSpan = key.rotation && next.rotation && sameOrder
       ? Math.max(...key.rotation.map((value, axis) => Math.abs(next.rotation![axis] - value)))
       : 0;
     const angularSteps = angularSpan >= Math.PI - 1e-9 ? Math.max(2, Math.ceil(angularSpan / (Math.PI / 2))) : 1;
-    const steps = Math.max(hasCurved ? 32 : 1, angularSteps);
+    const steps = Math.max(hasBezier ? 32 : 1, angularSteps);
 
     for (let step = 0; step < steps; step++) {
       const sampleFrame = key.frame + frameSpan * step / steps;
-      samples.push(step === 0 ? cloneKeyframe(key) : sampleAnimation(keys, sampleFrame, mode, overrides));
+      samples.push(step === 0 ? cloneKeyframe(key) : sampleAnimation(keys, sampleFrame));
     }
     if (hasConstant && frameSpan > 0) {
       const epsilon = Math.min(1e-4, frameSpan * 1e-6);
       const nearEnd = next.frame - epsilon;
-      if (nearEnd > key.frame) samples.push(sampleAnimation(keys, nearEnd, mode, overrides));
+      if (nearEnd > key.frame) samples.push(sampleAnimation(keys, nearEnd));
     }
   }
   samples.push(cloneKeyframe(keys[keys.length - 1]));
@@ -266,17 +227,16 @@ function bakedExportSamples(
 export function animationTracks(object: THREE.Object3D): THREE.KeyframeTrack[] {
   const keys: Keyframe[] = object.userData.keyframes ?? [];
   if (!keys.length) return [];
-  const mode: AnimationInterpolation = object.userData.animationInterpolation ?? 'linear';
-  const overrides: AnimationChannelInterpolation = object.userData.animationChannelInterpolation ?? {};
-  const hasEffectiveOverrides = Object.values(overrides).some(override => override !== mode);
-  const hasKeyCurves = keys.some(key => Object.values(key.curves ?? {}).some(curve => curve?.interpolation));
-  const needsBaking = hasEffectiveOverrides || hasKeyCurves;
-  const samples = needsBaking ? bakedExportSamples(keys, mode, overrides) : legacyExportSamples(keys, mode);
+
+  const hasNonLinear = keys.slice(0, -1).some(key =>
+    animationChannels.some(channel => effectiveSegmentInterpolation(key, channel) !== 'linear')
+  );
+  const samples = hasNonLinear ? bakedExportSamples(keys) : linearExportSamples(keys);
   const times = samples.map(key => (key.frame - 1) / 24);
-  const interpolation = !needsBaking && mode === 'constant' ? THREE.InterpolateDiscrete : THREE.InterpolateLinear;
+
   return [
-    new THREE.VectorKeyframeTrack(`${object.uuid}.position`, times, samples.flatMap(key => key.position), interpolation),
-    new THREE.QuaternionKeyframeTrack(`${object.uuid}.quaternion`, times, samples.flatMap(key => key.quaternion), interpolation),
-    new THREE.VectorKeyframeTrack(`${object.uuid}.scale`, times, samples.flatMap(key => key.scale), interpolation),
+    new THREE.VectorKeyframeTrack(`${object.uuid}.position`, times, samples.flatMap(key => key.position), THREE.InterpolateLinear),
+    new THREE.QuaternionKeyframeTrack(`${object.uuid}.quaternion`, times, samples.flatMap(key => key.quaternion), THREE.InterpolateLinear),
+    new THREE.VectorKeyframeTrack(`${object.uuid}.scale`, times, samples.flatMap(key => key.scale), THREE.InterpolateLinear),
   ];
 }
