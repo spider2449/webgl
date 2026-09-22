@@ -134,3 +134,83 @@ test('legacy quaternion-only keyframes remain readable', async ({ page }) => {
   expect(result.finite).toBe(true);
   expect(result.quaternion.every((value: number) => Number.isFinite(value))).toBe(true);
 });
+
+
+test('Global gizmo preserves the nearest local Euler branch for multi-axis rotation', async ({ page }) => {
+  const result = await page.evaluate(() => {
+    const e = (window as any).__forge;
+    const object = e.selected;
+    const rad = (degrees: number) => degrees * Math.PI / 180;
+    const deg = (radians: number) => radians * 180 / Math.PI;
+    object.rotation.set(rad(170), rad(120), rad(30), 'XYZ');
+    e.setTool('rotate');
+    e.transform.setSpace('world');
+    const before = [deg(object.rotation.x), deg(object.rotation.y), deg(object.rotation.z)];
+    const orientation = object.quaternion.clone();
+
+    e.transform.dispatchEvent({ type: 'dragging-changed', value: true });
+    object.quaternion.copy(orientation);
+    const canonical = [deg(object.rotation.x), deg(object.rotation.y), deg(object.rotation.z)];
+    e.transform.dispatchEvent({ type: 'objectChange' });
+    const after = [deg(object.rotation.x), deg(object.rotation.y), deg(object.rotation.z)];
+    const finalOrientation = object.quaternion.clone();
+    e.transform.dispatchEvent({ type: 'dragging-changed', value: false });
+
+    return {
+      before,
+      canonical,
+      after,
+      orientationDot: Math.abs(orientation.dot(finalOrientation)),
+    };
+  });
+
+  expect(Math.max(...result.canonical.map((value: number, index: number) => Math.abs(value - result.before[index])))).toBeGreaterThan(90);
+  result.after.forEach((value: number, index: number) => expect(value).toBeCloseTo(result.before[index], 6));
+  expect(result.orientationDot).toBeCloseTo(1, 10);
+});
+
+test('Global and Local gizmo drags avoid Euler branch jumps after small quaternion rotations', async ({ page }) => {
+  const result = await page.evaluate(() => {
+    const e = (window as any).__forge;
+    const object = e.selected;
+    const rad = (degrees: number) => degrees * Math.PI / 180;
+    const deg = (radians: number) => radians * 180 / Math.PI;
+
+    const THREE = (e.selected.constructor as any).prototype.isObject3D !== undefined
+      ? { Quaternion: e.selected.quaternion.constructor, Vector3: e.selected.position.constructor }
+      : null;
+    const run = (space: 'world' | 'local') => {
+      object.rotation.set(rad(170), rad(120), rad(30), 'XYZ');
+      e.setTool('rotate');
+      e.transform.setSpace(space);
+      const before = [deg(object.rotation.x), deg(object.rotation.y), deg(object.rotation.z)];
+      const start = object.quaternion.clone();
+      const delta = new THREE!.Quaternion().setFromAxisAngle(
+        new THREE!.Vector3(space === 'world' ? 0 : 1, space === 'world' ? 1 : 0, 0),
+        rad(5),
+      );
+      const target = space === 'world' ? delta.clone().multiply(start) : start.clone().multiply(delta);
+
+      e.transform.dispatchEvent({ type: 'dragging-changed', value: true });
+      object.quaternion.copy(target);
+      e.transform.dispatchEvent({ type: 'objectChange' });
+      const after = [deg(object.rotation.x), deg(object.rotation.y), deg(object.rotation.z)];
+      const finalOrientation = object.quaternion.clone();
+      e.transform.dispatchEvent({ type: 'dragging-changed', value: false });
+
+      return {
+        before,
+        after,
+        orientationDot: Math.abs(target.dot(finalOrientation)),
+        maxEulerDelta: Math.max(...after.map((value: number, index: number) => Math.abs(value - before[index]))),
+      };
+    };
+
+    return { global: run('world'), local: run('local') };
+  });
+
+  expect(result.global.orientationDot).toBeCloseTo(1, 10);
+  expect(result.local.orientationDot).toBeCloseTo(1, 10);
+  expect(result.global.maxEulerDelta).toBeLessThan(45);
+  expect(result.local.maxEulerDelta).toBeLessThan(45);
+});
