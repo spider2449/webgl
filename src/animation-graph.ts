@@ -203,6 +203,11 @@ export class AnimationGraphView {
 
   get selectedKeyFrame() { return this.selectedFrame; }
 
+  selectKeyFrame(frame: number | null) {
+    this.selectedFrame = frame;
+    this.signature = '';
+  }
+
   update(
     object: THREE.Object3D | null,
     channel: ScalarAnimationChannel,
