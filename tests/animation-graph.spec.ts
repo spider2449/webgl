@@ -31,7 +31,6 @@ test('Graph Editor visualizes Linear, Constant and Smooth for the selected scala
     e.frame = 25;
     object.position.set(8, 0, 0);
     e.insertKey();
-    e.setAnimationInterpolation('linear');
     e.scrub(7);
   });
 
@@ -64,7 +63,6 @@ test('Graph Editor visualizes Linear, Constant and Smooth for the selected scala
   await page.getByLabel('Selected key interpolation').selectOption('');
   await page.evaluate(() => {
     const e = (window as any).__forge;
-    e.setAnimationInterpolation('smooth');
     e.scrub(e.frame);
   });
   await expect(graph).toHaveAttribute('data-mode', 'smooth');
@@ -100,7 +98,6 @@ test('Graph Editor preserves unwrapped multi-turn rotation values', async ({ pag
     e.frame = 25;
     object.rotation.set(0, 720 * Math.PI / 180, 0, 'XYZ');
     e.insertKey();
-    e.setAnimationInterpolation('linear');
     e.scrub(13);
   });
 
@@ -146,7 +143,6 @@ test('Graph Editor drags a scalar key value and commits one undoable edit', asyn
     e.frame = 25;
     object.position.set(8, 0, 0);
     e.insertKey();
-    e.setAnimationInterpolation('linear');
     e.scrub(25);
   });
   await page.getByRole('button', { name: 'Animation', exact: true }).click();
@@ -249,7 +245,6 @@ test('Graph Editor supports per-key outbound interpolation with mixed segments',
     e.frame = 49;
     object.position.set(0, 0, 0);
     e.insertKey();
-    e.setAnimationInterpolation('linear');
     e.scrub(1);
   });
   await page.getByRole('button', { name: 'Animation', exact: true }).click();
@@ -314,7 +309,6 @@ test('Graph Editor tangent handles change the real Bezier curve and undo in one 
     e.frame = 25;
     object.position.set(8, 0, 0);
     e.insertKey();
-    e.setAnimationInterpolation('linear');
     e.scrub(1);
   });
   await page.getByRole('button', { name: 'Animation', exact: true }).click();
