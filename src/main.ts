@@ -17,7 +17,7 @@ $('#app').innerHTML = `
     <a class="brand" href="#" aria-label="Forge Studio"><span class="brand-mark">F</span> FORGE <span class="brand-divider"></span><span class="studio-label">3D STUDIO</span></a>
     <nav class="main-menu" aria-label="Application menu">
       <div class="dropdown"><button data-menu="file-menu">File</button><div class="menu hidden" id="file-menu"><button id="new-project">${icon('file-plus-2')}New scene<kbd>Ctrl N</kbd></button><button id="open-project">${icon('folder-open')}Open project<kbd>Ctrl O</kbd></button><button id="save-project">${icon('save')}Save project<kbd>Ctrl S</kbd></button><hr><button id="import-model">${icon('upload')}Import GLB / OBJ</button><button id="export-glb">${icon('download')}Export GLB</button><button id="export-obj">${icon('download')}Export OBJ</button><button id="capture">${icon('camera')}Save viewport image</button></div></div>
-      <div class="dropdown"><button data-menu="edit-menu">Edit</button><div class="menu hidden" id="edit-menu"><button id="menu-undo">${icon('undo-2')}Undo<kbd>Ctrl Z</kbd></button><button id="menu-redo">${icon('redo-2')}Redo<kbd>Ctrl Shift Z</kbd></button><hr><button id="duplicate">${icon('copy')}Duplicate<kbd>Shift D</kbd></button><button id="delete">${icon('trash-2')}Delete<kbd>Del</kbd></button></div></div>
+      <div class="dropdown"><button data-menu="edit-menu">Edit</button><div class="menu hidden" id="edit-menu"><button id="menu-undo">${icon('undo-2')}Undo<kbd>Ctrl Z</kbd></button><button id="menu-redo">${icon('redo-2')}Redo<kbd>Ctrl Shift Z</kbd></button><hr><button id="duplicate">${icon('copy')}Duplicate<kbd>Shift D</kbd></button><button id="duplicate-linked">${icon('copy')}Linked duplicate<kbd>Alt D</kbd></button><button id="delete">${icon('trash-2')}Delete<kbd>Del</kbd></button></div></div>
       <button id="help-menu">Help</button>
     </nav>
     <div class="project-name"><span class="project-dot"></span><input id="project-name" aria-label="Project name" value="Untitled scene" maxlength="100"><span class="file-type">.forge</span></div>
@@ -49,7 +49,7 @@ $('#app').innerHTML = `
   </main>
   <footer class="statusbar"><span class="status-ready"><span></span> Ready</span><span id="scene-stats">1 object · 24 vertices · 12 triangles</span><div class="status-spacer"></div><span class="navigation-help"><kbd>MMB</kbd> Orbit <kbd>Shift MMB</kbd> Pan <kbd>Scroll</kbd> Zoom</span><span class="webgl-label">WebGL 2</span>${button('help','help-circle','Keyboard shortcuts')}</footer>
   <div class="toast hidden" id="toast" role="status"></div>
-  <dialog id="help-dialog"><div class="dialog-heading"><span>Make yourself at home.</span>${button('close-help','x','Close shortcuts')}</div><p>A familiar workflow, right in your browser.</p><div class="shortcut-grid">${[['Select','Q'],['Move / Rotate / Scale','G / R / S'],['Frame selection','F'],['Duplicate','Shift D'],['Delete','Delete'],['Object / Edit mode','Tab'],['Insert keyframe','I'],['Play / Pause','Space'],['Front / Right / Top','1 / 3 / 7'],['Perspective / Orthographic','5'],['Undo / Redo','Ctrl Z / Ctrl Shift Z'],['Save / Open project','Ctrl S / Ctrl O'],['Orbit','Middle mouse / Alt drag'],['Pan','Right mouse / Shift MMB']].map(([label,key])=>`<span>${label}</span><kbd>${key}</kbd>`).join('')}</div><p class="dialog-note">This release supports object and vertex editing. Face modeling, sculpting, rigging, simulation and native .blend files are planned.</p></dialog>
+  <dialog id="help-dialog"><div class="dialog-heading"><span>Make yourself at home.</span>${button('close-help','x','Close shortcuts')}</div><p>A familiar workflow, right in your browser.</p><div class="shortcut-grid">${[['Select','Q'],['Move / Rotate / Scale','G / R / S'],['Frame selection','F'],['Duplicate','Shift D'],['Linked duplicate','Alt D'],['Delete','Delete'],['Object / Edit mode','Tab'],['Insert keyframe','I'],['Play / Pause','Space'],['Front / Right / Top','1 / 3 / 7'],['Perspective / Orthographic','5'],['Undo / Redo','Ctrl Z / Ctrl Shift Z'],['Save / Open project','Ctrl S / Ctrl O'],['Orbit','Middle mouse / Alt drag'],['Pan','Right mouse / Shift MMB']].map(([label,key])=>`<span>${label}</span><kbd>${key}</kbd>`).join('')}</div><p class="dialog-note">This release supports object and vertex editing. Face modeling, sculpting, rigging, simulation and native .blend files are planned.</p></dialog>
   <dialog id="new-dialog"><div class="dialog-heading"><span>Create a new scene?</span></div><p>Download your project first if you want to keep a permanent copy. You can undo this action in the current session.</p><div class="dialog-actions"><button id="cancel-new">Cancel</button><button id="confirm-new" class="primary-button">New scene</button></div></dialog>
   <input type="file" id="project-input" accept=".forge,.json" hidden><input type="file" id="model-input" accept=".glb,.obj" hidden>
 `;
@@ -420,6 +420,7 @@ on('focus', () => editor.focus()); on('frame-all', () => editor.focus(true));
 for (const [id, axis] of [['axis-x','right'],['axis-y','top'],['axis-z','front'],['axis-home','perspective'],['home-view','perspective']] as const) on(id, () => { editor.view(axis); $('#view-label').textContent = `${axis[0].toUpperCase()+axis.slice(1)} ${editor.camera instanceof THREE.OrthographicCamera ? 'Orthographic' : 'Perspective'}`; });
 on('projection', () => editor.toggleProjection());
 for (const id of ['duplicate','duplicate-rail']) on(id, () => editor.duplicate());
+on('duplicate-linked', () => toast(editor.duplicateLinked() ? 'Created linked duplicate.' : 'Linked duplicate requires an ordinary mesh without modifiers.'));
 for (const id of ['delete','delete-outliner']) on(id, () => editor.remove());
 on('menu-undo', () => editor.undo()); on('menu-redo', () => editor.redo());
 on('smooth', () => editor.smooth(false)); on('flat', () => editor.smooth(true));
@@ -569,6 +570,7 @@ document.addEventListener('keydown', e => {
   if (key === 'q') tool('select'); if (key === 'g') tool('translate'); if (key === 'r') tool('rotate'); if (key === 's') tool('scale');
   if (key === 'f') editor.focus();
   if (key === 'd' && e.shiftKey) { e.preventDefault(); editor.duplicate(); }
+  else if (key === 'd' && e.altKey) { e.preventDefault(); if (!editor.duplicateLinked()) toast('Linked duplicate requires an ordinary mesh without modifiers.'); }
   if (key === 'delete' || key === 'backspace') { e.preventDefault(); editor.remove(); }
   if (key === 'tab') { e.preventDefault(); if (e.shiftKey) snap(); else { if (editor.modelingBusy) editor.cancelModeling(); else void editor.enterEditMode(!editor.editMode).then(ok => { if (!ok) toast('Select a mesh and apply its modifiers first.'); tool('translate'); }).catch(error => toast(error.message)); } }
   if (key === 'i') insertKey();
