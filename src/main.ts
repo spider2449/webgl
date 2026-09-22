@@ -331,7 +331,7 @@ function updateTimeline() {
       channelValue.step = '0.1';
     }
   }
-  channelSelect.disabled = !hasKey || editor.editMode || editor.playing;
+  channelSelect.disabled = !keys.length || editor.editMode || editor.playing;
   channelValue.disabled = !hasKey || editor.editMode || editor.playing;
   applyChannel.disabled = !hasKey || editor.editMode || editor.playing;
   const state = `${frame}|${editor.playing}|${markers}`;
