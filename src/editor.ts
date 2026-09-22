@@ -206,7 +206,7 @@ export class Editor extends EventTarget {
       this.unwrapRotationDrag();
       return;
     }
-    const angle = this.transform.rotationAngle;
+    const angle = (this.transform as TransformControls & { rotationAngle: number }).rotationAngle;
     if (!Number.isFinite(angle)) return;
     const next = this.rotationDragStart.clone();
     const component = axis.toLowerCase() as 'x' | 'y' | 'z';
