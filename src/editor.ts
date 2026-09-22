@@ -194,12 +194,30 @@ export class Editor extends EventTarget {
     const object = this.rotationDragObject;
     if (!object || this.transform.object !== object) return;
     const turn = Math.PI * 2;
-    const unwrap = (value: number, reference: number) => value + Math.round((reference - value) / turn) * turn;
-    const x = unwrap(object.rotation.x, this.rotationDragReference.x);
-    const y = unwrap(object.rotation.y, this.rotationDragReference.y);
-    const z = unwrap(object.rotation.z, this.rotationDragReference.z);
-    object.rotation.set(x, y, z, object.rotation.order);
-    this.rotationDragReference.set(x, y, z);
+    const reference = this.rotationDragReference;
+    const unwrap = (value: number, target: number) => value + Math.round((target - value) / turn) * turn;
+    const nearest = (candidate: THREE.Vector3) => new THREE.Vector3(
+      unwrap(candidate.x, reference.x),
+      unwrap(candidate.y, reference.y),
+      unwrap(candidate.z, reference.z),
+    );
+
+    const primary = new THREE.Vector3(object.rotation.x, object.rotation.y, object.rotation.z);
+    const alternate = primary.clone();
+    const order = object.rotation.order;
+    const first = order[0].toLowerCase() as 'x' | 'y' | 'z';
+    const middle = order[1].toLowerCase() as 'x' | 'y' | 'z';
+    const last = order[2].toLowerCase() as 'x' | 'y' | 'z';
+    alternate[first] += Math.PI;
+    alternate[middle] = Math.PI - alternate[middle];
+    alternate[last] += Math.PI;
+
+    const candidates = [nearest(primary), nearest(alternate)];
+    const best = candidates.reduce((a, b) =>
+      a.distanceToSquared(reference) <= b.distanceToSquared(reference) ? a : b
+    );
+    object.rotation.set(best.x, best.y, best.z, order);
+    reference.copy(best);
   }
 
   emit(type = 'change') { this.dispatchEvent(new Event(type)); }
