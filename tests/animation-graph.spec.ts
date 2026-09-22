@@ -5,6 +5,21 @@ test.beforeEach(async ({ page }) => {
   await page.waitForFunction(() => (window as any).__forge?.selected);
 });
 
+test('Object panel no longer exposes the legacy Animation controls', async ({ page }) => {
+  await expect(page.getByLabel('Animation interpolation', { exact: true })).toHaveCount(0);
+  await expect(page.getByLabel('Select keyframe', { exact: true })).toHaveCount(0);
+  await expect(page.getByLabel('Animation channel', { exact: true })).toHaveCount(0);
+  await expect(page.getByLabel('Animation channel interpolation', { exact: true })).toHaveCount(0);
+  await expect(page.getByLabel('Animation channel value', { exact: true })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Move keyframe', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Copy keyframe', exact: true })).toHaveCount(0);
+
+  await page.getByRole('button', { name: 'Animation', exact: true }).click();
+  await expect(page.getByLabel('Animation graph editor')).toBeVisible();
+  await expect(page.locator('[data-graph-channel]')).toHaveCount(9);
+  await expect(page.getByLabel('Selected key interpolation')).toBeVisible();
+});
+
 test('Graph Editor visualizes Linear, Constant and Smooth for the selected scalar channel', async ({ page }) => {
   await page.evaluate(() => {
     const e = (window as any).__forge;
@@ -38,14 +53,16 @@ test('Graph Editor visualizes Linear, Constant and Smooth for the selected scala
   expect(linearPath).toBeTruthy();
   expect(await graph.locator('.graph-curve').getAttribute('data-sample-count')).toBe('3');
 
-  await page.getByLabel('Animation channel interpolation', { exact: true }).selectOption('constant');
+  await graph.locator('.graph-key-point[data-frame="1"]').click();
+  await page.getByLabel('Selected key interpolation').selectOption('constant');
   await expect(graph).toHaveAttribute('data-mode', 'constant');
   await expect(page.locator('#animation-graph-detail')).toContainText('Constant');
   const constantPath = await graph.locator('.graph-curve').getAttribute('d');
   expect(constantPath).not.toBe(linearPath);
   expect(await graph.locator('.graph-curve').getAttribute('data-sample-count')).toBe('4');
 
-  await page.getByLabel('Animation channel interpolation', { exact: true }).selectOption('smooth');
+  await page.getByLabel('Selected key interpolation').selectOption('');
+  await page.evaluate(() => (window as any).__forge.setAnimationInterpolation('smooth'));
   await expect(graph).toHaveAttribute('data-mode', 'smooth');
   await expect(page.locator('#animation-graph-detail')).toContainText('Smooth');
   await expect(page.locator('[data-graph-channel="position.x"] small')).toHaveText('SMT');
@@ -85,7 +102,7 @@ test('Graph Editor preserves unwrapped multi-turn rotation values', async ({ pag
 
   await page.getByRole('button', { name: 'Animation', exact: true }).click();
   await page.locator('[data-graph-channel="rotation.y"]').click();
-  await expect(page.getByLabel('Animation channel', { exact: true })).toHaveValue('rotation.y');
+  await expect(page.locator('[data-graph-channel="rotation.y"]')).toHaveClass(/active/);
 
   const graph = page.getByLabel('Animation graph editor');
   await expect(graph).toHaveAttribute('data-channel', 'rotation.y');
