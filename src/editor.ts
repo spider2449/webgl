@@ -1164,13 +1164,15 @@ export class Editor extends EventTarget {
           !Number.isFinite(k.frame) ||
           ![k.position, k.quaternion, k.scale].every((v, i) => Array.isArray(v) && v.length === (i === 1 ? 4 : 3) && v.every(Number.isFinite)) ||
           (k.rotation !== undefined && (!Array.isArray(k.rotation) || k.rotation.length !== 3 || !k.rotation.every(Number.isFinite))) ||
-          (k.rotationOrder !== undefined && !['XYZ','YZX','ZXY','XZY','YXZ','ZYX'].includes(k.rotationOrder))
+          (k.rotationOrder !== undefined && !['XYZ','YZX','ZXY','XZY','YXZ','ZYX'].includes(k.rotationOrder)) ||
+          !validKeyCurves(k.curves)
         )) throw new Error('Invalid animation keyframes.');
         const overrides: AnimationChannelInterpolation = o.userData.animationChannelInterpolation ?? {};
-        if (Object.keys(overrides).some(channel => channel.startsWith('rotation.'))) {
-          const keys = o.userData.keyframes as Keyframe[];
-          if (keys.some(key => !key.rotation)) throw new Error('Rotation channel interpolation requires Euler key metadata.');
-          if (new Set(keys.map(key => key.rotationOrder ?? 'XYZ')).size > 1) throw new Error('Rotation channel interpolation requires one Euler order.');
+        const keys = o.userData.keyframes as Keyframe[];
+        const hasRotationCurveMetadata = keys.some(key => Object.keys(key.curves ?? {}).some(channel => channel.startsWith('rotation.')));
+        if (Object.keys(overrides).some(channel => channel.startsWith('rotation.')) || hasRotationCurveMetadata) {
+          if (keys.some(key => !key.rotation)) throw new Error('Rotation curves require Euler key metadata.');
+          if (new Set(keys.map(key => key.rotationOrder ?? 'XYZ')).size > 1) throw new Error('Rotation curves require one Euler order.');
         }
       }
     }); } catch (error) { this.disposeObject(root); throw error; }
