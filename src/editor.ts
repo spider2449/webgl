@@ -1210,8 +1210,8 @@ export class Editor extends EventTarget {
     return prepared;
   }
 
-  setKeyInterpolation(frame: number, channel: ScalarAnimationChannel, mode: KeyInterpolation | null) {
-    if (!Number.isInteger(frame) || frame < 1 || frame > 250 || !validAnimationChannel(channel) || (mode !== null && !validKeyInterpolation(mode))) {
+  setKeyInterpolation(frame: number, channel: ScalarAnimationChannel, mode: KeyInterpolation) {
+    if (!Number.isInteger(frame) || frame < 1 || frame > 250 || !validAnimationChannel(channel) || !validKeyInterpolation(mode)) {
       throw new Error('Invalid key interpolation.');
     }
     if (!this.selected || this.editMode || this.playing || this.animationKeyDrag || this.animationHandleDrag) return false;
@@ -1219,13 +1219,12 @@ export class Editor extends EventTarget {
     const prepared = this.prepareCurveKeys(sourceKeys, channel);
     const index = prepared.findIndex(key => key.frame === frame);
     if (index < 0) throw new Error('Choose an authored key first.');
-    if (mode !== null && index === prepared.length - 1) throw new Error('The last key has no outbound segment.');
+    if (index === prepared.length - 1) throw new Error('The last key has no outbound segment.');
 
     const key = prepared[index];
     const curves: NonNullable<Keyframe['curves']> = cloneKeyCurves(key.curves) ?? {};
     const curve: KeyCurve = { ...(curves[channel] ?? {}) };
-    if (mode === null) delete curve.interpolation;
-    else curve.interpolation = mode;
+    curve.interpolation = mode;
 
     if (mode === 'bezier') {
       const next = prepared[index + 1];
