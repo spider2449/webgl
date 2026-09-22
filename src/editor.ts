@@ -1266,6 +1266,7 @@ export class Editor extends EventTarget {
         scale: [...key.scale],
         ...(key.rotation ? { rotation: [...key.rotation] } : {}),
         ...(key.rotationOrder ? { rotationOrder: key.rotationOrder } : {}),
+        ...(key.curves ? { curves: cloneKeyCurves(key.curves) } : {}),
       })),
     };
     return true;
@@ -1288,6 +1289,7 @@ export class Editor extends EventTarget {
         scale: [...key.scale],
         ...(key.rotation ? { rotation: [...key.rotation] } : {}),
         ...(key.rotationOrder ? { rotationOrder: key.rotationOrder } : {}),
+        ...(key.curves ? { curves: cloneKeyCurves(key.curves) } : {}),
       };
       const rotationOrder = key.rotationOrder ?? 'XYZ';
       const sourceEuler = key.rotation ? [...key.rotation] : (() => {
@@ -1306,6 +1308,7 @@ export class Editor extends EventTarget {
         scale: property === 'scale' ? key.scale.map((item, index) => index === component ? value : item) : [...key.scale],
         ...(property === 'rotation' || key.rotation ? { rotation: property === 'rotation' ? nextRotation : [...key.rotation!] } : {}),
         ...(property === 'rotation' || key.rotationOrder ? { rotationOrder: property === 'rotation' ? rotationOrder : key.rotationOrder! } : {}),
+        ...(key.curves ? { curves: cloneKeyCurves(key.curves) } : {}),
       } satisfies Keyframe;
     }).sort((a, b) => a.frame - b.frame);
 
@@ -1330,6 +1333,7 @@ export class Editor extends EventTarget {
         scale: [...key.scale],
         ...(key.rotation ? { rotation: [...key.rotation] } : {}),
         ...(key.rotationOrder ? { rotationOrder: key.rotationOrder } : {}),
+        ...(key.curves ? { curves: cloneKeyCurves(key.curves) } : {}),
       }));
       this.scrub(drag.sourceFrame);
       return true;
@@ -1370,6 +1374,7 @@ export class Editor extends EventTarget {
       scale: property === 'scale' ? key.scale.map((item, index) => index === component ? value : item) : [...key.scale],
       ...(property === 'rotation' || key.rotation ? { rotation: property === 'rotation' ? nextRotation : [...key.rotation!] } : {}),
       ...(property === 'rotation' || key.rotationOrder ? { rotationOrder: property === 'rotation' ? rotationOrder : key.rotationOrder! } : {}),
+      ...(key.curves ? { curves: cloneKeyCurves(key.curves) } : {}),
     } : key);
     this.scrub(source.frame);
     this.commit();
@@ -1390,6 +1395,7 @@ export class Editor extends EventTarget {
       scale: [...source.scale],
       ...(source.rotation ? { rotation: [...source.rotation] } : {}),
       ...(source.rotationOrder ? { rotationOrder: source.rotationOrder } : {}),
+      ...(source.curves ? { curves: cloneKeyCurves(source.curves) } : {}),
     });
     this.selected.userData.keyframes = next.sort((a, b) => a.frame - b.frame);
     this.scrub(targetFrame);
