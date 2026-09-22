@@ -1268,7 +1268,7 @@ export class Editor extends EventTarget {
     if (mode !== null && index === prepared.length - 1) throw new Error('The last key has no outbound segment.');
 
     const key = prepared[index];
-    const curves = cloneKeyCurves(key.curves) ?? {};
+    const curves: NonNullable<Keyframe['curves']> = cloneKeyCurves(key.curves) ?? {};
     const curve: KeyCurve = { ...(curves[channel] ?? {}) };
     if (mode === null) delete curve.interpolation;
     else curve.interpolation = mode;
@@ -1279,7 +1279,7 @@ export class Editor extends EventTarget {
       const delta = animationChannelNativeValue(next, channel) - animationChannelNativeValue(key, channel);
       if (!curve.right) curve.right = [span / 3, delta / 3];
 
-      const nextCurves = cloneKeyCurves(next.curves) ?? {};
+      const nextCurves: NonNullable<Keyframe['curves']> = cloneKeyCurves(next.curves) ?? {};
       const nextCurve: KeyCurve = { ...(nextCurves[channel] ?? {}) };
       if (!nextCurve.left) nextCurve.left = [-span / 3, -delta / 3];
       nextCurves[channel] = nextCurve;
@@ -1346,7 +1346,7 @@ export class Editor extends EventTarget {
     }
 
     const clampedFrame = THREE.MathUtils.clamp(targetFrame, minimumFrame, maximumFrame);
-    const curves = cloneKeyCurves(key.curves) ?? {};
+    const curves: NonNullable<Keyframe['curves']> = cloneKeyCurves(key.curves) ?? {};
     const curve: KeyCurve = { ...(curves[drag.channel] ?? {}) };
     curve[drag.side] = [clampedFrame - key.frame, targetValue - keyValue];
     curves[drag.channel] = curve;
