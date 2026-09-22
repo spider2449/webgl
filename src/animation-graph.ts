@@ -9,6 +9,8 @@ export type AnimationGraphData = {
   frameMax: number;
   valueMin: number;
   valueMax: number;
+  actualMin: number;
+  actualMax: number;
   samples: { frame: number; value: number }[];
   keys: { frame: number; value: number }[];
 };
@@ -75,8 +77,10 @@ export function buildAnimationGraphData(
   }
 
   const values = [...samples.map(point => point.value), ...keyPoints.map(point => point.value)];
-  let valueMin = Math.min(...values);
-  let valueMax = Math.max(...values);
+  const actualMin = Math.min(...values);
+  const actualMax = Math.max(...values);
+  let valueMin = actualMin;
+  let valueMax = actualMax;
   if (!Number.isFinite(valueMin) || !Number.isFinite(valueMax)) return null;
   if (Math.abs(valueMax - valueMin) < 1e-9) {
     const pad = Math.max(1, Math.abs(valueMin) * 0.1);
@@ -88,7 +92,7 @@ export function buildAnimationGraphData(
     valueMax += pad;
   }
 
-  return { channel, mode, frameMin, frameMax, valueMin, valueMax, samples, keys: keyPoints };
+  return { channel, mode, frameMin, frameMax, valueMin, valueMax, actualMin, actualMax, samples, keys: keyPoints };
 }
 
 const NS = 'http://www.w3.org/2000/svg';
@@ -162,7 +166,7 @@ export class AnimationGraphView {
     }
 
     this.title.textContent = animationChannelLabel(data.channel);
-    this.detail.textContent = `${data.mode[0].toUpperCase() + data.mode.slice(1)} · ${this.format(data.valueMin)} to ${this.format(data.valueMax)}`;
+    this.detail.textContent = `${data.mode[0].toUpperCase() + data.mode.slice(1)} · ${this.format(data.actualMin)} to ${this.format(data.actualMax)}`;
     const x = (frame: number) => {
       const span = Math.max(1e-9, data.frameMax - data.frameMin);
       return 48 + (frame - data.frameMin) / span * 924;
