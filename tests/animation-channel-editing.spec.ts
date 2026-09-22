@@ -159,6 +159,27 @@ test('invalid scalar channel edits preserve scene and history', async ({ page })
   expect(Object.values(result).every(item => item.rejected && item.unchanged)).toBe(true);
 });
 
+test('playback refreshes selected object transform values while the timeline advances', async ({ page }) => {
+  await page.evaluate(() => {
+    const e = (window as any).__forge;
+    e.scrub(1);
+  });
+
+  const positionX = page.locator('[data-transform="position"][data-axis="x"]');
+  await expect(positionX).toHaveValue('0.000');
+  await page.locator('#play').click();
+
+  await page.waitForFunction(() => {
+    const e = (window as any).__forge;
+    const input = document.querySelector<HTMLInputElement>('[data-transform="position"][data-axis="x"]');
+    if (!e.playing || !input || e.frame < 3) return false;
+    return Math.abs(Number(input.value) - e.selected.position.x) < 0.02 && Number(input.value) > 0;
+  });
+
+  expect(await page.evaluate(() => (window as any).__forge.playing)).toBe(true);
+  await page.locator('#play').click();
+});
+
 test('animation channel UI edits the selected key and GLB exports the authored value', async ({ page }) => {
   await page.getByLabel('Select keyframe', { exact: true }).selectOption('25');
   await page.getByLabel('Animation channel', { exact: true }).selectOption('position.x');
