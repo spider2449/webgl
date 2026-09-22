@@ -67,6 +67,7 @@ export class Editor extends EventTarget {
   private suppressClick = false;
   private rotationDragObject: THREE.Object3D | null = null;
   private rotationDragReference = new THREE.Vector3();
+  private rotationDragMatrix = new THREE.Matrix4();
   private viewStyle = 'material';
   private solid = new THREE.MeshStandardMaterial({ color: 0xadb0b7, roughness: 0.8 });
   private wire = new THREE.MeshBasicMaterial({ color: 0xaac7d7, wireframe: true });
@@ -203,8 +204,30 @@ export class Editor extends EventTarget {
     );
 
     const primary = new THREE.Vector3(object.rotation.x, object.rotation.y, object.rotation.z);
-    const alternate = primary.clone();
     const order = object.rotation.order;
+
+    // Three.js XYZ decomposition has its singular branch on the middle Y axis.
+    // At |Y| = 90° the quaternion fixes only X+Z (positive Y) or X-Z
+    // (negative Y), leaving infinitely many equivalent Euler triples. Preserve
+    // continuity by choosing the singular solution nearest the previous drag
+    // value instead of accepting the canonical z=0 decomposition.
+    if (order === 'XYZ' && Math.abs(Math.cos(primary.y)) < 1e-3) {
+      this.rotationDragMatrix.makeRotationFromQuaternion(object.quaternion);
+      const elements = this.rotationDragMatrix.elements;
+      const theta = Math.atan2(elements[6], elements[5]);
+      const positive = Math.sin(primary.y) >= 0;
+      const referenceCombination = positive ? reference.x + reference.z : reference.x - reference.z;
+      const compatibleCombination = unwrap(theta, referenceCombination);
+      const delta = compatibleCombination - referenceCombination;
+      const x = reference.x + delta / 2;
+      const z = reference.z + (positive ? delta / 2 : -delta / 2);
+      const y = unwrap(primary.y, reference.y);
+      object.rotation.set(x, y, z, order);
+      reference.set(x, y, z);
+      return;
+    }
+
+    const alternate = primary.clone();
     const first = order[0].toLowerCase() as 'x' | 'y' | 'z';
     const middle = order[1].toLowerCase() as 'x' | 'y' | 'z';
     const last = order[2].toLowerCase() as 'x' | 'y' | 'z';
