@@ -68,5 +68,6 @@ test('unwrapped gizmo rotation keeps the same quaternion orientation', async ({ 
   });
 
   expect(result.degrees).toBeCloseTo(285, 6);
-  result.canonical.forEach((value: number, index: number) => expect(result.unwrapped[index]).toBeCloseTo(value, 10));
+  const dot = result.canonical.reduce((sum: number, value: number, index: number) => sum + value * result.unwrapped[index], 0);
+  expect(Math.abs(dot)).toBeCloseTo(1, 10);
 });
