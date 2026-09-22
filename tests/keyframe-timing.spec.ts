@@ -101,15 +101,10 @@ test('Graph Editor moves and Alt-drags copies while GLB uses the resulting timin
     return keys[1].position !== keys[2].position && keys[1].frame === 49 && keys[2].frame === 73;
   })).toBe(true);
 
-  const occupiedMarker = graph.locator('.graph-key-point[data-frame="49"]');
-  const occupiedBox = await occupiedMarker.boundingBox();
-  expect(occupiedBox).not.toBeNull();
-  await page.keyboard.down('Alt');
-  await page.mouse.move(occupiedBox!.x + occupiedBox!.width / 2, occupiedBox!.y + occupiedBox!.height / 2);
-  await page.mouse.down();
-  await page.mouse.move(frameX(1), occupiedBox!.y + occupiedBox!.height / 2, { steps: 10 });
-  await page.mouse.up();
-  await page.keyboard.up('Alt');
+  await page.evaluate(() => (window as any).__forge.undo());
+  frames = await page.evaluate(() => (window as any).__forge.selected.userData.keyframes.map((key: any) => key.frame));
+  expect(frames).toEqual([1, 49]);
+  await page.evaluate(() => (window as any).__forge.redo());
   frames = await page.evaluate(() => (window as any).__forge.selected.userData.keyframes.map((key: any) => key.frame));
   expect(frames).toEqual([1, 49, 73]);
 
