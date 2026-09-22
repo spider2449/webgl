@@ -347,3 +347,51 @@ test('Graph Editor tangent handles change the real Bezier curve and undo in one 
   expect(redone.right[1]).toBeGreaterThan(8 / 3);
   expect(redone.midpoint).toBeGreaterThan(4);
 });
+
+
+test('key curve metadata survives reinsert, retime and copy workflows', async ({ page }) => {
+  const result = await page.evaluate(() => {
+    const e = (window as any).__forge;
+    const object = e.selected;
+    object.userData.keyframes = [];
+
+    e.frame = 1;
+    object.position.set(0, 0, 0);
+    e.insertKey();
+    e.frame = 25;
+    object.position.set(8, 0, 0);
+    e.insertKey();
+
+    e.setKeyInterpolation(1, 'position.x', 'bezier');
+    e.beginAnimationHandleDrag(1, 'position.x', 'right');
+    e.previewAnimationHandleDrag(9, 6);
+    e.endAnimationHandleDrag();
+
+    e.scrub(1);
+    object.position.x = 1;
+    e.insertKey();
+    const afterReinsert = structuredClone(object.userData.keyframes.find((key: any) => key.frame === 1).curves['position.x']);
+
+    e.scrub(1);
+    e.retimeKey(10, false);
+    const afterMove = structuredClone(object.userData.keyframes.find((key: any) => key.frame === 10).curves['position.x']);
+
+    e.scrub(10);
+    e.retimeKey(15, true);
+    const afterCopy = structuredClone(object.userData.keyframes.find((key: any) => key.frame === 15).curves['position.x']);
+
+    return {
+      afterReinsert,
+      afterMove,
+      afterCopy,
+      frames: object.userData.keyframes.map((key: any) => key.frame),
+    };
+  });
+
+  for (const curve of [result.afterReinsert, result.afterMove, result.afterCopy]) {
+    expect(curve.interpolation).toBe('bezier');
+    expect(curve.right[0]).toBeCloseTo(8, 6);
+    expect(curve.right[1]).toBeCloseTo(6, 6);
+  }
+  expect(result.frames).toEqual([10, 15, 25]);
+});
