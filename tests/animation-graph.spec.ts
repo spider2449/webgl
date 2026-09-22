@@ -62,7 +62,11 @@ test('Graph Editor visualizes Linear, Constant and Smooth for the selected scala
   expect(await graph.locator('.graph-curve').getAttribute('data-sample-count')).toBe('4');
 
   await page.getByLabel('Selected key interpolation').selectOption('');
-  await page.evaluate(() => (window as any).__forge.setAnimationInterpolation('smooth'));
+  await page.evaluate(() => {
+    const e = (window as any).__forge;
+    e.setAnimationInterpolation('smooth');
+    e.scrub(e.frame);
+  });
   await expect(graph).toHaveAttribute('data-mode', 'smooth');
   await expect(page.locator('#animation-graph-detail')).toContainText('Smooth');
   await expect(page.locator('[data-graph-channel="position.x"] small')).toHaveText('SMT');
