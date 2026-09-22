@@ -36,7 +36,10 @@
 .animation-graph-header{height:32px;display:flex;align-items:center;gap:12px;padding:0 22px;border-bottom:1px solid #2f3239;background:#1f2127}
 .animation-graph-header>span:first-child{font:500 10px var(--mono);color:#d7b487;letter-spacing:.2px}
 #animation-graph-detail{font:9px var(--mono);color:#6f7886}
-.graph-editor-badge{margin-left:auto!important;font:8px var(--mono)!important;letter-spacing:.8px;color:#8a806e!important;border:1px solid #4b4337;border-radius:3px;padding:2px 5px}
+.graph-segment-control{margin-left:auto;display:flex;align-items:center;gap:5px;font:8px var(--mono);letter-spacing:.5px;text-transform:uppercase;color:#6f7886}
+.graph-segment-control select{height:22px;min-width:102px;font:9px var(--mono);padding:1px 5px;border:1px solid #3b414b;background:#191b20;color:#aab2bf;border-radius:3px}
+.graph-segment-control select:disabled{opacity:.45}
+.graph-editor-badge{font:8px var(--mono)!important;letter-spacing:.8px;color:#8a806e!important;border:1px solid #4b4337;border-radius:3px;padding:2px 5px}
 .animation-graph-body{display:grid;grid-template-columns:132px minmax(0,1fr);height:182px}
 .graph-channels{background:#191b20;border-right:1px solid #30333a;padding:8px 7px;overflow:auto;scrollbar-width:thin;scrollbar-color:#3c414a transparent}
 .graph-channel-group{display:grid;grid-template-columns:repeat(3,1fr);gap:3px;margin-bottom:8px}
@@ -53,7 +56,11 @@
 .graph-curve{fill:none;stroke:#dfb581;stroke-width:2;pointer-events:none}
 .graph-key-point{fill:#e1bd8c;stroke:#17191e;stroke-width:1;vector-effect:non-scaling-stroke;cursor:grab;pointer-events:all}
 .graph-key-point:hover{stroke:#fff3d6;stroke-width:1.5}
+.graph-key-point.selected{fill:#f2c988;stroke:#fff0d2;stroke-width:2}
 .graph-key-point.dragging{cursor:grabbing;fill:#f0c88f;stroke:#fff3d6;stroke-width:2}
+.graph-handle-line{stroke:#8b7960;stroke-width:1;stroke-dasharray:2 2;vector-effect:non-scaling-stroke;pointer-events:none}
+.graph-handle{fill:#1b1d22;stroke:#e0b780;stroke-width:1.5;vector-effect:non-scaling-stroke;cursor:crosshair;pointer-events:all}
+.graph-handle:hover,.graph-handle.dragging{fill:#e0b780;stroke:#fff0d2;stroke-width:2}
 .graph-playhead{stroke:#d8b382;stroke-width:1.5;pointer-events:none;vector-effect:non-scaling-stroke}
 .graph-playhead.outside{opacity:.3;stroke-dasharray:3 3}
 .graph-value-label,.graph-frame-label{fill:#687180;font:9px var(--mono);pointer-events:none}
