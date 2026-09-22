@@ -73,9 +73,13 @@ test('Alt+D creates a linked duplicate while Shift+D remains independent', async
   expect(await page.evaluate(() => {
     const e = (window as any).__forge;
     const source = e.content.getObjectByName('Cube.001');
-    const copy = e.content.getObjectByName('Cube.002');
-    return { geometryIndependent: copy.geometry !== source.geometry, materialIndependent: copy.material !== source.material };
-  })).toEqual({ geometryIndependent: true, materialIndependent: true });
+    const copy = e.selected;
+    return {
+      distinctObject: copy !== source,
+      geometryIndependent: copy.geometry !== source.geometry,
+      materialIndependent: copy.material !== source.material,
+    };
+  })).toEqual({ distinctObject: true, geometryIndependent: true, materialIndependent: true });
 });
 
 test('linked duplicate rejects unsupported mesh states without mutation', async ({ page }) => {
