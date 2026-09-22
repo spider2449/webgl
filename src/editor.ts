@@ -419,6 +419,8 @@ export class Editor extends EventTarget {
     if (orientation !== 'world' && orientation !== 'local' && orientation !== 'gimbal') throw new Error('Unsupported transform orientation.');
     this.transformOrientation = orientation;
     this.transform.setSpace(orientation === 'world' ? 'world' : 'local');
+    this.transform.showE = orientation !== 'gimbal';
+    this.transform.showXYZE = orientation !== 'gimbal';
     this.invalidate();
   }
   setTool(mode: 'translate' | 'rotate' | 'scale' | 'select') {
