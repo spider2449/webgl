@@ -267,6 +267,7 @@ export class Editor extends EventTarget {
         this.frame = 1 + ((this.playbackFrame - 1 + (time - this.playbackStart) / 1000 * 24) % 250);
         this.evaluateAnimation();
         this.emit('frame');
+        this.emit('transform');
       }
       this.render();
       if (this.playing) this.invalidate();
