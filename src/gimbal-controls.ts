@@ -29,6 +29,7 @@ export class GimbalControls {
   rotationSnap: number | null = null;
   onChange: (() => void) | null = null;
   onCommit: (() => void) | null = null;
+  onDraggingChange: ((dragging: boolean) => void) | null = null;
 
   constructor(private readonly host: HTMLElement, camera: THREE.Camera) {
     this.camera = camera;
@@ -98,6 +99,7 @@ export class GimbalControls {
     for (const key of ['X', 'Y', 'Z'] as const) {
       this.rings.get(key)!.quaternion.setFromUnitVectors(normal, axes[key]);
     }
+    this.group.updateMatrixWorld(true);
   }
 
   private gimbalAxesWorld(object: THREE.Object3D): Record<GimbalAxis, THREE.Vector3> {
@@ -159,6 +161,7 @@ export class GimbalControls {
       start: new THREE.Vector3(this.object.rotation.x, this.object.rotation.y, this.object.rotation.z),
       angle: 0,
     };
+    this.onDraggingChange?.(true);
     event.preventDefault();
     event.stopImmediatePropagation();
     (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
@@ -195,6 +198,7 @@ export class GimbalControls {
   private pointerUp = (event: PointerEvent) => {
     if (!this.drag) return;
     this.drag = null;
+    this.onDraggingChange?.(false);
     this.onCommit?.();
     event.preventDefault();
     event.stopImmediatePropagation();
