@@ -102,15 +102,19 @@ export function buildAnimationGraphData(
   sorted.forEach((key, index) => {
     const value = animationChannelValue(key, channel);
     const curve = key.curves?.[channel];
-    if (curve?.left) handleValues.push(value + displayDelta(channel, curve.left[1]));
-    if (curve?.right) handleValues.push(value + displayDelta(channel, curve.right[1]));
-    if (index > 0 && sorted[index - 1].curves?.[channel]?.interpolation === 'bezier' && !curve?.left) {
-      const previous = sorted[index - 1];
-      handleValues.push(value - (value - animationChannelValue(previous, channel)) / 3);
+    if (index > 0 && sorted[index - 1].curves?.[channel]?.interpolation === 'bezier') {
+      if (curve?.left) handleValues.push(value + displayDelta(channel, curve.left[1]));
+      else {
+        const previous = sorted[index - 1];
+        handleValues.push(value - (value - animationChannelValue(previous, channel)) / 3);
+      }
     }
-    if (index < sorted.length - 1 && curve?.interpolation === 'bezier' && !curve.right) {
-      const next = sorted[index + 1];
-      handleValues.push(value + (animationChannelValue(next, channel) - value) / 3);
+    if (index < sorted.length - 1 && curve?.interpolation === 'bezier') {
+      if (curve.right) handleValues.push(value + displayDelta(channel, curve.right[1]));
+      else {
+        const next = sorted[index + 1];
+        handleValues.push(value + (animationChannelValue(next, channel) - value) / 3);
+      }
     }
   });
 
@@ -186,6 +190,7 @@ export class AnimationGraphView {
   private readonly playhead = svgElement('line', { class: 'graph-playhead', x1: 0, x2: 0, y1: 18, y2: 162 });
   private drag: GraphDragState | null = null;
   private selectedFrame: number | null = null;
+  private objectId: string | null = null;
 
   constructor(
     private readonly svg: SVGSVGElement,
@@ -218,6 +223,12 @@ export class AnimationGraphView {
     channel: ScalarAnimationChannel,
     frame: number,
   ) {
+    const nextObjectId = object?.uuid ?? null;
+    if (nextObjectId !== this.objectId) {
+      this.objectId = nextObjectId;
+      this.selectedFrame = null;
+      this.signature = '';
+    }
     const keys: Keyframe[] = object?.userData.keyframes ?? [];
     const defaultMode: AnimationInterpolation = object?.userData.animationInterpolation ?? 'linear';
     const overrides: AnimationChannelInterpolation = object?.userData.animationChannelInterpolation ?? {};
