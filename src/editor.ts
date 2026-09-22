@@ -14,6 +14,7 @@ import { validateModifierStack, type Modifier, type ModifierStack } from './modi
 
 export type Primitive = 'cube' | 'sphere' | 'cylinder' | 'cone' | 'torus' | 'plane' | 'icosphere';
 export type EulerOrder = 'XYZ' | 'YZX' | 'ZXY' | 'XZY' | 'YXZ' | 'ZYX';
+export type TransformOrientation = 'world' | 'local' | 'gimbal';
 export type Keyframe = { frame: number; position: number[]; quaternion: number[]; scale: number[]; rotation?: number[]; rotationOrder?: EulerOrder };
 export type ScalarAnimationChannel = 'position.x' | 'position.y' | 'position.z' | 'scale.x' | 'scale.y' | 'scale.z';
 export type Project = { format: 'forge-studio'; version: 1; name: string; scene: ReturnType<THREE.Group['toJSON']> };
@@ -67,7 +68,9 @@ export class Editor extends EventTarget {
   private suppressClick = false;
   private rotationDragObject: THREE.Object3D | null = null;
   private rotationDragReference = new THREE.Vector3();
+  private rotationDragStart = new THREE.Vector3();
   private rotationDragMatrix = new THREE.Matrix4();
+  transformOrientation: TransformOrientation = 'world';
   private viewStyle = 'material';
   private solid = new THREE.MeshStandardMaterial({ color: 0xadb0b7, roughness: 0.8 });
   private wire = new THREE.MeshBasicMaterial({ color: 0xaac7d7, wireframe: true });
@@ -114,7 +117,8 @@ export class Editor extends EventTarget {
       }
     });
     this.transform.addEventListener('objectChange', () => {
-      this.unwrapRotationDrag();
+      if (this.transformOrientation === 'gimbal') this.applyGimbalRotationDrag();
+      else this.unwrapRotationDrag();
       if (this.editMode) this.updateVertex();
       this.updateSelection();
       this.emit('transform');
@@ -189,7 +193,26 @@ export class Editor extends EventTarget {
   private beginRotationDrag() {
     const object = !this.editMode && this.transform.mode === 'rotate' && this.transform.object === this.selected ? this.selected : null;
     this.rotationDragObject = object;
-    if (object) this.rotationDragReference.set(object.rotation.x, object.rotation.y, object.rotation.z);
+    if (object) {
+      this.rotationDragReference.set(object.rotation.x, object.rotation.y, object.rotation.z);
+      this.rotationDragStart.copy(this.rotationDragReference);
+    }
+  }
+  private applyGimbalRotationDrag() {
+    const object = this.rotationDragObject;
+    if (!object || this.transform.object !== object || this.transform.mode !== 'rotate') return;
+    const axis = this.transform.axis;
+    if (axis !== 'X' && axis !== 'Y' && axis !== 'Z') {
+      this.unwrapRotationDrag();
+      return;
+    }
+    const angle = this.transform.rotationAngle;
+    if (!Number.isFinite(angle)) return;
+    const next = this.rotationDragStart.clone();
+    const component = axis.toLowerCase() as 'x' | 'y' | 'z';
+    next[component] += angle;
+    object.rotation.set(next.x, next.y, next.z, object.rotation.order);
+    this.rotationDragReference.copy(next);
   }
   private unwrapRotationDrag() {
     const object = this.rotationDragObject;
@@ -392,10 +415,17 @@ export class Editor extends EventTarget {
       else this.selectionBox.setFromObject(this.selected);
     }
   }
+  setTransformOrientation(orientation: TransformOrientation) {
+    if (orientation !== 'world' && orientation !== 'local' && orientation !== 'gimbal') throw new Error('Unsupported transform orientation.');
+    this.transformOrientation = orientation;
+    this.transform.setSpace(orientation === 'world' ? 'world' : 'local');
+    this.invalidate();
+  }
   setTool(mode: 'translate' | 'rotate' | 'scale' | 'select') {
     if (mode === 'select') this.transform.detach();
     else {
       this.transform.setMode(this.editMode ? 'translate' : mode);
+      this.transform.setSpace(this.transformOrientation === 'world' ? 'world' : 'local');
       if (this.editMode && this.vertexIndices.length) this.transform.attach(this.vertexProxy);
       else if (!this.editMode && this.selected?.visible) this.transform.attach(this.selected);
     }
