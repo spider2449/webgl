@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { sampleAnimation, validInterpolation, type AnimationInterpolation } from './animation';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { TransformControls } from 'three/addons/controls/TransformControls.js';
+import { GimbalControls } from './gimbal-controls';
 import { clone as cloneSkeleton } from 'three/addons/utils/SkeletonUtils.js';
 import { createGrid } from './grid';
 import { extrudeTriangle, insetTriangle } from './extrude';
@@ -29,6 +30,7 @@ export class Editor extends EventTarget {
   camera: THREE.PerspectiveCamera | THREE.OrthographicCamera = this.perspective;
   readonly orbit: OrbitControls;
   readonly transform: TransformControls;
+  readonly gimbal: GimbalControls;
   readonly grid = createGrid();
   readonly selectionBox = new THREE.BoxHelper(new THREE.Object3D(), 0xd6ac78);
   selected: THREE.Object3D | null = null;
@@ -68,7 +70,6 @@ export class Editor extends EventTarget {
   private suppressClick = false;
   private rotationDragObject: THREE.Object3D | null = null;
   private rotationDragReference = new THREE.Vector3();
-  private rotationDragStart = new THREE.Vector3();
   private rotationDragMatrix = new THREE.Matrix4();
   transformOrientation: TransformOrientation = 'world';
   private viewStyle = 'material';
@@ -85,6 +86,14 @@ export class Editor extends EventTarget {
     this.renderer.toneMappingExposure = 1.3;
     host.prepend(this.renderer.domElement);
     this.renderer.domElement.setAttribute('aria-label', 'Interactive 3D viewport');
+    this.gimbal = new GimbalControls(host, this.camera);
+    this.gimbal.onDraggingChange = dragging => { this.orbit.enabled = !dragging; if (dragging) this.suppressClick = true; };
+    this.gimbal.onChange = () => {
+      this.updateSelection();
+      this.emit('transform');
+      this.invalidate();
+    };
+    this.gimbal.onCommit = () => this.commit();
     this.content.name = 'Scene Collection';
     this.scene.add(this.content, this.grid);
     this.scene.add(new THREE.HemisphereLight(0xe4edff, 0x777078, 2.4));
@@ -103,7 +112,7 @@ export class Editor extends EventTarget {
     this.orbit.update();
     this.transform = new TransformControls(this.camera, this.renderer.domElement);
     this.transform.setSize(0.85);
-    this.scene.add(this.transform.getHelper());
+    this.scene.add(this.transform.getHelper(), this.gimbal.group);
     this.transform.addEventListener('dragging-changed', e => {
       this.orbit.enabled = !e.value;
       if (e.value) {
@@ -117,8 +126,7 @@ export class Editor extends EventTarget {
       }
     });
     this.transform.addEventListener('objectChange', () => {
-      if (this.transformOrientation === 'gimbal') this.applyGimbalRotationDrag();
-      else this.unwrapRotationDrag();
+      if (this.transform.mode === 'rotate' && this.transformOrientation !== 'gimbal') this.unwrapRotationDrag();
       if (this.editMode) this.updateVertex();
       this.updateSelection();
       this.emit('transform');
@@ -193,26 +201,7 @@ export class Editor extends EventTarget {
   private beginRotationDrag() {
     const object = !this.editMode && this.transform.mode === 'rotate' && this.transform.object === this.selected ? this.selected : null;
     this.rotationDragObject = object;
-    if (object) {
-      this.rotationDragReference.set(object.rotation.x, object.rotation.y, object.rotation.z);
-      this.rotationDragStart.copy(this.rotationDragReference);
-    }
-  }
-  private applyGimbalRotationDrag() {
-    const object = this.rotationDragObject;
-    if (!object || this.transform.object !== object || this.transform.mode !== 'rotate') return;
-    const axis = this.transform.axis;
-    if (axis !== 'X' && axis !== 'Y' && axis !== 'Z') {
-      this.unwrapRotationDrag();
-      return;
-    }
-    const angle = (this.transform as TransformControls & { rotationAngle: number }).rotationAngle;
-    if (!Number.isFinite(angle)) return;
-    const next = this.rotationDragStart.clone();
-    const component = axis.toLowerCase() as 'x' | 'y' | 'z';
-    next[component] += angle;
-    object.rotation.set(next.x, next.y, next.z, object.rotation.order);
-    this.rotationDragReference.copy(next);
+    if (object) this.rotationDragReference.set(object.rotation.x, object.rotation.y, object.rotation.z);
   }
   private unwrapRotationDrag() {
     const object = this.rotationDragObject;
@@ -284,6 +273,7 @@ export class Editor extends EventTarget {
   }
   render() {
     this.beforeRender?.();
+    this.gimbal.update();
     const originals = new Map<THREE.Mesh, THREE.Material | THREE.Material[]>();
     if (this.viewStyle !== 'material') this.content.traverse(o => {
       if (o instanceof THREE.Mesh) { originals.set(o, o.material); o.material = this.viewStyle === 'wire' ? this.wire : this.solid; }
@@ -401,8 +391,7 @@ export class Editor extends EventTarget {
     }
     if (object !== this.selected) this.setEditMode(false);
     this.selected = object;
-    if (object && object.visible) this.transform.attach(object);
-    else this.transform.detach();
+    this.syncTransformControls();
     this.updateSelection();
     this.emit();
     this.invalidate();
@@ -415,21 +404,42 @@ export class Editor extends EventTarget {
       else this.selectionBox.setFromObject(this.selected);
     }
   }
+  private syncTransformControls() {
+    const mode = this.editMode ? 'translate' : this.transform.mode;
+    const useGimbal = !this.editMode && mode === 'rotate' && this.transformOrientation === 'gimbal' && !!this.selected?.visible;
+    this.gimbal.attach(this.selected);
+    this.gimbal.setEnabled(useGimbal);
+    if (useGimbal || mode === 'select') {
+      this.transform.detach();
+    } else if (this.editMode && this.vertexIndices.length) {
+      this.transform.attach(this.vertexProxy);
+    } else if (!this.editMode && this.selected?.visible) {
+      this.transform.attach(this.selected);
+    } else {
+      this.transform.detach();
+    }
+  }
   setTransformOrientation(orientation: TransformOrientation) {
     if (orientation !== 'world' && orientation !== 'local' && orientation !== 'gimbal') throw new Error('Unsupported transform orientation.');
     this.transformOrientation = orientation;
     this.transform.setSpace(orientation === 'world' ? 'world' : 'local');
-    this.transform.showE = orientation !== 'gimbal';
-    this.transform.showXYZE = orientation !== 'gimbal';
+    this.syncTransformControls();
     this.invalidate();
   }
+  setTransformSnapping(enabled: boolean) {
+    this.transform.setTranslationSnap(enabled ? 0.5 : null);
+    this.transform.setRotationSnap(enabled ? Math.PI / 12 : null);
+    this.transform.setScaleSnap(enabled ? 0.1 : null);
+    this.gimbal.rotationSnap = enabled ? Math.PI / 12 : null;
+  }
   setTool(mode: 'translate' | 'rotate' | 'scale' | 'select') {
-    if (mode === 'select') this.transform.detach();
-    else {
-      this.transform.setMode(this.editMode ? 'translate' : mode);
-      this.transform.setSpace(this.transformOrientation === 'world' ? 'world' : 'local');
-      if (this.editMode && this.vertexIndices.length) this.transform.attach(this.vertexProxy);
-      else if (!this.editMode && this.selected?.visible) this.transform.attach(this.selected);
+    this.transform.setMode(this.editMode ? 'translate' : mode === 'select' ? 'translate' : mode);
+    this.transform.setSpace(this.transformOrientation === 'world' ? 'world' : 'local');
+    if (mode === 'select') {
+      this.gimbal.setEnabled(false);
+      this.transform.detach();
+    } else {
+      this.syncTransformControls();
     }
     this.invalidate();
   }
@@ -511,6 +521,7 @@ export class Editor extends EventTarget {
     this.camera = next;
     this.orbit.object = next;
     this.transform.camera = next;
+    this.gimbal.setCamera(next);
     this.orbit.update();
     this.invalidate();
     this.emit('view');
