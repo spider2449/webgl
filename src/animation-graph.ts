@@ -3,15 +3,12 @@ import {
   bezierControlPoints,
   effectiveSegmentInterpolation,
   sampleAnimation,
-  type AnimationChannelInterpolation,
-  type AnimationInterpolation,
-  type EffectiveSegmentInterpolation,
 } from './animation';
-import type { Keyframe, ScalarAnimationChannel } from './editor';
+import type { Keyframe, KeyInterpolation, ScalarAnimationChannel } from './editor';
 
 export type AnimationGraphData = {
   channel: ScalarAnimationChannel;
-  mode: EffectiveSegmentInterpolation | 'mixed';
+  mode: KeyInterpolation | 'mixed';
   frameMin: number;
   frameMax: number;
   valueMin: number;
@@ -21,7 +18,7 @@ export type AnimationGraphData = {
   samples: { frame: number; value: number }[];
   keys: { frame: number; value: number }[];
   sourceKeys: Keyframe[];
-  segmentModes: EffectiveSegmentInterpolation[];
+  segmentModes: KeyInterpolation[];
 };
 
 const axes = ['x', 'y', 'z'] as const;
@@ -59,8 +56,6 @@ function sampledChannelValue(key: Keyframe, channel: ScalarAnimationChannel) {
 export function buildAnimationGraphData(
   keys: Keyframe[],
   channel: ScalarAnimationChannel,
-  defaultMode: AnimationInterpolation,
-  overrides: AnimationChannelInterpolation = {},
 ): AnimationGraphData | null {
   if (!keys.length) return null;
   const sorted = [...keys].sort((a, b) => a.frame - b.frame);
@@ -68,7 +63,7 @@ export function buildAnimationGraphData(
   const frameMin = sorted[0].frame;
   const frameMax = sorted[sorted.length - 1].frame;
   const samples: { frame: number; value: number }[] = [];
-  const segmentModes: EffectiveSegmentInterpolation[] = [];
+  const segmentModes: KeyInterpolation[] = [];
 
   if (sorted.length === 1) {
     samples.push({ ...keyPoints[0] });
@@ -77,17 +72,17 @@ export function buildAnimationGraphData(
       const a = sorted[index];
       const b = sorted[index + 1];
       const span = b.frame - a.frame;
-      const mode = effectiveSegmentInterpolation(a, channel, defaultMode, overrides);
+      const mode = effectiveSegmentInterpolation(a, channel);
       segmentModes.push(mode);
       const steps = mode === 'constant' ? 2 : mode === 'linear' ? 2 : 32;
       for (let step = 0; step < steps; step++) {
         const frame = a.frame + span * step / steps;
-        const sample = sampleAnimation(sorted, frame, defaultMode, overrides);
+        const sample = sampleAnimation(sorted, frame);
         samples.push({ frame, value: sampledChannelValue(sample, channel) });
       }
       if (mode === 'constant' && span > 0) {
         const nearEnd = b.frame - Math.min(1e-3, span * 1e-5);
-        const sample = sampleAnimation(sorted, nearEnd, defaultMode, overrides);
+        const sample = sampleAnimation(sorted, nearEnd);
         samples.push({ frame: nearEnd, value: sampledChannelValue(sample, channel) });
       }
     }
@@ -96,7 +91,7 @@ export function buildAnimationGraphData(
 
   const uniqueModes = new Set(segmentModes);
   const mode: AnimationGraphData['mode'] = uniqueModes.size > 1 ? 'mixed' :
-    segmentModes[0] ?? effectiveSegmentInterpolation(sorted[0], channel, defaultMode, overrides);
+    segmentModes[0] ?? effectiveSegmentInterpolation(sorted[0], channel);
 
   const handleValues: number[] = [];
   sorted.forEach((key, index) => {
@@ -231,14 +226,10 @@ export class AnimationGraphView {
       this.signature = '';
     }
     const keys: Keyframe[] = object?.userData.keyframes ?? [];
-    const defaultMode: AnimationInterpolation = object?.userData.animationInterpolation ?? 'linear';
-    const overrides: AnimationChannelInterpolation = object?.userData.animationChannelInterpolation ?? {};
     if (this.selectedFrame !== null && !keys.some(key => key.frame === this.selectedFrame)) this.selectedFrame = null;
     const signature = JSON.stringify({
       uuid: object?.uuid ?? null,
       channel,
-      defaultMode,
-      override: overrides[channel] ?? null,
       selectedFrame: this.selectedFrame,
       keys: keys.map(key => ({
         frame: key.frame,
@@ -252,7 +243,7 @@ export class AnimationGraphView {
     });
 
     if (this.drag) {
-      const fresh = buildAnimationGraphData(keys, channel, defaultMode, overrides);
+      const fresh = buildAnimationGraphData(keys, channel);
       if (fresh && this.data) {
         fresh.valueMin = this.data.valueMin;
         fresh.valueMax = this.data.valueMax;
@@ -261,7 +252,7 @@ export class AnimationGraphView {
       }
     } else if (signature !== this.signature) {
       this.signature = signature;
-      this.data = buildAnimationGraphData(keys, channel, defaultMode, overrides);
+      this.data = buildAnimationGraphData(keys, channel);
       this.renderStatic();
     }
     this.renderPlayhead(frame);
