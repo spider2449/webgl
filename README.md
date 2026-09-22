@@ -152,12 +152,19 @@ upgraded on first rotation-channel edit. Changes evaluate immediately,
 participate in undo/redo and survive Forge project round trips. Playback must be
 paused and Object Mode active.
 
-Open the **Animation** workspace to see the selected scalar channel in the
-read-only **Graph Editor**. It shows authored key points, the effective
-Linear/Constant/Smooth curve and the current-frame playhead. The graph uses the
-same animation sampling path as playback, including unwrapped rotation degrees.
-This first graph increment is visualization-only; key dragging, Bezier handles,
-tangents and graph-based editing are not implemented yet.
+Open the **Animation** workspace to use the **Graph Editor**. A channel rail
+beside the graph provides direct access to all nine Location/Rotation/Scale
+scalar channels and stays synchronized with the Object panel. The graph shows
+authored key points, the effective Linear/Constant/Smooth curve and the
+current-frame playhead using the same sampling path as playback.
+
+Drag a graph key vertically to edit only the selected scalar value. Drag it
+horizontally to retime the whole transform key because Forge currently stores
+Position/Rotation/Scale together at one key time. Frame retiming snaps to integer
+frames; an occupied destination is never overwritten and the drag keeps its last
+valid frame. A completed drag creates one undoable history entry; Escape or a
+cancelled pointer restores the original key. Bezier handles, tangents,
+per-channel key times and arbitrary F-curves are not implemented yet.
 
 GLB export preserves the existing object-wide Constant mode as STEP when no
 scalar overrides are present. Mixed scalar interpolation cannot be represented
