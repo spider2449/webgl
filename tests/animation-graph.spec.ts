@@ -20,7 +20,7 @@ test('Object panel no longer exposes the legacy Animation controls', async ({ pa
   await expect(page.getByLabel('Selected key interpolation')).toBeVisible();
 });
 
-test('Graph Editor visualizes Linear, Constant and Smooth for the selected scalar channel', async ({ page }) => {
+test('Graph Editor visualizes Linear, Constant and Bezier for the selected scalar channel', async ({ page }) => {
   await page.evaluate(() => {
     const e = (window as any).__forge;
     const object = e.selected;
@@ -60,18 +60,14 @@ test('Graph Editor visualizes Linear, Constant and Smooth for the selected scala
   expect(constantPath).not.toBe(linearPath);
   expect(await graph.locator('.graph-curve').getAttribute('data-sample-count')).toBe('4');
 
-  await page.getByLabel('Selected key interpolation').selectOption('');
-  await page.evaluate(() => {
-    const e = (window as any).__forge;
-    e.scrub(e.frame);
-  });
-  await expect(graph).toHaveAttribute('data-mode', 'smooth');
-  await expect(page.locator('#animation-graph-detail')).toContainText('Smooth');
-  await expect(page.locator('[data-graph-channel="position.x"] small')).toHaveText('SMT');
-  const smoothPath = await graph.locator('.graph-curve').getAttribute('d');
-  expect(smoothPath).not.toBe(linearPath);
-  expect(smoothPath).not.toBe(constantPath);
+  await page.getByLabel('Selected key interpolation').selectOption('bezier');
+  await expect(graph).toHaveAttribute('data-mode', 'bezier');
+  await expect(page.locator('#animation-graph-detail')).toContainText('Bezier');
+  await expect(page.locator('[data-graph-channel="position.x"] small')).toHaveText('BEZ');
+  const bezierPath = await graph.locator('.graph-curve').getAttribute('d');
+  expect(bezierPath).not.toBe(constantPath);
   expect(await graph.locator('.graph-curve').getAttribute('data-sample-count')).toBe('33');
+  await expect(graph.locator('.graph-handle[data-handle="right"]')).toHaveCount(1);
 
   await page.evaluate(() => (window as any).__forge.scrub(13));
   await expect(graph.locator('.graph-playhead')).toHaveAttribute('data-frame', '13');
