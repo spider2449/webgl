@@ -294,3 +294,116 @@ test('channel interpolation UI drives mixed playback and baked GLB export', asyn
   expect(await page.evaluate(() => (window as any).__forge.selected.userData.animationChannelInterpolation?.['position.x'])).toBeUndefined();
   await expect(page.getByLabel('Animation channel interpolation', { exact: true })).toHaveValue('');
 });
+
+
+test('per-key Bezier curves validate, persist and bake the evaluated curve into GLB', async ({ page }) => {
+  const setup = await page.evaluate(() => {
+    const e = (window as any).__forge;
+    const object = e.selected;
+    object.userData.keyframes = [];
+    e.frame = 1;
+    object.position.set(0, 0, 0);
+    e.insertKey();
+    e.frame = 25;
+    object.position.set(8, 0, 0);
+    e.insertKey();
+    e.setAnimationInterpolation('linear');
+
+    e.setKeyInterpolation(1, 'position.x', 'bezier');
+    e.beginAnimationHandleDrag(1, 'position.x', 'right');
+    e.previewAnimationHandleDrag(9, 6);
+    e.endAnimationHandleDrag();
+
+    e.scrub(7);
+    const expectedAtFrame7 = e.selected.position.x;
+    const saved = e.snapshot();
+
+    const invalidMode = JSON.parse(saved);
+    invalidMode.scene.object.children[0].userData.keyframes[0].curves['position.x'].interpolation = 'catmull';
+    let invalidModeRejected = false;
+    try { e.load(invalidMode); } catch { invalidModeRejected = true; }
+
+    const invalidHandle = JSON.parse(saved);
+    invalidHandle.scene.object.children[0].userData.keyframes[0].curves['position.x'].right = [8, null];
+    let invalidHandleRejected = false;
+    try { e.load(invalidHandle); } catch { invalidHandleRejected = true; }
+
+    const unknownField = JSON.parse(saved);
+    unknownField.scene.object.children[0].userData.keyframes[0].curves['position.x'].tension = 0.5;
+    let unknownFieldRejected = false;
+    try { e.load(unknownField); } catch { unknownFieldRejected = true; }
+
+    e.load(JSON.parse(saved));
+    return {
+      expectedAtFrame7,
+      curves: structuredClone(e.selected.userData.keyframes.map((key: any) => key.curves?.['position.x'] ?? null)),
+      invalidModeRejected,
+      invalidHandleRejected,
+      unknownFieldRejected,
+    };
+  });
+
+  expect(setup.expectedAtFrame7).toBeGreaterThan(2);
+  expect(setup.curves[0].interpolation).toBe('bezier');
+  expect(setup.curves[0].right[0]).toBeCloseTo(8, 6);
+  expect(setup.curves[0].right[1]).toBeCloseTo(6, 6);
+  expect(setup.curves[1].left[0]).toBeCloseTo(-8, 6);
+  expect(setup).toMatchObject({
+    invalidModeRejected: true,
+    invalidHandleRejected: true,
+    unknownFieldRejected: true,
+  });
+
+  const pending = page.waitForEvent('download');
+  await page.locator('#export-top').click();
+  const download = await pending;
+  const stream = await download.createReadStream();
+  const chunks: Buffer[] = []; for await (const chunk of stream!) chunks.push(Buffer.from(chunk));
+  const glb = Buffer.concat(chunks);
+  const jsonLength = glb.readUInt32LE(12);
+  const json = JSON.parse(glb.subarray(20, 20 + jsonLength).toString('utf8'));
+  const translationChannel = json.animations[0].channels.find((item: any) => item.target.path === 'translation');
+  const sampler = json.animations[0].samplers[translationChannel.sampler];
+  expect(sampler.interpolation).toBe('LINEAR');
+  expect(json.accessors[sampler.input].count).toBe(33);
+
+  const accessor = json.accessors[sampler.output];
+  const view = json.bufferViews[accessor.bufferView];
+  const binaryStart = 28 + jsonLength;
+  const offset = binaryStart + (view.byteOffset ?? 0) + (accessor.byteOffset ?? 0);
+  const frame7Sample = offset + 8 * 3 * 4;
+  expect(glb.readFloatLE(frame7Sample)).toBeCloseTo(setup.expectedAtFrame7, 4);
+});
+
+test('rotation per-key curves upgrade legacy quaternion keys and preserve multi-turn Euler metadata', async ({ page }) => {
+  const result = await page.evaluate(() => {
+    const e = (window as any).__forge;
+    const object = e.selected;
+    object.userData.keyframes = [];
+    e.frame = 1;
+    object.rotation.set(0, 270 * Math.PI / 180, 0, 'XYZ');
+    e.insertKey();
+    e.frame = 25;
+    object.rotation.set(0, 720 * Math.PI / 180, 0, 'XYZ');
+    e.insertKey();
+
+    object.userData.keyframes.forEach((key: any) => { delete key.rotation; delete key.rotationOrder; });
+    const orientations = object.userData.keyframes.map((key: any) => [...key.quaternion]);
+    e.setKeyInterpolation(1, 'rotation.y', 'bezier');
+    const upgraded = object.userData.keyframes.map((key: any) => ({
+      rotation: key.rotation.map((value: number) => value * 180 / Math.PI),
+      order: key.rotationOrder,
+      quaternion: [...key.quaternion],
+      curve: structuredClone(key.curves?.['rotation.y'] ?? null),
+    }));
+    const dots = upgraded.map((key: any, index: number) =>
+      Math.abs(key.quaternion.reduce((sum: number, value: number, component: number) => sum + value * orientations[index][component], 0))
+    );
+    return { upgraded, dots };
+  });
+
+  expect(result.upgraded[0].order).toBe('XYZ');
+  expect(result.upgraded[1].order).toBe('XYZ');
+  expect(result.upgraded[0].curve.interpolation).toBe('bezier');
+  expect(result.dots.every((dot: number) => Math.abs(dot - 1) < 1e-10)).toBe(true);
+});
