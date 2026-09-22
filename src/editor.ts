@@ -97,7 +97,7 @@ export class Editor extends EventTarget {
   private rotationDragObject: THREE.Object3D | null = null;
   private rotationDragReference = new THREE.Vector3();
   private rotationDragMatrix = new THREE.Matrix4();
-  private animationKeyDrag: { object: THREE.Object3D; sourceFrame: number; originalKeys: Keyframe[] } | null = null;
+  private animationKeyDrag: { object: THREE.Object3D; sourceFrame: number; copy: boolean; originalKeys: Keyframe[] } | null = null;
   private animationHandleDrag: { object: THREE.Object3D; frame: number; channel: ScalarAnimationChannel; side: 'left' | 'right'; originalKeys: Keyframe[] } | null = null;
   transformOrientation: TransformOrientation = 'world';
   private transformTool: 'select' | 'translate' | 'rotate' | 'scale' = 'translate';
@@ -1395,13 +1395,14 @@ export class Editor extends EventTarget {
     this.commit();
     return true;
   }
-  beginAnimationKeyDrag(sourceFrame: number) {
+  beginAnimationKeyDrag(sourceFrame: number, copy = false) {
     if (!Number.isFinite(sourceFrame) || !this.selected || this.editMode || this.playing || this.animationKeyDrag || this.animationHandleDrag) return false;
     const keys: Keyframe[] = this.selected.userData.keyframes ?? [];
     if (!keys.some(key => key.frame === sourceFrame)) return false;
     this.animationKeyDrag = {
       object: this.selected,
       sourceFrame,
+      copy,
       originalKeys: keys.map(key => ({
         frame: key.frame,
         position: [...key.position],
@@ -1419,43 +1420,41 @@ export class Editor extends EventTarget {
     const drag = this.animationKeyDrag;
     if (!drag || this.selected !== drag.object || this.editMode || this.playing) return false;
     if (!Number.isInteger(targetFrame) || targetFrame < 1 || targetFrame > 250 || !Number.isFinite(value)) return false;
-    if (drag.originalKeys.some(key => key.frame === targetFrame && key.frame !== drag.sourceFrame)) return false;
+    if (drag.copy ? drag.originalKeys.some(key => key.frame === targetFrame) :
+      drag.originalKeys.some(key => key.frame === targetFrame && key.frame !== drag.sourceFrame)) return false;
     const [property, axis] = channel.split('.') as ['position' | 'rotation' | 'scale', 'x' | 'y' | 'z'];
     if (!['position', 'rotation', 'scale'].includes(property) || !['x', 'y', 'z'].includes(axis)) return false;
     const component = axis === 'x' ? 0 : axis === 'y' ? 1 : 2;
+    const source = drag.originalKeys.find(key => key.frame === drag.sourceFrame);
+    if (!source) return false;
 
-    const next = drag.originalKeys.map(key => {
-      if (key.frame !== drag.sourceFrame) return {
-        frame: key.frame,
-        position: [...key.position],
-        quaternion: [...key.quaternion],
-        scale: [...key.scale],
-        ...(key.rotation ? { rotation: [...key.rotation] } : {}),
-        ...(key.rotationOrder ? { rotationOrder: key.rotationOrder } : {}),
-        ...(key.curves ? { curves: cloneKeyCurves(key.curves) } : {}),
-      };
-      const rotationOrder = key.rotationOrder ?? 'XYZ';
-      const sourceEuler = key.rotation ? [...key.rotation] : (() => {
-        const euler = new THREE.Euler().setFromQuaternion(new THREE.Quaternion().fromArray(key.quaternion), rotationOrder);
-        return [euler.x, euler.y, euler.z];
-      })();
-      const nextRotation = [...sourceEuler];
-      if (property === 'rotation') nextRotation[component] = THREE.MathUtils.degToRad(value);
-      const quaternion = property === 'rotation'
-        ? new THREE.Quaternion().setFromEuler(new THREE.Euler(nextRotation[0], nextRotation[1], nextRotation[2], rotationOrder)).toArray()
-        : [...key.quaternion];
-      return {
-        frame: targetFrame,
-        position: property === 'position' ? key.position.map((item, index) => index === component ? value : item) : [...key.position],
-        quaternion,
-        scale: property === 'scale' ? key.scale.map((item, index) => index === component ? value : item) : [...key.scale],
-        ...(property === 'rotation' || key.rotation ? { rotation: property === 'rotation' ? nextRotation : [...key.rotation!] } : {}),
-        ...(property === 'rotation' || key.rotationOrder ? { rotationOrder: property === 'rotation' ? rotationOrder : key.rotationOrder! } : {}),
-        ...(key.curves ? { curves: cloneKeyCurves(key.curves) } : {}),
-      } satisfies Keyframe;
-    }).sort((a, b) => a.frame - b.frame);
+    const edited = cloneAnimationKey(source);
+    const rotationOrder = edited.rotationOrder ?? 'XYZ';
+    const sourceEuler = edited.rotation ? [...edited.rotation] : (() => {
+      const euler = new THREE.Euler().setFromQuaternion(new THREE.Quaternion().fromArray(edited.quaternion), rotationOrder);
+      return [euler.x, euler.y, euler.z];
+    })();
+    const nextRotation = [...sourceEuler];
+    if (property === 'rotation') nextRotation[component] = THREE.MathUtils.degToRad(value);
+    edited.frame = targetFrame;
+    edited.position = property === 'position'
+      ? edited.position.map((item, index) => index === component ? value : item)
+      : [...edited.position];
+    edited.scale = property === 'scale'
+      ? edited.scale.map((item, index) => index === component ? value : item)
+      : [...edited.scale];
+    if (property === 'rotation') {
+      edited.rotation = nextRotation;
+      edited.rotationOrder = rotationOrder;
+      edited.quaternion = new THREE.Quaternion()
+        .setFromEuler(new THREE.Euler(nextRotation[0], nextRotation[1], nextRotation[2], rotationOrder))
+        .toArray();
+    }
 
-    drag.object.userData.keyframes = next;
+    const next = drag.copy
+      ? [...drag.originalKeys.map(cloneAnimationKey), edited]
+      : drag.originalKeys.map(key => key.frame === drag.sourceFrame ? edited : cloneAnimationKey(key));
+    drag.object.userData.keyframes = next.sort((a, b) => a.frame - b.frame);
     this.frame = targetFrame;
     this.evaluateAnimation();
     this.emit('frame');
