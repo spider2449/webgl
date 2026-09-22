@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { sampleAnimation, validInterpolation, type AnimationInterpolation } from './animation';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { TransformControls } from 'three/addons/controls/TransformControls.js';
+import { GimbalControls } from './gimbal-controls';
 import { clone as cloneSkeleton } from 'three/addons/utils/SkeletonUtils.js';
 import { createGrid } from './grid';
 import { extrudeTriangle, insetTriangle } from './extrude';
@@ -13,7 +14,9 @@ import { modelingJob, type ModelingOperation } from './modeling-worker-client';
 import { validateModifierStack, type Modifier, type ModifierStack } from './modifiers';
 
 export type Primitive = 'cube' | 'sphere' | 'cylinder' | 'cone' | 'torus' | 'plane' | 'icosphere';
-export type Keyframe = { frame: number; position: number[]; quaternion: number[]; scale: number[] };
+export type EulerOrder = 'XYZ' | 'YZX' | 'ZXY' | 'XZY' | 'YXZ' | 'ZYX';
+export type TransformOrientation = 'world' | 'local' | 'gimbal';
+export type Keyframe = { frame: number; position: number[]; quaternion: number[]; scale: number[]; rotation?: number[]; rotationOrder?: EulerOrder };
 export type ScalarAnimationChannel = 'position.x' | 'position.y' | 'position.z' | 'scale.x' | 'scale.y' | 'scale.z';
 export type Project = { format: 'forge-studio'; version: 1; name: string; scene: ReturnType<THREE.Group['toJSON']> };
 const MAX_HISTORY_BYTES = 24 * 1024 * 1024;
@@ -27,6 +30,7 @@ export class Editor extends EventTarget {
   camera: THREE.PerspectiveCamera | THREE.OrthographicCamera = this.perspective;
   readonly orbit: OrbitControls;
   readonly transform: TransformControls;
+  readonly gimbal: GimbalControls;
   readonly grid = createGrid();
   readonly selectionBox = new THREE.BoxHelper(new THREE.Object3D(), 0xd6ac78);
   selected: THREE.Object3D | null = null;
@@ -64,6 +68,11 @@ export class Editor extends EventTarget {
   private raycaster = new THREE.Raycaster();
   private mouseDown = new THREE.Vector2();
   private suppressClick = false;
+  private rotationDragObject: THREE.Object3D | null = null;
+  private rotationDragReference = new THREE.Vector3();
+  private rotationDragMatrix = new THREE.Matrix4();
+  transformOrientation: TransformOrientation = 'world';
+  private transformTool: 'select' | 'translate' | 'rotate' | 'scale' = 'translate';
   private viewStyle = 'material';
   private solid = new THREE.MeshStandardMaterial({ color: 0xadb0b7, roughness: 0.8 });
   private wire = new THREE.MeshBasicMaterial({ color: 0xaac7d7, wireframe: true });
@@ -78,6 +87,14 @@ export class Editor extends EventTarget {
     this.renderer.toneMappingExposure = 1.3;
     host.prepend(this.renderer.domElement);
     this.renderer.domElement.setAttribute('aria-label', 'Interactive 3D viewport');
+    this.gimbal = new GimbalControls(host, this.camera);
+    this.gimbal.onDraggingChange = dragging => { this.orbit.enabled = !dragging; if (dragging) this.suppressClick = true; };
+    this.gimbal.onChange = () => {
+      this.updateSelection();
+      this.emit('transform');
+      this.invalidate();
+    };
+    this.gimbal.onCommit = () => this.commit();
     this.content.name = 'Scene Collection';
     this.scene.add(this.content, this.grid);
     this.scene.add(new THREE.HemisphereLight(0xe4edff, 0x777078, 2.4));
@@ -96,13 +113,21 @@ export class Editor extends EventTarget {
     this.orbit.update();
     this.transform = new TransformControls(this.camera, this.renderer.domElement);
     this.transform.setSize(0.85);
-    this.scene.add(this.transform.getHelper());
+    this.scene.add(this.transform.getHelper(), this.gimbal.group);
     this.transform.addEventListener('dragging-changed', e => {
       this.orbit.enabled = !e.value;
-      if (e.value) { this.suppressClick = true; this.beginComponentDrag(); }
-      else { this.componentDrag = null; this.commit(); }
+      if (e.value) {
+        this.suppressClick = true;
+        this.beginComponentDrag();
+        this.beginRotationDrag();
+      } else {
+        this.componentDrag = null;
+        this.rotationDragObject = null;
+        this.commit();
+      }
     });
     this.transform.addEventListener('objectChange', () => {
+      if (this.transform.mode === 'rotate' && this.transformOrientation !== 'gimbal') this.unwrapRotationDrag();
       if (this.editMode) this.updateVertex();
       this.updateSelection();
       this.emit('transform');
@@ -174,6 +199,63 @@ export class Editor extends EventTarget {
     this.resize();
   }
 
+  private beginRotationDrag() {
+    const object = !this.editMode && this.transform.mode === 'rotate' && this.transform.object === this.selected ? this.selected : null;
+    this.rotationDragObject = object;
+    if (object) this.rotationDragReference.set(object.rotation.x, object.rotation.y, object.rotation.z);
+  }
+  private unwrapRotationDrag() {
+    const object = this.rotationDragObject;
+    if (!object || this.transform.object !== object) return;
+    const turn = Math.PI * 2;
+    const reference = this.rotationDragReference;
+    const unwrap = (value: number, target: number) => value + Math.round((target - value) / turn) * turn;
+    const nearest = (candidate: THREE.Vector3) => new THREE.Vector3(
+      unwrap(candidate.x, reference.x),
+      unwrap(candidate.y, reference.y),
+      unwrap(candidate.z, reference.z),
+    );
+
+    const primary = new THREE.Vector3(object.rotation.x, object.rotation.y, object.rotation.z);
+    const order = object.rotation.order;
+
+    // Three.js XYZ decomposition has its singular branch on the middle Y axis.
+    // At |Y| = 90° the quaternion fixes only X+Z (positive Y) or X-Z
+    // (negative Y), leaving infinitely many equivalent Euler triples. Preserve
+    // continuity by choosing the singular solution nearest the previous drag
+    // value instead of accepting the canonical z=0 decomposition.
+    if (order === 'XYZ' && Math.abs(Math.cos(primary.y)) < 1e-3) {
+      this.rotationDragMatrix.makeRotationFromQuaternion(object.quaternion);
+      const elements = this.rotationDragMatrix.elements;
+      const theta = Math.atan2(elements[6], elements[5]);
+      const positive = Math.sin(primary.y) >= 0;
+      const referenceCombination = positive ? reference.x + reference.z : reference.x - reference.z;
+      const compatibleCombination = unwrap(theta, referenceCombination);
+      const delta = compatibleCombination - referenceCombination;
+      const x = reference.x + delta / 2;
+      const z = reference.z + (positive ? delta / 2 : -delta / 2);
+      const y = unwrap(primary.y, reference.y);
+      object.rotation.set(x, y, z, order);
+      reference.set(x, y, z);
+      return;
+    }
+
+    const alternate = primary.clone();
+    const first = order[0].toLowerCase() as 'x' | 'y' | 'z';
+    const middle = order[1].toLowerCase() as 'x' | 'y' | 'z';
+    const last = order[2].toLowerCase() as 'x' | 'y' | 'z';
+    alternate[first] += Math.PI;
+    alternate[middle] = Math.PI - alternate[middle];
+    alternate[last] += Math.PI;
+
+    const candidates = [nearest(primary), nearest(alternate)];
+    const best = candidates.reduce((a, b) =>
+      a.distanceToSquared(reference) <= b.distanceToSquared(reference) ? a : b
+    );
+    object.rotation.set(best.x, best.y, best.z, order);
+    reference.copy(best);
+  }
+
   emit(type = 'change') { this.dispatchEvent(new Event(type)); }
   isVisible(object: THREE.Object3D): boolean { return object.visible && (!object.parent || this.isVisible(object.parent)); }
   invalidate() {
@@ -192,6 +274,7 @@ export class Editor extends EventTarget {
   }
   render() {
     this.beforeRender?.();
+    this.gimbal.update();
     const originals = new Map<THREE.Mesh, THREE.Material | THREE.Material[]>();
     if (this.viewStyle !== 'material') this.content.traverse(o => {
       if (o instanceof THREE.Mesh) { originals.set(o, o.material); o.material = this.viewStyle === 'wire' ? this.wire : this.solid; }
@@ -309,8 +392,7 @@ export class Editor extends EventTarget {
     }
     if (object !== this.selected) this.setEditMode(false);
     this.selected = object;
-    if (object && object.visible) this.transform.attach(object);
-    else this.transform.detach();
+    this.syncTransformControls();
     this.updateSelection();
     this.emit();
     this.invalidate();
@@ -323,12 +405,43 @@ export class Editor extends EventTarget {
       else this.selectionBox.setFromObject(this.selected);
     }
   }
+  private syncTransformControls() {
+    const mode = this.editMode ? 'translate' : this.transformTool;
+    const useGimbal = !this.editMode && mode === 'rotate' && this.transformOrientation === 'gimbal' && !!this.selected?.visible;
+    this.gimbal.attach(this.selected);
+    this.gimbal.setEnabled(useGimbal);
+    if (useGimbal || mode === 'select') {
+      this.transform.detach();
+    } else if (this.editMode && this.vertexIndices.length) {
+      this.transform.attach(this.vertexProxy);
+    } else if (!this.editMode && this.selected?.visible) {
+      this.transform.attach(this.selected);
+    } else {
+      this.transform.detach();
+    }
+  }
+  setTransformOrientation(orientation: TransformOrientation) {
+    if (orientation !== 'world' && orientation !== 'local' && orientation !== 'gimbal') throw new Error('Unsupported transform orientation.');
+    this.transformOrientation = orientation;
+    this.transform.setSpace(orientation === 'world' ? 'world' : 'local');
+    this.syncTransformControls();
+    this.invalidate();
+  }
+  setTransformSnapping(enabled: boolean) {
+    this.transform.setTranslationSnap(enabled ? 0.5 : null);
+    this.transform.setRotationSnap(enabled ? Math.PI / 12 : null);
+    this.transform.setScaleSnap(enabled ? 0.1 : null);
+    this.gimbal.rotationSnap = enabled ? Math.PI / 12 : null;
+  }
   setTool(mode: 'translate' | 'rotate' | 'scale' | 'select') {
-    if (mode === 'select') this.transform.detach();
-    else {
-      this.transform.setMode(this.editMode ? 'translate' : mode);
-      if (this.editMode && this.vertexIndices.length) this.transform.attach(this.vertexProxy);
-      else if (!this.editMode && this.selected?.visible) this.transform.attach(this.selected);
+    this.transformTool = mode;
+    this.transform.setMode(this.editMode ? 'translate' : mode === 'select' ? 'translate' : mode);
+    this.transform.setSpace(this.transformOrientation === 'world' ? 'world' : 'local');
+    if (mode === 'select') {
+      this.gimbal.setEnabled(false);
+      this.transform.detach();
+    } else {
+      this.syncTransformControls();
     }
     this.invalidate();
   }
@@ -410,6 +523,7 @@ export class Editor extends EventTarget {
     this.camera = next;
     this.orbit.object = next;
     this.transform.camera = next;
+    this.gimbal.setCamera(next);
     this.orbit.update();
     this.invalidate();
     this.emit('view');
@@ -592,6 +706,7 @@ export class Editor extends EventTarget {
     this.vertexIndices = [];
     this.selectedFace = null;
     this.transform.detach();
+    this.gimbal.setEnabled(false);
     if (this.vertexPoints) {
       this.vertexPoints.removeFromParent();
       this.componentEdges?.geometry.dispose();
@@ -616,7 +731,9 @@ export class Editor extends EventTarget {
       this.componentEdges.renderOrder = 9;
       this.vertexPoints.add(this.componentEdges);
       this.refreshComponents();
-    } else if (this.selected?.visible) this.transform.attach(this.selected);
+    } else {
+      this.syncTransformControls();
+    }
     this.updateSelection();
     this.emit('mode');
     this.invalidate();
@@ -1023,7 +1140,12 @@ export class Editor extends EventTarget {
       }
       if (o.userData.animationInterpolation !== undefined && !validInterpolation(o.userData.animationInterpolation)) throw new Error('Invalid animation interpolation.');
       if (o.userData.keyframes) {
-        if (!Array.isArray(o.userData.keyframes) || o.userData.keyframes.some((k: Keyframe) => !Number.isFinite(k.frame) || ![k.position, k.quaternion, k.scale].every((v, i) => Array.isArray(v) && v.length === (i === 1 ? 4 : 3) && v.every(Number.isFinite)))) throw new Error('Invalid animation keyframes.');
+        if (!Array.isArray(o.userData.keyframes) || o.userData.keyframes.some((k: Keyframe) =>
+          !Number.isFinite(k.frame) ||
+          ![k.position, k.quaternion, k.scale].every((v, i) => Array.isArray(v) && v.length === (i === 1 ? 4 : 3) && v.every(Number.isFinite)) ||
+          (k.rotation !== undefined && (!Array.isArray(k.rotation) || k.rotation.length !== 3 || !k.rotation.every(Number.isFinite))) ||
+          (k.rotationOrder !== undefined && !['XYZ','YZX','ZXY','XZY','YXZ','ZYX'].includes(k.rotationOrder))
+        )) throw new Error('Invalid animation keyframes.');
       }
     }); } catch (error) { this.disposeObject(root); throw error; }
     if (vertices > 2_000_000) { this.disposeObject(root); throw new Error('Scene exceeds the 2 million vertex limit.'); }
@@ -1051,7 +1173,14 @@ export class Editor extends EventTarget {
     const keys: Keyframe[] = this.selected.userData.keyframes ?? [];
     const frame = Math.round(this.frame);
     const next = keys.filter(k => k.frame !== frame);
-    next.push({ frame, position: this.selected.position.toArray(), quaternion: this.selected.quaternion.toArray(), scale: this.selected.scale.toArray() });
+    next.push({
+      frame,
+      position: this.selected.position.toArray(),
+      quaternion: this.selected.quaternion.toArray(),
+      scale: this.selected.scale.toArray(),
+      rotation: [this.selected.rotation.x, this.selected.rotation.y, this.selected.rotation.z],
+      rotationOrder: this.selected.rotation.order,
+    });
     this.selected.userData.keyframes = next.sort((a, b) => a.frame - b.frame);
     this.commit();
     return true;
@@ -1072,6 +1201,8 @@ export class Editor extends EventTarget {
       position: property === 'position' ? key.position.map((item, index) => index === component ? value : item) : [...key.position],
       quaternion: [...key.quaternion],
       scale: property === 'scale' ? key.scale.map((item, index) => index === component ? value : item) : [...key.scale],
+      ...(key.rotation ? { rotation: [...key.rotation] } : {}),
+      ...(key.rotationOrder ? { rotationOrder: key.rotationOrder } : {}),
     } : key);
     this.scrub(source.frame);
     this.commit();
@@ -1085,7 +1216,14 @@ export class Editor extends EventTarget {
     if (!copy && targetFrame === source.frame) return;
     if (keys.some(key => key.frame === targetFrame)) throw new Error('The target frame already has a keyframe.');
     const next = copy ? [...keys] : keys.filter(key => key !== source);
-    next.push({ frame: targetFrame, position: [...source.position], quaternion: [...source.quaternion], scale: [...source.scale] });
+    next.push({
+      frame: targetFrame,
+      position: [...source.position],
+      quaternion: [...source.quaternion],
+      scale: [...source.scale],
+      ...(source.rotation ? { rotation: [...source.rotation] } : {}),
+      ...(source.rotationOrder ? { rotationOrder: source.rotationOrder } : {}),
+    });
     this.selected.userData.keyframes = next.sort((a, b) => a.frame - b.frame);
     this.scrub(targetFrame);
     this.commit();
@@ -1110,7 +1248,11 @@ export class Editor extends EventTarget {
       if (!keys?.length) return;
       const sample = sampleAnimation(keys, this.frame, o.userData.animationInterpolation ?? 'linear');
       o.position.fromArray(sample.position);
-      o.quaternion.fromArray(sample.quaternion);
+      if (sample.rotation) {
+        o.rotation.set(sample.rotation[0], sample.rotation[1], sample.rotation[2], sample.rotationOrder ?? o.rotation.order);
+      } else {
+        o.quaternion.fromArray(sample.quaternion);
+      }
       o.scale.fromArray(sample.scale);
     });
     this.updateSelection();
