@@ -166,11 +166,8 @@ export class AnimationGraphView {
     }
 
     this.title.textContent = animationChannelLabel(data.channel);
-    this.detail.textContent = `${data.mode[0].toUpperCase() + data.mode.slice(1)} · ${this.format(data.actualMin)} to ${this.format(data.actualMax)}`;
-    const x = (frame: number) => {
-      const span = Math.max(1e-9, data.frameMax - data.frameMin);
-      return 48 + (frame - data.frameMin) / span * 924;
-    };
+    this.detail.textContent = `${data.mode[0].toUpperCase() + data.mode.slice(1)} · F${this.formatFrame(data.frameMin)}–${this.formatFrame(data.frameMax)} · ${this.format(data.actualMin)} to ${this.format(data.actualMax)}`;
+    const x = (frame: number) => this.frameX(data, frame);
     const y = (value: number) => 18 + (data.valueMax - value) / (data.valueMax - data.valueMin) * 144;
 
     for (let index = 0; index < 5; index++) {
@@ -210,20 +207,33 @@ export class AnimationGraphView {
     top.textContent = this.format(data.valueMax);
     const bottom = svgElement('text', { class: 'graph-value-label', x: 8, y: 160 });
     bottom.textContent = this.format(data.valueMin);
-    this.curveLayer.append(top, bottom);
+    const frameStart = svgElement('text', { class: 'graph-frame-label', x: 48, y: 176, 'text-anchor': 'start' });
+    frameStart.textContent = `F${this.formatFrame(data.frameMin)}`;
+    const frameEnd = svgElement('text', { class: 'graph-frame-label', x: 972, y: 176, 'text-anchor': 'end' });
+    frameEnd.textContent = `F${this.formatFrame(data.frameMax)}`;
+    this.curveLayer.append(top, bottom, frameStart, frameEnd);
     this.playhead.setAttribute('visibility', 'visible');
   }
 
   private renderPlayhead(frame: number) {
     const data = this.data;
     if (!data) return;
-    const span = Math.max(1e-9, data.frameMax - data.frameMin);
     const clamped = THREE.MathUtils.clamp(frame, data.frameMin, data.frameMax);
-    const x = 48 + (clamped - data.frameMin) / span * 924;
+    const x = this.frameX(data, clamped);
     this.playhead.setAttribute('x1', x.toFixed(2));
     this.playhead.setAttribute('x2', x.toFixed(2));
     this.playhead.dataset.frame = String(frame);
     this.playhead.classList.toggle('outside', frame < data.frameMin || frame > data.frameMax);
+  }
+
+  private frameX(data: AnimationGraphData, frame: number) {
+    const span = data.frameMax - data.frameMin;
+    if (Math.abs(span) < 1e-9) return 510;
+    return 48 + (frame - data.frameMin) / span * 924;
+  }
+
+  private formatFrame(frame: number) {
+    return Number.isInteger(frame) ? String(frame) : frame.toFixed(2);
   }
 
   private format(value: number) {
