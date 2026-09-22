@@ -37,15 +37,18 @@ test('interpolation evaluates transforms, endpoints and preserves history and pr
   expect(result).toMatchObject({ undo: 'linear', redo: 'smooth', restored: 1.25, held: 0, boundary: 8, after: 8, invalid: true, unchanged: true, rejected: true, loadUnchanged: true });
 });
 
-test('property selector follows selection and exports STEP and sampled smooth GLB tracks', async ({ page }) => {
+test('legacy object interpolation fallback exports STEP and sampled smooth GLB tracks', async ({ page }) => {
   await page.evaluate(() => {
-    const e = (window as any).__forge; e.selected.position.x = 0; e.insertKey();
+    const e = (window as any).__forge;
+    e.selected.position.x = 0; e.insertKey();
     e.frame = 25; e.selected.position.x = 8; e.insertKey(); e.scrub(7);
   });
-  await page.getByLabel('Animation interpolation', { exact: true }).selectOption('constant');
+
+  await page.evaluate(() => (window as any).__forge.setAnimationInterpolation('constant'));
   expect(await page.evaluate(() => (window as any).__forge.selected.position.x)).toBe(0);
+
   for (const mode of ['constant', 'smooth']) {
-    await page.getByLabel('Animation interpolation', { exact: true }).selectOption(mode);
+    await page.evaluate((value) => (window as any).__forge.setAnimationInterpolation(value), mode);
     const downloadPromise = page.waitForEvent('download');
     await page.locator('#export-top').click();
     const download = await downloadPromise;
@@ -63,12 +66,18 @@ test('property selector follows selection and exports STEP and sampled smooth GL
       expect(glb.readFloatLE(offset + 8 * 3 * 4)).toBeCloseTo(1.25);
     }
   }
-  await page.evaluate(() => { const e = (window as any).__forge; e.add('sphere'); });
-  await expect(page.getByLabel('Animation interpolation', { exact: true })).toHaveValue('linear');
-  await page.evaluate(() => { const e = (window as any).__forge; e.select(e.content.getObjectByName('Cube')); });
-  await expect(page.getByLabel('Animation interpolation', { exact: true })).toHaveValue('smooth');
-  await page.locator('#animation-interpolation').scrollIntoViewIfNeeded();
-  await page.screenshot({ path: 'test-results/animation-interpolation.png' });
+
+  await page.evaluate(() => {
+    const e = (window as any).__forge;
+    e.add('sphere');
+  });
+  expect(await page.evaluate(() => (window as any).__forge.selected.userData.animationInterpolation ?? 'linear')).toBe('linear');
+
+  await page.evaluate(() => {
+    const e = (window as any).__forge;
+    e.select(e.content.getObjectByName('Cube'));
+  });
+  expect(await page.evaluate(() => (window as any).__forge.selected.userData.animationInterpolation)).toBe('smooth');
 });
 
 
@@ -229,7 +238,7 @@ test('rotation channel interpolation upgrades legacy quaternion keys and malform
   expect(result.loadUnchanged).toBe(true);
 });
 
-test('channel interpolation UI drives mixed playback and baked GLB export', async ({ page }) => {
+test('legacy channel fallback API drives mixed playback and baked GLB export', async ({ page }) => {
   await page.evaluate(() => {
     const e = (window as any).__forge;
     const object = e.selected;
@@ -241,17 +250,13 @@ test('channel interpolation UI drives mixed playback and baked GLB export', asyn
     object.position.set(8, 8, 0);
     e.insertKey();
     e.setAnimationInterpolation('linear');
+    e.setAnimationChannelInterpolation('position.x', 'constant');
+    e.setAnimationChannelInterpolation('position.y', 'smooth');
     e.scrub(7);
   });
 
-  await page.getByLabel('Animation channel', { exact: true }).selectOption('position.x');
-  await page.getByLabel('Animation channel interpolation', { exact: true }).selectOption('constant');
-  await page.getByLabel('Animation channel', { exact: true }).selectOption('position.y');
-  await page.getByLabel('Animation channel interpolation', { exact: true }).selectOption('smooth');
-
   const sampled = await page.evaluate(() => {
     const e = (window as any).__forge;
-    e.scrub(7);
     return {
       x: e.selected.position.x,
       y: e.selected.position.y,
@@ -261,9 +266,6 @@ test('channel interpolation UI drives mixed playback and baked GLB export', asyn
   expect(sampled.x).toBeCloseTo(0, 6);
   expect(sampled.y).toBeCloseTo(1.25, 6);
   expect(sampled.overrides).toEqual({ 'position.x': 'constant', 'position.y': 'smooth' });
-
-  await page.getByLabel('Animation channel', { exact: true }).selectOption('position.x');
-  await expect(page.getByLabel('Animation channel interpolation', { exact: true })).toHaveValue('constant');
 
   const pending = page.waitForEvent('download');
   await page.locator('#export-top').click();
@@ -290,9 +292,8 @@ test('channel interpolation UI drives mixed playback and baked GLB export', asyn
   expect(glb.readFloatLE(nearEnd)).toBeCloseTo(0, 4);
   expect(glb.readFloatLE(endpoint)).toBeCloseTo(8, 4);
 
-  await page.getByLabel('Animation channel interpolation', { exact: true }).selectOption('');
+  await page.evaluate(() => (window as any).__forge.setAnimationChannelInterpolation('position.x', null));
   expect(await page.evaluate(() => (window as any).__forge.selected.userData.animationChannelInterpolation?.['position.x'])).toBeUndefined();
-  await expect(page.getByLabel('Animation channel interpolation', { exact: true })).toHaveValue('');
 });
 
 
