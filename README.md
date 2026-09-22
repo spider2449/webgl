@@ -31,7 +31,7 @@ The browser tests use port 5174. Production output is in `dist/`. No backend, ac
 - Material properties edit the first standard material of a selected mesh. Imported groups expose child meshes in the outliner. Solid and wireframe views are temporary viewport overrides.
 - The Material workspace includes bounded **Texture paint** and texture management tools for UV-mapped meshes. Enable an embedded 256×256 canvas, choose a brush color and size, paint directly on the UV layout, or import PNG/JPEG/WebP pixels and export the active canvas as PNG; clear, undo/redo and Forge project save/load retain the bitmap. Layers, alpha masks and packing are not included.
 - Use the timeline to insert transform keys, move to another frame, change the object, and insert another key. Playback interpolates at a 24 fps timeline timebase across frames 1–250.
-- Ctrl+Z / Ctrl+Shift+Z undo and redo. Shift+D duplicates objects; Delete removes them. Individual bones cannot be deleted or duplicated; duplicate the armature to make an independent character.
+- Ctrl+Z / Ctrl+Shift+Z undo and redo. Shift+D creates an independent duplicate; Alt+D creates a linked duplicate for an ordinary mesh, sharing its geometry and material while keeping transform, name and collection membership independent. Linked duplication rejects skinned meshes and meshes with an active modifier stack. Delete removes objects. Individual bones cannot be deleted or duplicated; duplicate the armature to make an independent character.
 
 ### Triangle inset
 
@@ -120,6 +120,12 @@ round-trip time and main-thread timer gaps. Serialization, result cloning,
 helper-buffer setup and history snapshots still run on the main thread;
 off-thread calculation does not imply stall-free interaction or a universal FPS.
 
+## Linked instances
+
+Use **Alt+D** or **Edit → Linked duplicate** on an ordinary mesh to create a second object that shares the same geometry and material resources. Object transforms, names, animation data and collection membership remain independent. Editing shared mesh data or material properties through either instance is visible on the other, and Forge project save/load plus undo/redo preserve the shared resource identity.
+
+Linked duplication is intentionally bounded: skinned meshes and meshes with an active modifier stack are rejected. Shift+D remains the independent deep-copy workflow. A later topology or modifier operation that replaces a mesh resource can intentionally make that object independent; there is no separate instance-group editor yet.
+
 ## Animation interpolation
 
 In the Object panel, choose **Linear**, **Constant**, or **Smooth** under
@@ -182,6 +188,6 @@ The automated WebGL tests use Chromium's software renderer for repeatability. Th
 
 ## Current limits and next stages
 
-The editor does not yet include polygon face editing, curved-surface region extrusion or region inset, sculpting, weight painting, linked instances, IK pole vectors/joint limits, retargeting, geometry nodes, physics, compositing or offline rendering. The modeling core includes bevel, loop cuts, UV editing, modifiers and mesh snapping within the supported limits documented above. Kimodo text-to-motion inference is not connected. The UI exposes only implemented local workflows and labels the basic rigging limitations.
+The editor does not yet include polygon face editing, curved-surface region extrusion or region inset, sculpting, weight painting, IK pole vectors/joint limits, retargeting, geometry nodes, physics, compositing or offline rendering. The modeling core includes bevel, loop cuts, UV editing, modifiers and mesh snapping within the supported limits documented above. Kimodo text-to-motion inference is not connected. The UI exposes only implemented local workflows and labels the basic rigging limitations.
 
 The development plan is [docs/plans/2026-09-08-forge-studio.md](docs/plans/2026-09-08-forge-studio.md).
