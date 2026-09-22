@@ -1243,6 +1243,137 @@ export class Editor extends EventTarget {
     this.commit();
     return true;
   }
+  private prepareCurveKeys(keys: Keyframe[], channel: ScalarAnimationChannel) {
+    let prepared = keys.map(cloneAnimationKey);
+    if (!channel.startsWith('rotation.')) return prepared;
+    if (new Set(prepared.map(key => key.rotationOrder ?? 'XYZ')).size > 1) throw new Error('Rotation curves require one Euler order.');
+    prepared = prepared.map(key => {
+      if (key.rotation) return key;
+      const order = key.rotationOrder ?? 'XYZ';
+      const euler = new THREE.Euler().setFromQuaternion(new THREE.Quaternion().fromArray(key.quaternion), order);
+      return { ...key, rotation: [euler.x, euler.y, euler.z], rotationOrder: order };
+    });
+    return prepared;
+  }
+
+  setKeyInterpolation(frame: number, channel: ScalarAnimationChannel, mode: KeyInterpolation | null) {
+    if (!Number.isInteger(frame) || frame < 1 || frame > 250 || !validAnimationChannel(channel) || (mode !== null && !validKeyInterpolation(mode))) {
+      throw new Error('Invalid key interpolation.');
+    }
+    if (!this.selected || this.editMode || this.playing || this.animationKeyDrag || this.animationHandleDrag) return false;
+    const sourceKeys: Keyframe[] = this.selected.userData.keyframes ?? [];
+    const prepared = this.prepareCurveKeys(sourceKeys, channel);
+    const index = prepared.findIndex(key => key.frame === frame);
+    if (index < 0) throw new Error('Choose an authored key first.');
+    if (mode !== null && index === prepared.length - 1) throw new Error('The last key has no outbound segment.');
+
+    const key = prepared[index];
+    const curves = cloneKeyCurves(key.curves) ?? {};
+    const curve: KeyCurve = { ...(curves[channel] ?? {}) };
+    if (mode === null) delete curve.interpolation;
+    else curve.interpolation = mode;
+
+    if (mode === 'bezier') {
+      const next = prepared[index + 1];
+      const span = next.frame - key.frame;
+      const delta = animationChannelNativeValue(next, channel) - animationChannelNativeValue(key, channel);
+      if (!curve.right) curve.right = [span / 3, delta / 3];
+
+      const nextCurves = cloneKeyCurves(next.curves) ?? {};
+      const nextCurve: KeyCurve = { ...(nextCurves[channel] ?? {}) };
+      if (!nextCurve.left) nextCurve.left = [-span / 3, -delta / 3];
+      nextCurves[channel] = nextCurve;
+      next.curves = nextCurves;
+    }
+
+    if (curve.interpolation || curve.left || curve.right) curves[channel] = curve;
+    else delete curves[channel];
+    key.curves = Object.keys(curves).length ? curves : undefined;
+
+    this.selected.userData.keyframes = prepared;
+    this.evaluateAnimation();
+    this.commit();
+    return true;
+  }
+
+  beginAnimationHandleDrag(frame: number, channel: ScalarAnimationChannel, side: 'left' | 'right') {
+    if (!Number.isInteger(frame) || !validAnimationChannel(channel) || !this.selected || this.editMode || this.playing || this.animationKeyDrag || this.animationHandleDrag) return false;
+    const keys: Keyframe[] = this.selected.userData.keyframes ?? [];
+    const index = keys.findIndex(key => key.frame === frame);
+    if (index < 0) return false;
+    const enabled = side === 'right'
+      ? index < keys.length - 1 && keys[index].curves?.[channel]?.interpolation === 'bezier'
+      : index > 0 && keys[index - 1].curves?.[channel]?.interpolation === 'bezier';
+    if (!enabled) return false;
+    this.animationHandleDrag = {
+      object: this.selected,
+      frame,
+      channel,
+      side,
+      originalKeys: keys.map(cloneAnimationKey),
+    };
+    return true;
+  }
+
+  previewAnimationHandleDrag(targetFrame: number, displayValue: number) {
+    const drag = this.animationHandleDrag;
+    if (!drag || this.selected !== drag.object || this.editMode || this.playing || !Number.isFinite(targetFrame) || !Number.isFinite(displayValue)) return false;
+    const keys = drag.originalKeys.map(cloneAnimationKey);
+    const index = keys.findIndex(key => key.frame === drag.frame);
+    if (index < 0) return false;
+    const key = keys[index];
+    const keyValue = animationChannelNativeValue(key, drag.channel);
+    const targetValue = drag.channel.startsWith('rotation.') ? THREE.MathUtils.degToRad(displayValue) : displayValue;
+
+    let minimumFrame: number;
+    let maximumFrame: number;
+    if (drag.side === 'right') {
+      if (index >= keys.length - 1 || key.curves?.[drag.channel]?.interpolation !== 'bezier') return false;
+      const next = keys[index + 1];
+      const span = next.frame - key.frame;
+      const delta = animationChannelNativeValue(next, drag.channel) - keyValue;
+      const opposite = next.curves?.[drag.channel]?.left ?? [-span / 3, -delta / 3];
+      minimumFrame = key.frame;
+      maximumFrame = THREE.MathUtils.clamp(next.frame + opposite[0], key.frame, next.frame);
+    } else {
+      if (index === 0 || keys[index - 1].curves?.[drag.channel]?.interpolation !== 'bezier') return false;
+      const previous = keys[index - 1];
+      const span = key.frame - previous.frame;
+      const delta = keyValue - animationChannelNativeValue(previous, drag.channel);
+      const opposite = previous.curves?.[drag.channel]?.right ?? [span / 3, delta / 3];
+      minimumFrame = THREE.MathUtils.clamp(previous.frame + opposite[0], previous.frame, key.frame);
+      maximumFrame = key.frame;
+    }
+
+    const clampedFrame = THREE.MathUtils.clamp(targetFrame, minimumFrame, maximumFrame);
+    const curves = cloneKeyCurves(key.curves) ?? {};
+    const curve: KeyCurve = { ...(curves[drag.channel] ?? {}) };
+    curve[drag.side] = [clampedFrame - key.frame, targetValue - keyValue];
+    curves[drag.channel] = curve;
+    key.curves = curves;
+
+    drag.object.userData.keyframes = keys;
+    this.evaluateAnimation();
+    this.emit('transform');
+    this.invalidate();
+    return { frame: clampedFrame, value: displayValue };
+  }
+
+  endAnimationHandleDrag(cancel = false) {
+    const drag = this.animationHandleDrag;
+    if (!drag) return false;
+    this.animationHandleDrag = null;
+    if (cancel) {
+      drag.object.userData.keyframes = drag.originalKeys.map(cloneAnimationKey);
+      this.evaluateAnimation();
+      this.emit('transform');
+      this.invalidate();
+      return true;
+    }
+    this.commit();
+    return true;
+  }
+
   insertKey() {
     if (!this.selected || this.editMode) return false;
     const keys: Keyframe[] = this.selected.userData.keyframes ?? [];
