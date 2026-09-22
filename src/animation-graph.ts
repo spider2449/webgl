@@ -239,7 +239,15 @@ export class AnimationGraphView {
       })),
     });
 
-    if (!this.drag && signature !== this.signature) {
+    if (this.drag) {
+      const fresh = buildAnimationGraphData(keys, channel, defaultMode, overrides);
+      if (fresh && this.data) {
+        fresh.valueMin = this.data.valueMin;
+        fresh.valueMax = this.data.valueMax;
+        this.data = fresh;
+        this.renderCurvePath();
+      }
+    } else if (signature !== this.signature) {
       this.signature = signature;
       this.data = buildAnimationGraphData(keys, channel, defaultMode, overrides);
       this.renderStatic();
@@ -277,9 +285,7 @@ export class AnimationGraphView {
       this.curveLayer.append(svgElement('line', { class: 'graph-key-grid', x1: gx, x2: gx, y1: 18, y2: 162 }));
     }
 
-    const pathData = data.samples
-      .map((point, index) => `${index === 0 ? 'M' : 'L'} ${x(point.frame).toFixed(2)} ${y(point.value).toFixed(2)}`)
-      .join(' ');
+    const pathData = this.curvePath(data);
     const path = svgElement('path', { class: 'graph-curve', d: pathData });
     path.dataset.sampleCount = String(data.samples.length);
     this.curveLayer.append(path);
@@ -314,6 +320,20 @@ export class AnimationGraphView {
     frameEnd.textContent = 'F250';
     this.curveLayer.append(top, bottom, frameStart, frameEnd);
     this.playhead.setAttribute('visibility', 'visible');
+  }
+
+  private curvePath(data: AnimationGraphData) {
+    return data.samples
+      .map((point, index) => `${index === 0 ? 'M' : 'L'} ${this.frameX(point.frame).toFixed(2)} ${this.valueY(data, point.value).toFixed(2)}`)
+      .join(' ');
+  }
+
+  private renderCurvePath() {
+    if (!this.data) return;
+    const path = this.curveLayer.querySelector<SVGPathElement>('.graph-curve');
+    if (!path) return;
+    path.setAttribute('d', this.curvePath(this.data));
+    path.dataset.sampleCount = String(this.data.samples.length);
   }
 
   private renderHandles(data: AnimationGraphData, x: (frame: number) => number, y: (value: number) => number) {
