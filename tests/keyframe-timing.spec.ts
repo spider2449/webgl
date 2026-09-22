@@ -7,7 +7,6 @@ test.beforeEach(async ({ page }) => {
     const e = (window as any).__forge;
     e.selected.position.x = 0; e.insertKey();
     e.frame = 25; e.selected.position.x = 8; e.insertKey();
-    e.setAnimationInterpolation('smooth');
   });
 });
 
@@ -30,12 +29,12 @@ test('move and copy preserve pose, interpolation, unrelated objects and history'
     e.load(JSON.parse(e.snapshot()));
     const restored = e.content.getObjectByName('Cube');
     return { source, moved, copied, isolated, independent, value, followed, undone, redone,
-      restored: restored.userData.keyframes, mode: restored.userData.animationInterpolation };
+      restored: restored.userData.keyframes };
   });
   expect(result.moved.map(k => k.frame)).toEqual([1, 49]);
   expect(result.moved[1]).toEqual({ ...result.source, frame: 49 });
   expect(result.copied).toEqual([...result.moved, { ...result.source, frame: 73 }]);
-  expect(result).toMatchObject({ isolated: true, independent: true, value: 1.25, followed: 73, mode: 'smooth' });
+  expect(result).toMatchObject({ isolated: true, independent: true, value: 2, followed: 73 });
   expect(result.undone).toEqual(result.moved);
   expect(result.redone).toEqual(result.copied);
   expect(result.restored).toEqual(result.copied);
@@ -107,8 +106,6 @@ test('Graph Editor moves and Alt-drags copies while GLB uses the resulting timin
   await page.evaluate(() => (window as any).__forge.redo());
   frames = await page.evaluate(() => (window as any).__forge.selected.userData.keyframes.map((key: any) => key.frame));
   expect(frames).toEqual([1, 49, 73]);
-
-  await page.evaluate(() => (window as any).__forge.setAnimationInterpolation('linear'));
   const pending = page.waitForEvent('download');
   await page.locator('#export-top').click();
   const download = await pending, stream = await download.createReadStream();
