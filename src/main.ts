@@ -89,7 +89,7 @@ catch (error) {
   $('#viewport').innerHTML = '<div class="webgl-error"><h2>WebGL 2 is unavailable</h2><p>Enable hardware acceleration in your browser, then reload Forge.</p></div>';
   throw error;
 }
-const animationGraph = new AnimationGraphView($<SVGSVGElement>('#animation-graph'), $('#animation-graph-title'), $('#animation-graph-detail'));
+const animationGraph = new AnimationGraphView(document.querySelector<SVGSVGElement>('#animation-graph')!, $('#animation-graph-title'), $('#animation-graph-detail'));
 let toastTimer: ReturnType<typeof setTimeout>;
 function toast(message: string) { $('#toast').textContent = message; $('#toast').classList.remove('hidden'); clearTimeout(toastTimer); toastTimer = setTimeout(() => $('#toast').classList.add('hidden'), 4200); }
 function on(id: string, handler: () => void) { $(`#${id}`).addEventListener('click', handler); }
