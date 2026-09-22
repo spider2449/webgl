@@ -36,6 +36,7 @@ export function validKeyCurves(value: unknown): value is Keyframe['curves'] {
   return Object.entries(value).every(([channel, curve]) => {
     if (!validAnimationChannel(channel) || !curve || typeof curve !== 'object' || Array.isArray(curve)) return false;
     const item = curve as { interpolation?: unknown; left?: unknown; right?: unknown };
+    if (Object.keys(item).some(key => key !== 'interpolation' && key !== 'left' && key !== 'right')) return false;
     if (item.interpolation !== undefined && !validKeyInterpolation(item.interpolation)) return false;
     for (const handle of [item.left, item.right]) {
       if (handle !== undefined && (!Array.isArray(handle) || handle.length !== 2 || handle.some(value => !Number.isFinite(value)))) return false;
@@ -101,17 +102,14 @@ function cubic(a: number, b: number, c: number, d: number, t: number) {
   return u * u * u * a + 3 * u * u * t * b + 3 * u * t * t * c + t * t * t * d;
 }
 
-function bezierValue(
+export function bezierControlPoints(
   a: Keyframe,
   b: Keyframe,
   channel: ScalarAnimationChannel,
-  frame: number,
 ) {
   const va = animationChannelNativeValue(a, channel);
   const vb = animationChannelNativeValue(b, channel);
   const span = b.frame - a.frame;
-  if (span <= 0) return va;
-
   const right = a.curves?.[channel]?.right ?? [span / 3, (vb - va) / 3];
   const left = b.curves?.[channel]?.left ?? [-span / 3, -(vb - va) / 3];
 
@@ -122,8 +120,17 @@ function bezierValue(
     x1 = middle;
     x2 = middle;
   }
-  const y1 = va + right[1];
-  const y2 = vb + left[1];
+  return { x1, y1: va + right[1], x2, y2: vb + left[1], va, vb };
+}
+
+function bezierValue(
+  a: Keyframe,
+  b: Keyframe,
+  channel: ScalarAnimationChannel,
+  frame: number,
+) {
+  const { x1, y1, x2, y2, va, vb } = bezierControlPoints(a, b, channel);
+  if (b.frame <= a.frame) return va;
 
   let low = 0, high = 1;
   for (let index = 0; index < 28; index++) {
@@ -262,7 +269,7 @@ export function animationTracks(object: THREE.Object3D): THREE.KeyframeTrack[] {
   const mode: AnimationInterpolation = object.userData.animationInterpolation ?? 'linear';
   const overrides: AnimationChannelInterpolation = object.userData.animationChannelInterpolation ?? {};
   const hasEffectiveOverrides = Object.values(overrides).some(override => override !== mode);
-  const hasKeyCurves = keys.some(key => Object.values(key.curves ?? {}).some(curve => curve?.interpolation || curve?.left || curve?.right));
+  const hasKeyCurves = keys.some(key => Object.values(key.curves ?? {}).some(curve => curve?.interpolation));
   const needsBaking = hasEffectiveOverrides || hasKeyCurves;
   const samples = needsBaking ? bakedExportSamples(keys, mode, overrides) : legacyExportSamples(keys, mode);
   const times = samples.map(key => (key.frame - 1) / 24);
