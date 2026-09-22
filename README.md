@@ -140,17 +140,19 @@ Use **Keyframe** to jump to an authored transform key. Set **Target frame**
 repeat its pose. The destination must be empty. Actions follow the resulting
 key, preserve interpolation and support undo/redo and project saving.
 
-For an existing key, choose **Channel** and edit one scalar **Location X/Y/Z**
-or **Scale X/Y/Z** value without replacing the other transform values in that
-key. Changes evaluate immediately, participate in undo/redo, survive Forge
-project round trips and flow into GLB export. Playback must be paused and Object
-Mode active. Rotation remains stored and interpolated as a quaternion, so
-component-level rotation editing is intentionally not exposed.
+For an existing key, choose **Channel** and edit one scalar **Location X/Y/Z**,
+**Rotation X/Y/Z**, or **Scale X/Y/Z** value without replacing the other
+transform values in that key. Rotation channels are displayed in degrees and
+edit the key's unwrapped Euler values; the stored quaternion is regenerated so
+playback and GLB export stay synchronized. Existing quaternion-only keys are
+upgraded on first rotation-channel edit. Changes evaluate immediately,
+participate in undo/redo and survive Forge project round trips. Playback must be
+paused and Object Mode active.
 
 GLB export preserves Constant as STEP. Smooth exports 32 evenly spaced samples
 per segment and uses linear interpolation between them, so exported motion is
-an approximation. Editable Bezier handles, per-channel interpolation, rotation
-curve editing and batch curve operations remain future work.
+an approximation. Editable Bezier handles, graph/tangent editing, per-channel
+interpolation and batch curve operations remain future work.
 
 ## Kimodo rigging
 

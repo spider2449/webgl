@@ -48,6 +48,92 @@ test('edits one scalar key channel and preserves unrelated channels through hist
   expect(result.restored).toEqual(result.afterScale);
 });
 
+test('edits unwrapped rotation channels and keeps quaternion, interpolation, history and reload synchronized', async ({ page }) => {
+  const result = await page.evaluate(() => {
+    const e = (window as any).__forge;
+    const object = e.selected;
+    const rad = (degrees: number) => degrees * Math.PI / 180;
+    const deg = (radians: number) => radians * 180 / Math.PI;
+    const Quaternion = object.quaternion.constructor as any;
+    const Euler = object.rotation.constructor as any;
+
+    object.userData.keyframes = [];
+    e.frame = 1;
+    object.rotation.set(rad(10), rad(270), rad(30), 'XYZ');
+    e.insertKey();
+    e.frame = 25;
+    object.rotation.set(rad(20), rad(540), rad(40), 'XYZ');
+    e.insertKey();
+    e.setAnimationInterpolation('linear');
+    e.scrub(25);
+
+    e.editKeyChannel('rotation.y', 720);
+    const edited = structuredClone(object.userData.keyframes);
+    const expected = new Quaternion().setFromEuler(new Euler(rad(20), rad(720), rad(40), 'XYZ')).toArray();
+    const storedQuaternion = edited[1].quaternion;
+
+    e.scrub(13);
+    const midpoint = [deg(object.rotation.x), deg(object.rotation.y), deg(object.rotation.z)];
+
+    e.undo();
+    const undoY = deg(e.selected.userData.keyframes[1].rotation[1]);
+    e.redo();
+    const redoY = deg(e.selected.userData.keyframes[1].rotation[1]);
+
+    const saved = e.snapshot();
+    e.load(JSON.parse(saved));
+    e.scrub(25);
+    const restored = [deg(e.selected.rotation.x), deg(e.selected.rotation.y), deg(e.selected.rotation.z)];
+
+    return { edited, expected, storedQuaternion, midpoint, undoY, redoY, restored };
+  });
+
+  const editedRotation = result.edited[1].rotation.map((value: number) => value * 180 / Math.PI);
+  expect(editedRotation[0]).toBeCloseTo(20, 6);
+  expect(editedRotation[1]).toBeCloseTo(720, 6);
+  expect(editedRotation[2]).toBeCloseTo(40, 6);
+  const dot = result.expected.reduce((sum: number, value: number, index: number) => sum + value * result.storedQuaternion[index], 0);
+  expect(Math.abs(dot)).toBeCloseTo(1, 10);
+  expect(result.midpoint[0]).toBeCloseTo(15, 6);
+  expect(result.midpoint[1]).toBeCloseTo(495, 6);
+  expect(result.midpoint[2]).toBeCloseTo(35, 6);
+  expect(result.undoY).toBeCloseTo(540, 6);
+  expect(result.redoY).toBeCloseTo(720, 6);
+  expect(result.restored[0]).toBeCloseTo(20, 6);
+  expect(result.restored[1]).toBeCloseTo(720, 6);
+  expect(result.restored[2]).toBeCloseTo(40, 6);
+});
+
+test('editing a legacy quaternion-only rotation key upgrades it compatibly', async ({ page }) => {
+  const result = await page.evaluate(() => {
+    const e = (window as any).__forge;
+    e.scrub(1);
+    const key = e.selected.userData.keyframes[0];
+    delete key.rotation;
+    delete key.rotationOrder;
+    const oldQuaternion = [...key.quaternion];
+
+    e.editKeyChannel('rotation.x', 45);
+    const upgraded = e.selected.userData.keyframes[0];
+    return {
+      oldQuaternion,
+      rotation: upgraded.rotation.map((value: number) => value * 180 / Math.PI),
+      rotationOrder: upgraded.rotationOrder,
+      quaternion: [...upgraded.quaternion],
+      objectRotation: [e.selected.rotation.x, e.selected.rotation.y, e.selected.rotation.z].map((value: number) => value * 180 / Math.PI),
+    };
+  });
+
+  expect(result.rotationOrder).toBe('XYZ');
+  expect(result.rotation[0]).toBeCloseTo(45, 6);
+  expect(result.rotation[1]).toBeCloseTo(20, 6);
+  expect(result.rotation[2]).toBeCloseTo(0, 6);
+  expect(result.objectRotation[0]).toBeCloseTo(45, 6);
+  expect(result.objectRotation[1]).toBeCloseTo(20, 6);
+  expect(result.objectRotation[2]).toBeCloseTo(0, 6);
+  expect(result.quaternion).not.toEqual(result.oldQuaternion);
+});
+
 test('invalid scalar channel edits preserve scene and history', async ({ page }) => {
   const result = await page.evaluate(() => {
     const e = (window as any).__forge;
@@ -59,7 +145,7 @@ test('invalid scalar channel edits preserve scene and history', async ({ page })
     };
     e.scrub(25);
     const invalidValue = check(() => e.editKeyChannel('position.x', Number.NaN));
-    const invalidChannel = check(() => e.editKeyChannel('rotation.x', 1));
+    const invalidChannel = check(() => e.editKeyChannel('rotation.w', 1));
     e.scrub(12);
     const missingKey = check(() => e.editKeyChannel('position.y', 9));
     e.scrub(25); e.setEditMode(true);
@@ -71,6 +157,27 @@ test('invalid scalar channel edits preserve scene and history', async ({ page })
     return { invalidValue, invalidChannel, missingKey, editMode, playing, noSelection };
   });
   expect(Object.values(result).every(item => item.rejected && item.unchanged)).toBe(true);
+});
+
+test('playback refreshes selected object transform values while the timeline advances', async ({ page }) => {
+  await page.evaluate(() => {
+    const e = (window as any).__forge;
+    e.scrub(1);
+  });
+
+  const positionX = page.locator('[data-transform="position"][data-axis="x"]');
+  await expect(positionX).toHaveValue('0.000');
+  await page.locator('#play').click();
+
+  await page.waitForFunction(() => {
+    const e = (window as any).__forge;
+    const input = document.querySelector<HTMLInputElement>('[data-transform="position"][data-axis="x"]');
+    if (!e.playing || !input || e.frame < 3) return false;
+    return Math.abs(Number(input.value) - e.selected.position.x) < 0.02 && Number(input.value) > 0;
+  });
+
+  expect(await page.evaluate(() => (window as any).__forge.playing)).toBe(true);
+  await page.locator('#play').click();
 });
 
 test('animation channel UI edits the selected key and GLB exports the authored value', async ({ page }) => {
@@ -97,5 +204,22 @@ test('animation channel UI edits the selected key and GLB exports the authored v
 
   await page.getByLabel('Animation channel', { exact: true }).selectOption('scale.z');
   await expect(page.getByLabel('Animation channel value', { exact: true })).toHaveValue('4');
+
+  await page.getByLabel('Animation channel', { exact: true }).selectOption('rotation.y');
+  expect(Number(await page.getByLabel('Animation channel value', { exact: true }).inputValue())).toBeCloseTo(20, 6);
+  await page.getByLabel('Animation channel value', { exact: true }).fill('540');
+  await page.getByRole('button', { name: 'Apply channel value', exact: true }).click();
+  const rotation = await page.evaluate(() => {
+    const key = (window as any).__forge.selected.userData.keyframes[1];
+    return {
+      degrees: key.rotation[1] * 180 / Math.PI,
+      objectDegrees: (window as any).__forge.selected.rotation.y * 180 / Math.PI,
+      quaternion: key.quaternion,
+    };
+  });
+  expect(rotation.degrees).toBeCloseTo(540, 6);
+  expect(rotation.objectDegrees).toBeCloseTo(540, 6);
+  expect(rotation.quaternion.every((value: number) => Number.isFinite(value))).toBe(true);
+
   await page.screenshot({ path: 'test-results/animation-channel-editing.png' });
 });

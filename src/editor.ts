@@ -17,7 +17,7 @@ export type Primitive = 'cube' | 'sphere' | 'cylinder' | 'cone' | 'torus' | 'pla
 export type EulerOrder = 'XYZ' | 'YZX' | 'ZXY' | 'XZY' | 'YXZ' | 'ZYX';
 export type TransformOrientation = 'world' | 'local' | 'gimbal';
 export type Keyframe = { frame: number; position: number[]; quaternion: number[]; scale: number[]; rotation?: number[]; rotationOrder?: EulerOrder };
-export type ScalarAnimationChannel = 'position.x' | 'position.y' | 'position.z' | 'scale.x' | 'scale.y' | 'scale.z';
+export type ScalarAnimationChannel = 'position.x' | 'position.y' | 'position.z' | 'rotation.x' | 'rotation.y' | 'rotation.z' | 'scale.x' | 'scale.y' | 'scale.z';
 export type Project = { format: 'forge-studio'; version: 1; name: string; scene: ReturnType<THREE.Group['toJSON']> };
 const MAX_HISTORY_BYTES = 24 * 1024 * 1024;
 
@@ -267,6 +267,7 @@ export class Editor extends EventTarget {
         this.frame = 1 + ((this.playbackFrame - 1 + (time - this.playbackStart) / 1000 * 24) % 250);
         this.evaluateAnimation();
         this.emit('frame');
+        this.emit('transform');
       }
       this.render();
       if (this.playing) this.invalidate();
@@ -1188,21 +1189,35 @@ export class Editor extends EventTarget {
   editKeyChannel(channel: ScalarAnimationChannel, value: number) {
     if (!Number.isFinite(value)) throw new Error('Enter a finite channel value.');
     if (!this.selected || this.editMode || this.playing) throw new Error('Select an object in Object Mode and pause playback first.');
-    const [property, axis] = channel.split('.') as ['position' | 'scale', 'x' | 'y' | 'z'];
-    if ((property !== 'position' && property !== 'scale') || !['x', 'y', 'z'].includes(axis)) throw new Error('Choose a supported animation channel.');
+    const [property, axis] = channel.split('.') as ['position' | 'rotation' | 'scale', 'x' | 'y' | 'z'];
+    if (!['position', 'rotation', 'scale'].includes(property) || !['x', 'y', 'z'].includes(axis)) throw new Error('Choose a supported animation channel.');
     const keys: Keyframe[] = this.selected.userData.keyframes ?? [];
     const source = keys.find(key => key.frame === this.frame);
     if (!source) throw new Error('Move to an existing keyframe first.');
     const component = axis === 'x' ? 0 : axis === 'y' ? 1 : 2;
-    const current = property === 'position' ? source.position[component] : source.scale[component];
-    if (current === value) return;
+    const rotationOrder = source.rotationOrder ?? 'XYZ';
+    const sourceEuler = source.rotation ? [...source.rotation] : (() => {
+      const euler = new THREE.Euler().setFromQuaternion(new THREE.Quaternion().fromArray(source.quaternion), rotationOrder);
+      return [euler.x, euler.y, euler.z];
+    })();
+    const current = property === 'position' ? source.position[component] :
+      property === 'scale' ? source.scale[component] :
+      THREE.MathUtils.radToDeg(sourceEuler[component]);
+    if (Math.abs(current - value) < 1e-12) return;
+
+    const nextRotation = [...sourceEuler];
+    if (property === 'rotation') nextRotation[component] = THREE.MathUtils.degToRad(value);
+    const nextQuaternion = property === 'rotation'
+      ? new THREE.Quaternion().setFromEuler(new THREE.Euler(nextRotation[0], nextRotation[1], nextRotation[2], rotationOrder)).toArray()
+      : [...source.quaternion];
+
     this.selected.userData.keyframes = keys.map(key => key === source ? {
       frame: key.frame,
       position: property === 'position' ? key.position.map((item, index) => index === component ? value : item) : [...key.position],
-      quaternion: [...key.quaternion],
+      quaternion: nextQuaternion,
       scale: property === 'scale' ? key.scale.map((item, index) => index === component ? value : item) : [...key.scale],
-      ...(key.rotation ? { rotation: [...key.rotation] } : {}),
-      ...(key.rotationOrder ? { rotationOrder: key.rotationOrder } : {}),
+      ...(property === 'rotation' || key.rotation ? { rotation: property === 'rotation' ? nextRotation : [...key.rotation!] } : {}),
+      ...(property === 'rotation' || key.rotationOrder ? { rotationOrder: property === 'rotation' ? rotationOrder : key.rotationOrder! } : {}),
     } : key);
     this.scrub(source.frame);
     this.commit();
