@@ -154,8 +154,8 @@ paused and Object Mode active.
 
 GLB export preserves the existing object-wide Constant mode as STEP when no
 scalar overrides are present. Mixed scalar interpolation cannot be represented
-natively by glTF's whole-vector transform channels, so objects with channel
-overrides are baked to LINEAR samples. Smooth uses 32 samples per segment;
+natively by glTF's whole-vector transform channels, so objects whose explicit
+channel modes differ from the current object default are baked to LINEAR samples. Smooth uses 32 samples per segment;
 Constant overrides add a near-boundary sample so the hold is preserved with a
 very narrow transition. This export path is an approximation. Editable Bezier
 handles, graph/tangent editing and batch curve operations remain future work.
