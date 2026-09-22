@@ -59,27 +59,35 @@ test('linked duplicate shares mesh resources and survives history and project re
 });
 
 test('Alt+D creates a linked duplicate while Shift+D remains independent', async ({ page }) => {
+  const originalUuid = await page.evaluate(() => (window as any).__forge.selected.uuid);
+
   await page.keyboard.press('Alt+d');
   await expect(page.locator('.object-row')).toHaveCount(2);
-  expect(await page.evaluate(() => {
+  const linked = await page.evaluate((sourceUuid) => {
     const e = (window as any).__forge;
-    const source = e.content.getObjectByName('Cube');
-    const linked = e.content.getObjectByName('Cube.001');
-    return linked.geometry === source.geometry && linked.material === source.material;
-  })).toBe(true);
+    const source = e.content.getObjectByProperty('uuid', sourceUuid);
+    const copy = e.selected;
+    return {
+      uuid: copy.uuid,
+      distinctObject: copy !== source,
+      geometryShared: copy.geometry === source.geometry,
+      materialShared: copy.material === source.material,
+    };
+  }, originalUuid);
+  expect(linked).toMatchObject({ distinctObject: true, geometryShared: true, materialShared: true });
 
   await page.keyboard.press('Shift+d');
   await expect(page.locator('.object-row')).toHaveCount(3);
-  expect(await page.evaluate(() => {
+  expect(await page.evaluate((linkedUuid) => {
     const e = (window as any).__forge;
-    const source = e.content.getObjectByName('Cube.001');
+    const source = e.content.getObjectByProperty('uuid', linkedUuid);
     const copy = e.selected;
     return {
       distinctObject: copy !== source,
       geometryIndependent: copy.geometry !== source.geometry,
       materialIndependent: copy.material !== source.material,
     };
-  })).toEqual({ distinctObject: true, geometryIndependent: true, materialIndependent: true });
+  }, linked.uuid)).toEqual({ distinctObject: true, geometryIndependent: true, materialIndependent: true });
 });
 
 test('linked duplicate rejects unsupported mesh states without mutation', async ({ page }) => {
