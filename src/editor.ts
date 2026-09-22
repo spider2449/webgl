@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { sampleAnimation, validAnimationChannel, validChannelInterpolation, validInterpolation, type AnimationChannelInterpolation, type AnimationInterpolation } from './animation';
+import { animationChannelNativeValue, sampleAnimation, validAnimationChannel, validChannelInterpolation, validInterpolation, validKeyCurves, validKeyInterpolation, type AnimationChannelInterpolation, type AnimationInterpolation } from './animation';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { TransformControls } from 'three/addons/controls/TransformControls.js';
 import { GimbalControls } from './gimbal-controls';
