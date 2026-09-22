@@ -1181,10 +1181,9 @@ export class Editor extends EventTarget {
     const keys: Keyframe[] = this.selected.userData.keyframes ?? [];
     if (!keys.length) return false;
 
-    const fallback: AnimationInterpolation = this.selected.userData.animationInterpolation ?? 'linear';
     const current: AnimationChannelInterpolation = this.selected.userData.animationChannelInterpolation ?? {};
     const next: AnimationChannelInterpolation = { ...current };
-    if (mode === null || mode === fallback) delete next[channel];
+    if (mode === null) delete next[channel];
     else next[channel] = mode;
 
     let upgradedRotationKeys = false;
