@@ -1237,6 +1237,7 @@ export class Editor extends EventTarget {
     if (!this.selected || this.editMode) return false;
     const keys: Keyframe[] = this.selected.userData.keyframes ?? [];
     const frame = Math.round(this.frame);
+    const existing = keys.find(key => key.frame === frame);
     const next = keys.filter(k => k.frame !== frame);
     next.push({
       frame,
@@ -1245,6 +1246,7 @@ export class Editor extends EventTarget {
       scale: this.selected.scale.toArray(),
       rotation: [this.selected.rotation.x, this.selected.rotation.y, this.selected.rotation.z],
       rotationOrder: this.selected.rotation.order,
+      ...(existing?.curves ? { curves: cloneKeyCurves(existing.curves) } : {}),
     });
     this.selected.userData.keyframes = next.sort((a, b) => a.frame - b.frame);
     this.commit();
