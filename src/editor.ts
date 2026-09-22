@@ -14,6 +14,7 @@ import { validateModifierStack, type Modifier, type ModifierStack } from './modi
 
 export type Primitive = 'cube' | 'sphere' | 'cylinder' | 'cone' | 'torus' | 'plane' | 'icosphere';
 export type Keyframe = { frame: number; position: number[]; quaternion: number[]; scale: number[] };
+export type ScalarAnimationChannel = 'position.x' | 'position.y' | 'position.z' | 'scale.x' | 'scale.y' | 'scale.z';
 export type Project = { format: 'forge-studio'; version: 1; name: string; scene: ReturnType<THREE.Group['toJSON']> };
 const MAX_HISTORY_BYTES = 24 * 1024 * 1024;
 
@@ -1054,6 +1055,26 @@ export class Editor extends EventTarget {
     this.selected.userData.keyframes = next.sort((a, b) => a.frame - b.frame);
     this.commit();
     return true;
+  }
+  editKeyChannel(channel: ScalarAnimationChannel, value: number) {
+    if (!Number.isFinite(value)) throw new Error('Enter a finite channel value.');
+    if (!this.selected || this.editMode || this.playing) throw new Error('Select an object in Object Mode and pause playback first.');
+    const [property, axis] = channel.split('.') as ['position' | 'scale', 'x' | 'y' | 'z'];
+    if ((property !== 'position' && property !== 'scale') || !['x', 'y', 'z'].includes(axis)) throw new Error('Choose a supported animation channel.');
+    const keys: Keyframe[] = this.selected.userData.keyframes ?? [];
+    const source = keys.find(key => key.frame === this.frame);
+    if (!source) throw new Error('Move to an existing keyframe first.');
+    const component = axis === 'x' ? 0 : axis === 'y' ? 1 : 2;
+    const current = property === 'position' ? source.position[component] : source.scale[component];
+    if (current === value) return;
+    this.selected.userData.keyframes = keys.map(key => key === source ? {
+      frame: key.frame,
+      position: property === 'position' ? key.position.map((item, index) => index === component ? value : item) : [...key.position],
+      quaternion: [...key.quaternion],
+      scale: property === 'scale' ? key.scale.map((item, index) => index === component ? value : item) : [...key.scale],
+    } : key);
+    this.scrub(source.frame);
+    this.commit();
   }
   retimeKey(targetFrame: number, copy = false) {
     if (!Number.isInteger(targetFrame) || targetFrame < 1 || targetFrame > 250) throw new Error('Choose an integer frame from 1 to 250.');
