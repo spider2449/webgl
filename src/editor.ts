@@ -16,10 +16,27 @@ import { validateModifierStack, type Modifier, type ModifierStack } from './modi
 export type Primitive = 'cube' | 'sphere' | 'cylinder' | 'cone' | 'torus' | 'plane' | 'icosphere';
 export type EulerOrder = 'XYZ' | 'YZX' | 'ZXY' | 'XZY' | 'YXZ' | 'ZYX';
 export type TransformOrientation = 'world' | 'local' | 'gimbal';
-export type Keyframe = { frame: number; position: number[]; quaternion: number[]; scale: number[]; rotation?: number[]; rotationOrder?: EulerOrder };
 export type ScalarAnimationChannel = 'position.x' | 'position.y' | 'position.z' | 'rotation.x' | 'rotation.y' | 'rotation.z' | 'scale.x' | 'scale.y' | 'scale.z';
+export type KeyInterpolation = 'constant' | 'linear' | 'bezier';
+export type KeyCurve = { interpolation?: KeyInterpolation; left?: [number, number]; right?: [number, number] };
+export type Keyframe = {
+  frame: number;
+  position: number[];
+  quaternion: number[];
+  scale: number[];
+  rotation?: number[];
+  rotationOrder?: EulerOrder;
+  curves?: Partial<Record<ScalarAnimationChannel, KeyCurve>>;
+};
 export type Project = { format: 'forge-studio'; version: 1; name: string; scene: ReturnType<THREE.Group['toJSON']> };
 const MAX_HISTORY_BYTES = 24 * 1024 * 1024;
+const cloneKeyCurves = (curves: Keyframe['curves']): Keyframe['curves'] => curves ? Object.fromEntries(
+  Object.entries(curves).map(([channel, curve]) => [channel, {
+    ...(curve!.interpolation ? { interpolation: curve!.interpolation } : {}),
+    ...(curve!.left ? { left: [...curve!.left] as [number, number] } : {}),
+    ...(curve!.right ? { right: [...curve!.right] as [number, number] } : {}),
+  }]),
+) as Keyframe['curves'] : undefined;
 
 export class Editor extends EventTarget {
   readonly renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false, preserveDrawingBuffer: false });
