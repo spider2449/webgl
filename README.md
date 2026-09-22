@@ -128,15 +128,14 @@ Linked duplication is intentionally bounded: skinned meshes and meshes with an a
 
 ## Animation interpolation
 
-In the Object panel, choose **Linear**, **Constant**, or **Smooth** under
-**Animation > Interpolation** as the object-wide default. Each scalar
-**Location X/Y/Z**, **Rotation X/Y/Z**, and **Scale X/Y/Z** channel can then
-override that default under **Channel interpolation**, or return to **Object
-default**. Constant holds the earlier scalar value until the next key; Smooth
-eases that scalar with smoothstep. Rotation overrides use the unwrapped Euler
-key metadata, while the evaluated quaternion remains synchronized. Existing
-projects without overrides keep their previous object-wide behavior. Undo/redo
-and Forge projects retain both defaults and overrides.
+In the Object panel, **Interpolation** and **Channel default** provide
+backward-compatible fallback interpolation for transform curves. The Graph Editor
+can override those defaults per authored key: a key's **Segment** setting controls
+that key → next-key span as **Constant**, **Linear**, or **Bezier**. Different
+segments on the same channel can therefore use different interpolation modes.
+Existing projects without key-curve metadata retain their previous object/channel
+defaults. Rotation curves use unwrapped Euler metadata while the evaluated
+quaternion remains synchronized.
 
 Use **Keyframe** to jump to an authored transform key. Set **Target frame**
 (1-250), then **Move keyframe** or **Copy keyframe** to change its timing or
@@ -154,25 +153,32 @@ paused and Object Mode active.
 
 Open the **Animation** workspace to use the **Graph Editor**. A channel rail
 beside the graph provides direct access to all nine Location/Rotation/Scale
-scalar channels and stays synchronized with the Object panel. The graph shows
-authored key points, the effective Linear/Constant/Smooth curve and the
-current-frame playhead using the same sampling path as playback.
+scalar channels and stays synchronized with the Object panel. If one channel
+contains multiple segment modes the rail shows **MIX**.
 
-Drag a graph key vertically to edit only the selected scalar value. Drag it
+Click a key to select it. **Segment** chooses the selected key's outbound
+interpolation: Inherit, Constant, Linear, or Bezier. Bezier creates a right
+handle on the selected key and a left handle on the next key; drag either handle
+to edit the cubic tangent in frame/value space. Handle time is bounded to its
+adjacent segment so the frame→value curve remains single-valued. Graph,
+scrubbing and playback use the same cubic evaluator.
+
+Drag a key vertically to edit only the selected scalar value. Drag it
 horizontally to retime the whole transform key because Forge currently stores
 Position/Rotation/Scale together at one key time. Frame retiming snaps to integer
 frames; an occupied destination is never overwritten and the drag keeps its last
-valid frame. A completed drag creates one undoable history entry; Escape or a
-cancelled pointer restores the original key. Bezier handles, tangents,
+valid frame. Key and tangent drags each create one undoable history entry;
+Escape or pointer cancellation restores the original data. Independent
 per-channel key times and arbitrary F-curves are not implemented yet.
 
 GLB export preserves the existing object-wide Constant mode as STEP when no
-scalar overrides are present. Mixed scalar interpolation cannot be represented
-natively by glTF's whole-vector transform channels, so objects whose explicit
-channel modes differ from the current object default are baked to LINEAR samples. Smooth uses 32 samples per segment;
-Constant overrides add a near-boundary sample so the hold is preserved with a
-very narrow transition. This export path is an approximation. Bezier handles, tangent editing,
-independent per-channel key times and batch curve operations remain future work.
+scalar/channel/key-curve overrides are present. glTF transform samplers cannot
+represent mixed per-axis/per-segment Bezier tangents directly, so any object with
+effective scalar overrides or per-key curve modes is baked to LINEAR samples.
+Smooth and Bezier segments use 32 samples per segment; Constant segments add a
+near-boundary sample so the hold changes across a very narrow interval. This
+export path is an approximation. Independent per-channel key times, arbitrary
+F-curves and batch curve operations remain future work.
 
 ## Kimodo rigging
 
