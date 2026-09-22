@@ -176,17 +176,16 @@ test('Global and Local gizmo drags avoid Euler branch jumps after small quaterni
     const rad = (degrees: number) => degrees * Math.PI / 180;
     const deg = (radians: number) => radians * 180 / Math.PI;
 
-    const THREE = (e.selected.constructor as any).prototype.isObject3D !== undefined
-      ? { Quaternion: e.selected.quaternion.constructor, Vector3: e.selected.position.constructor }
-      : null;
+    const Quaternion = object.quaternion.constructor as any;
+    const Vector3 = object.position.constructor as any;
     const run = (space: 'world' | 'local') => {
       object.rotation.set(rad(170), rad(120), rad(30), 'XYZ');
       e.setTool('rotate');
       e.transform.setSpace(space);
       const before = [deg(object.rotation.x), deg(object.rotation.y), deg(object.rotation.z)];
       const start = object.quaternion.clone();
-      const delta = new THREE!.Quaternion().setFromAxisAngle(
-        new THREE!.Vector3(space === 'world' ? 0 : 1, space === 'world' ? 1 : 0, 0),
+      const delta = new Quaternion().setFromAxisAngle(
+        new Vector3(space === 'world' ? 0 : 1, space === 'world' ? 1 : 0, 0),
         rad(5),
       );
       const target = space === 'world' ? delta.clone().multiply(start) : start.clone().multiply(delta);
