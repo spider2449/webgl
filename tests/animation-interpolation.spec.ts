@@ -375,7 +375,7 @@ test('per-key Bezier curves validate, persist and bake the evaluated curve into 
   expect(glb.readFloatLE(frame7Sample)).toBeCloseTo(setup.expectedAtFrame7, 4);
 });
 
-test('rotation per-key curves upgrade legacy quaternion keys and preserve multi-turn Euler metadata', async ({ page }) => {
+test('rotation per-key curves upgrade legacy quaternion keys without orientation drift', async ({ page }) => {
   const result = await page.evaluate(() => {
     const e = (window as any).__forge;
     const object = e.selected;
