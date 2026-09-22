@@ -20,9 +20,9 @@ test('Graph Editor visualizes Linear, Constant and Smooth for the selected scala
     e.scrub(7);
   });
 
-  await page.getByRole('button', { name: 'Animation', exact: true }).click();
-
   const graph = page.getByLabel('Animation graph editor');
+  await expect(graph).toBeHidden();
+  await page.getByRole('button', { name: 'Animation', exact: true }).click();
   await expect(graph).toBeVisible();
   await expect(graph).toHaveAttribute('data-channel', 'position.x');
   await expect(graph).toHaveAttribute('data-mode', 'linear');
