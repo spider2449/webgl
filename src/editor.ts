@@ -37,6 +37,15 @@ const cloneKeyCurves = (curves: Keyframe['curves']): Keyframe['curves'] => curve
     ...(curve!.right ? { right: [...curve!.right] as [number, number] } : {}),
   }]),
 ) as Keyframe['curves'] : undefined;
+const cloneAnimationKey = (key: Keyframe): Keyframe => ({
+  frame: key.frame,
+  position: [...key.position],
+  quaternion: [...key.quaternion],
+  scale: [...key.scale],
+  ...(key.rotation ? { rotation: [...key.rotation] } : {}),
+  ...(key.rotationOrder ? { rotationOrder: key.rotationOrder } : {}),
+  ...(key.curves ? { curves: cloneKeyCurves(key.curves) } : {}),
+});
 
 export class Editor extends EventTarget {
   readonly renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false, preserveDrawingBuffer: false });
@@ -89,6 +98,7 @@ export class Editor extends EventTarget {
   private rotationDragReference = new THREE.Vector3();
   private rotationDragMatrix = new THREE.Matrix4();
   private animationKeyDrag: { object: THREE.Object3D; sourceFrame: number; originalKeys: Keyframe[] } | null = null;
+  private animationHandleDrag: { object: THREE.Object3D; frame: number; channel: ScalarAnimationChannel; side: 'left' | 'right'; originalKeys: Keyframe[] } | null = null;
   transformOrientation: TransformOrientation = 'world';
   private transformTool: 'select' | 'translate' | 'rotate' | 'scale' = 'translate';
   private viewStyle = 'material';
