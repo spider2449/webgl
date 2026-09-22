@@ -412,9 +412,11 @@ export class AnimationGraphView {
     const channel = target.dataset.channel as ScalarAnimationChannel | undefined;
     if (!Number.isFinite(frame) || !Number.isFinite(value) || !channel) return;
     this.selectedFrame = frame;
-    this.edits.select(frame, channel);
     this.signature = '';
-    if (!this.edits.begin(frame, channel)) return;
+    if (!this.edits.begin(frame, channel)) {
+      this.edits.select(frame, channel);
+      return;
+    }
 
     this.drag = {
       kind: 'key',
@@ -429,6 +431,7 @@ export class AnimationGraphView {
     };
     target.classList.add('dragging', 'selected');
     this.svg.setPointerCapture(event.pointerId);
+    this.edits.select(frame, channel);
     event.preventDefault();
   };
 
