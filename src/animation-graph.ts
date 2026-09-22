@@ -106,18 +106,47 @@ function svgElement<K extends keyof SVGElementTagNameMap>(
   return element;
 }
 
+export type AnimationGraphEditCallbacks = {
+  begin: (frame: number, channel: ScalarAnimationChannel) => boolean;
+  preview: (frame: number, channel: ScalarAnimationChannel, value: number) => boolean;
+  end: (cancel: boolean) => void;
+};
+
+type GraphDragState = {
+  pointerId: number;
+  sourceFrame: number;
+  startValue: number;
+  startClientX: number;
+  startClientY: number;
+  valueMin: number;
+  valueMax: number;
+  marker: SVGRectElement;
+};
+
 export class AnimationGraphView {
   private signature = '';
   private data: AnimationGraphData | null = null;
   private readonly curveLayer = svgElement('g', { class: 'graph-static' });
   private readonly playhead = svgElement('line', { class: 'graph-playhead', x1: 0, x2: 0, y1: 18, y2: 162 });
+  private drag: GraphDragState | null = null;
 
   constructor(
     private readonly svg: SVGSVGElement,
     private readonly title: HTMLElement,
     private readonly detail: HTMLElement,
+    private readonly edits: AnimationGraphEditCallbacks,
   ) {
     svg.replaceChildren(this.curveLayer, this.playhead);
+    svg.addEventListener('pointerdown', this.pointerDown);
+    svg.addEventListener('pointermove', this.pointerMove);
+    svg.addEventListener('pointerup', this.pointerUp);
+    svg.addEventListener('pointercancel', this.pointerCancel);
+    window.addEventListener('keydown', event => {
+      if (event.key === 'Escape' && this.drag) {
+        event.preventDefault();
+        this.finishDrag(true);
+      }
+    });
   }
 
   update(
@@ -143,7 +172,7 @@ export class AnimationGraphView {
       })),
     });
 
-    if (signature !== this.signature) {
+    if (!this.drag && signature !== this.signature) {
       this.signature = signature;
       this.data = buildAnimationGraphData(keys, channel, defaultMode, overrides);
       this.renderStatic();
@@ -166,7 +195,7 @@ export class AnimationGraphView {
     }
 
     this.title.textContent = animationChannelLabel(data.channel);
-    this.detail.textContent = `${data.mode[0].toUpperCase() + data.mode.slice(1)} · F${this.formatFrame(data.frameMin)}–${this.formatFrame(data.frameMax)} · ${this.format(data.actualMin)} to ${this.format(data.actualMax)}`;
+    this.detail.textContent = `${data.mode[0].toUpperCase() + data.mode.slice(1)} · Keys F${this.formatFrame(data.frameMin)}–${this.formatFrame(data.frameMax)} · ${this.format(data.actualMin)} to ${this.format(data.actualMax)}`;
     const x = (frame: number) => this.frameX(data, frame);
     const y = (value: number) => 18 + (data.valueMax - value) / (data.valueMax - data.valueMin) * 144;
 
@@ -197,6 +226,7 @@ export class AnimationGraphView {
       });
       marker.dataset.frame = String(key.frame);
       marker.dataset.value = String(key.value);
+      marker.dataset.channel = data.channel;
       const tooltip = svgElement('title', {});
       tooltip.textContent = `Frame ${key.frame}: ${this.format(key.value)}`;
       marker.append(tooltip);
@@ -208,9 +238,9 @@ export class AnimationGraphView {
     const bottom = svgElement('text', { class: 'graph-value-label', x: 8, y: 160 });
     bottom.textContent = this.format(data.valueMin);
     const frameStart = svgElement('text', { class: 'graph-frame-label', x: 48, y: 176, 'text-anchor': 'start' });
-    frameStart.textContent = `F${this.formatFrame(data.frameMin)}`;
+    frameStart.textContent = 'F1';
     const frameEnd = svgElement('text', { class: 'graph-frame-label', x: 972, y: 176, 'text-anchor': 'end' });
-    frameEnd.textContent = `F${this.formatFrame(data.frameMax)}`;
+    frameEnd.textContent = 'F250';
     this.curveLayer.append(top, bottom, frameStart, frameEnd);
     this.playhead.setAttribute('visibility', 'visible');
   }
@@ -218,18 +248,86 @@ export class AnimationGraphView {
   private renderPlayhead(frame: number) {
     const data = this.data;
     if (!data) return;
-    const clamped = THREE.MathUtils.clamp(frame, data.frameMin, data.frameMax);
+    const clamped = THREE.MathUtils.clamp(frame, 1, 250);
     const x = this.frameX(data, clamped);
     this.playhead.setAttribute('x1', x.toFixed(2));
     this.playhead.setAttribute('x2', x.toFixed(2));
     this.playhead.dataset.frame = String(frame);
-    this.playhead.classList.toggle('outside', frame < data.frameMin || frame > data.frameMax);
+    this.playhead.classList.toggle('outside', frame < 1 || frame > 250);
   }
 
-  private frameX(data: AnimationGraphData, frame: number) {
-    const span = data.frameMax - data.frameMin;
-    if (Math.abs(span) < 1e-9) return 510;
-    return 48 + (frame - data.frameMin) / span * 924;
+  private frameX(_data: AnimationGraphData, frame: number) {
+    return 48 + (frame - 1) / 249 * 924;
+  }
+
+  private pointerDown = (event: PointerEvent) => {
+    if (event.button !== 0 || this.drag || !this.data) return;
+    const target = event.target instanceof Element ? event.target.closest<SVGRectElement>('.graph-key-point') : null;
+    if (!target) return;
+    const frame = Number(target.dataset.frame);
+    const value = Number(target.dataset.value);
+    const channel = target.dataset.channel as ScalarAnimationChannel | undefined;
+    if (!Number.isFinite(frame) || !Number.isFinite(value) || !channel || !this.edits.begin(frame, channel)) return;
+
+    this.drag = {
+      pointerId: event.pointerId,
+      sourceFrame: frame,
+      startValue: value,
+      startClientX: event.clientX,
+      startClientY: event.clientY,
+      valueMin: this.data.valueMin,
+      valueMax: this.data.valueMax,
+      marker: target,
+    };
+    target.classList.add('dragging');
+    this.svg.setPointerCapture(event.pointerId);
+    event.preventDefault();
+  };
+
+  private pointerMove = (event: PointerEvent) => {
+    const drag = this.drag;
+    const data = this.data;
+    if (!drag || !data || event.pointerId !== drag.pointerId) return;
+    const rect = this.svg.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) return;
+
+    const deltaViewX = (event.clientX - drag.startClientX) / rect.width * 1000;
+    const deltaViewY = (event.clientY - drag.startClientY) / rect.height * 180;
+    const targetFrame = THREE.MathUtils.clamp(Math.round(drag.sourceFrame + deltaViewX / 924 * 249), 1, 250);
+    const span = drag.valueMax - drag.valueMin;
+    const rawValue = drag.startValue - deltaViewY / 144 * span;
+    const precision = data.channel.startsWith('rotation.') ? 0.1 : 0.001;
+    const targetValue = Math.round(rawValue / precision) * precision;
+    if (!this.edits.preview(targetFrame, data.channel, targetValue)) return;
+
+    drag.marker.dataset.frame = String(targetFrame);
+    drag.marker.dataset.value = String(targetValue);
+    drag.marker.setAttribute('x', String(this.frameX(data, targetFrame) - 4));
+    const y = 18 + (drag.valueMax - targetValue) / span * 144;
+    drag.marker.setAttribute('y', String(THREE.MathUtils.clamp(y - 4, 4, 168)));
+    this.detail.textContent = `Editing · F${targetFrame} · ${this.format(targetValue)}`;
+    event.preventDefault();
+  };
+
+  private pointerUp = (event: PointerEvent) => {
+    if (!this.drag || event.pointerId !== this.drag.pointerId) return;
+    this.finishDrag(false);
+    event.preventDefault();
+  };
+
+  private pointerCancel = (event: PointerEvent) => {
+    if (!this.drag || event.pointerId !== this.drag.pointerId) return;
+    this.finishDrag(true);
+  };
+
+  private finishDrag(cancel: boolean) {
+    const drag = this.drag;
+    if (!drag) return;
+    drag.marker.classList.remove('dragging');
+    if (this.svg.hasPointerCapture(drag.pointerId)) this.svg.releasePointerCapture(drag.pointerId);
+    this.drag = null;
+    this.signature = '';
+    this.edits.end(cancel);
   }
 
   private formatFrame(frame: number) {
