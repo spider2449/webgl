@@ -6,8 +6,8 @@ Add a bounded editable Graph Editor for scalar transform animation channels with
 
 - Display the Graph Editor in the Animation workspace.
 - Add a left-side channel rail for Location X/Y/Z, Rotation X/Y/Z and Scale X/Y/Z.
-- Keep graph channel selection synchronized with the Object → Animation channel selector.
-- Keep object-wide and channel-wide Linear / Constant / Smooth settings as backward-compatible fallbacks.
+- Make the Graph Editor the sole animation editing UI; remove the duplicated Object-panel Animation controls.
+- Keep object-wide and channel-wide Linear / Constant / Smooth metadata as backward-compatible project/API fallbacks only.
 - Let every authored key override its outbound segment as Constant, Linear or Bezier.
 - Show MIX on a channel when its segments use different effective interpolation modes.
 - Visualize authored key points using the same sampling function as playback.
@@ -19,6 +19,7 @@ Add a bounded editable Graph Editor for scalar transform animation channels with
 - Constrain handle time coordinates to adjacent segments and prevent control-time crossing so frame→value remains single-valued.
 - Drag a key vertically to edit the selected scalar value.
 - Drag a key horizontally to retime the entire transform key to an integer frame.
+- Alt-drag a key horizontally to copy the entire transform key to an empty frame.
 - Never overwrite an occupied frame; the drag remains at its last valid frame.
 - Apply key/tangent drag previews live without creating intermediate history entries.
 - Commit one history entry when the pointer is released.
@@ -73,7 +74,8 @@ Handles are free but time-bounded; there is no automatic tangent coupling mode i
 Playwright coverage verifies:
 
 - Graph Editor appears only in the Animation workspace.
-- Nine graph-channel controls synchronize with the Object panel.
+- Nine graph-channel controls provide the only user-facing scalar-channel selection UI.
+- The legacy Object-panel Animation controls are absent.
 - Channel labels report LIN / CST / SMT / BEZ / MIX as appropriate.
 - Different keys on one channel can author different outbound modes.
 - Per-key Bezier and Constant segments evaluate independently.
@@ -84,7 +86,7 @@ Playwright coverage verifies:
 - Malformed modes, handles and unknown curve fields fail closed.
 - Per-key Bezier curves bake to LINEAR GLB samples matching the Forge evaluator.
 - Rotation key curves upgrade legacy quaternion-only keys without orientation drift.
-- Key value drag and whole-transform retiming regressions remain covered.
+- Key value drag, whole-transform retiming, and Alt-drag key copy regressions remain covered.
 - Occupied target frames are not overwritten.
 
 This branch is intentionally held for Windows-local build, Playwright and manual interaction validation before merge.
