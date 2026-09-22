@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import {
+  bezierControlPoints,
   effectiveSegmentInterpolation,
   sampleAnimation,
   type AnimationChannelInterpolation,
@@ -45,6 +46,10 @@ export function animationChannelValue(key: Keyframe, channel: ScalarAnimationCha
 
 function displayDelta(channel: ScalarAnimationChannel, nativeDelta: number) {
   return channel.startsWith('rotation.') ? THREE.MathUtils.radToDeg(nativeDelta) : nativeDelta;
+}
+
+function displayNative(channel: ScalarAnimationChannel, nativeValue: number) {
+  return channel.startsWith('rotation.') ? THREE.MathUtils.radToDeg(nativeValue) : nativeValue;
 }
 
 function sampledChannelValue(key: Keyframe, channel: ScalarAnimationChannel) {
@@ -344,18 +349,14 @@ export class AnimationGraphView {
 
     if (index > 0 && data.sourceKeys[index - 1].curves?.[data.channel]?.interpolation === 'bezier') {
       const previous = data.sourceKeys[index - 1];
-      const span = key.frame - previous.frame;
-      const delta = keyValue - animationChannelValue(previous, data.channel);
-      const handle = key.curves?.[data.channel]?.left ?? [-span / 3, data.channel.startsWith('rotation.') ? THREE.MathUtils.degToRad(-delta / 3) : -delta / 3];
-      addHandle('left', key.frame + handle[0], keyValue + displayDelta(data.channel, handle[1]));
+      const controls = bezierControlPoints(previous, key, data.channel);
+      addHandle('left', controls.x2, displayNative(data.channel, controls.y2));
     }
 
     if (index < data.sourceKeys.length - 1 && key.curves?.[data.channel]?.interpolation === 'bezier') {
       const next = data.sourceKeys[index + 1];
-      const span = next.frame - key.frame;
-      const delta = animationChannelValue(next, data.channel) - keyValue;
-      const handle = key.curves?.[data.channel]?.right ?? [span / 3, data.channel.startsWith('rotation.') ? THREE.MathUtils.degToRad(delta / 3) : delta / 3];
-      addHandle('right', key.frame + handle[0], keyValue + displayDelta(data.channel, handle[1]));
+      const controls = bezierControlPoints(key, next, data.channel);
+      addHandle('right', controls.x1, displayNative(data.channel, controls.y1));
     }
   }
 
