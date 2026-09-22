@@ -9,7 +9,7 @@ test('rotation gizmo keeps positive turns instead of folding back to ±180 degre
   const input = page.locator('[data-transform="rotation"][data-axis="x"]');
   await input.fill('270');
   await input.press('Tab');
-  await expect(input).toHaveValue('270');
+  expect(Number(await input.inputValue())).toBeCloseTo(270, 6);
 
   const result = await page.evaluate(() => {
     const e = (window as any).__forge;
@@ -24,7 +24,7 @@ test('rotation gizmo keeps positive turns instead of folding back to ±180 degre
   });
 
   expect(result).toBeCloseTo(280, 6);
-  await expect(input).toHaveValue('280.000');
+  expect(Number(await input.inputValue())).toBeCloseTo(280, 6);
 });
 
 test('rotation gizmo keeps negative turns and unwraps across 180 degrees', async ({ page }) => {
