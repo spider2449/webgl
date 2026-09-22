@@ -13,7 +13,7 @@ import { modelingJob, type ModelingOperation } from './modeling-worker-client';
 import { validateModifierStack, type Modifier, type ModifierStack } from './modifiers';
 
 export type Primitive = 'cube' | 'sphere' | 'cylinder' | 'cone' | 'torus' | 'plane' | 'icosphere';
-export type Keyframe = { frame: number; position: number[]; quaternion: number[]; scale: number[] };
+export type Keyframe = { frame: number; position: number[]; quaternion: number[]; scale: number[]; rotation?: number[]; rotationOrder?: THREE.EulerOrder };
 export type ScalarAnimationChannel = 'position.x' | 'position.y' | 'position.z' | 'scale.x' | 'scale.y' | 'scale.z';
 export type Project = { format: 'forge-studio'; version: 1; name: string; scene: ReturnType<THREE.Group['toJSON']> };
 const MAX_HISTORY_BYTES = 24 * 1024 * 1024;
@@ -1050,7 +1050,12 @@ export class Editor extends EventTarget {
       }
       if (o.userData.animationInterpolation !== undefined && !validInterpolation(o.userData.animationInterpolation)) throw new Error('Invalid animation interpolation.');
       if (o.userData.keyframes) {
-        if (!Array.isArray(o.userData.keyframes) || o.userData.keyframes.some((k: Keyframe) => !Number.isFinite(k.frame) || ![k.position, k.quaternion, k.scale].every((v, i) => Array.isArray(v) && v.length === (i === 1 ? 4 : 3) && v.every(Number.isFinite)))) throw new Error('Invalid animation keyframes.');
+        if (!Array.isArray(o.userData.keyframes) || o.userData.keyframes.some((k: Keyframe) =>
+          !Number.isFinite(k.frame) ||
+          ![k.position, k.quaternion, k.scale].every((v, i) => Array.isArray(v) && v.length === (i === 1 ? 4 : 3) && v.every(Number.isFinite)) ||
+          (k.rotation !== undefined && (!Array.isArray(k.rotation) || k.rotation.length !== 3 || !k.rotation.every(Number.isFinite))) ||
+          (k.rotationOrder !== undefined && !['XYZ','YZX','ZXY','XZY','YXZ','ZYX'].includes(k.rotationOrder))
+        )) throw new Error('Invalid animation keyframes.');
       }
     }); } catch (error) { this.disposeObject(root); throw error; }
     if (vertices > 2_000_000) { this.disposeObject(root); throw new Error('Scene exceeds the 2 million vertex limit.'); }
@@ -1078,7 +1083,14 @@ export class Editor extends EventTarget {
     const keys: Keyframe[] = this.selected.userData.keyframes ?? [];
     const frame = Math.round(this.frame);
     const next = keys.filter(k => k.frame !== frame);
-    next.push({ frame, position: this.selected.position.toArray(), quaternion: this.selected.quaternion.toArray(), scale: this.selected.scale.toArray() });
+    next.push({
+      frame,
+      position: this.selected.position.toArray(),
+      quaternion: this.selected.quaternion.toArray(),
+      scale: this.selected.scale.toArray(),
+      rotation: [this.selected.rotation.x, this.selected.rotation.y, this.selected.rotation.z],
+      rotationOrder: this.selected.rotation.order,
+    });
     this.selected.userData.keyframes = next.sort((a, b) => a.frame - b.frame);
     this.commit();
     return true;
@@ -1099,6 +1111,8 @@ export class Editor extends EventTarget {
       position: property === 'position' ? key.position.map((item, index) => index === component ? value : item) : [...key.position],
       quaternion: [...key.quaternion],
       scale: property === 'scale' ? key.scale.map((item, index) => index === component ? value : item) : [...key.scale],
+      ...(key.rotation ? { rotation: [...key.rotation] } : {}),
+      ...(key.rotationOrder ? { rotationOrder: key.rotationOrder } : {}),
     } : key);
     this.scrub(source.frame);
     this.commit();
@@ -1112,7 +1126,14 @@ export class Editor extends EventTarget {
     if (!copy && targetFrame === source.frame) return;
     if (keys.some(key => key.frame === targetFrame)) throw new Error('The target frame already has a keyframe.');
     const next = copy ? [...keys] : keys.filter(key => key !== source);
-    next.push({ frame: targetFrame, position: [...source.position], quaternion: [...source.quaternion], scale: [...source.scale] });
+    next.push({
+      frame: targetFrame,
+      position: [...source.position],
+      quaternion: [...source.quaternion],
+      scale: [...source.scale],
+      ...(source.rotation ? { rotation: [...source.rotation] } : {}),
+      ...(source.rotationOrder ? { rotationOrder: source.rotationOrder } : {}),
+    });
     this.selected.userData.keyframes = next.sort((a, b) => a.frame - b.frame);
     this.scrub(targetFrame);
     this.commit();
@@ -1137,7 +1158,11 @@ export class Editor extends EventTarget {
       if (!keys?.length) return;
       const sample = sampleAnimation(keys, this.frame, o.userData.animationInterpolation ?? 'linear');
       o.position.fromArray(sample.position);
-      o.quaternion.fromArray(sample.quaternion);
+      if (sample.rotation) {
+        o.rotation.set(sample.rotation[0], sample.rotation[1], sample.rotation[2], sample.rotationOrder ?? o.rotation.order);
+      } else {
+        o.quaternion.fromArray(sample.quaternion);
+      }
       o.scale.fromArray(sample.scale);
     });
     this.updateSelection();
