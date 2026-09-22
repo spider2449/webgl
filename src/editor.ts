@@ -1354,6 +1354,7 @@ export class Editor extends EventTarget {
 
     drag.object.userData.keyframes = keys;
     this.evaluateAnimation();
+    this.emit('animation');
     this.emit('transform');
     this.invalidate();
     return { frame: clampedFrame, value: displayValue };
@@ -1366,6 +1367,7 @@ export class Editor extends EventTarget {
     if (cancel) {
       drag.object.userData.keyframes = drag.originalKeys.map(cloneAnimationKey);
       this.evaluateAnimation();
+      this.emit('animation');
       this.emit('transform');
       this.invalidate();
       return true;
@@ -1394,7 +1396,7 @@ export class Editor extends EventTarget {
     return true;
   }
   beginAnimationKeyDrag(sourceFrame: number) {
-    if (!Number.isFinite(sourceFrame) || !this.selected || this.editMode || this.playing || this.animationKeyDrag) return false;
+    if (!Number.isFinite(sourceFrame) || !this.selected || this.editMode || this.playing || this.animationKeyDrag || this.animationHandleDrag) return false;
     const keys: Keyframe[] = this.selected.userData.keyframes ?? [];
     if (!keys.some(key => key.frame === sourceFrame)) return false;
     this.animationKeyDrag = {
