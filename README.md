@@ -171,9 +171,8 @@ scalar overrides are present. Mixed scalar interpolation cannot be represented
 natively by glTF's whole-vector transform channels, so objects whose explicit
 channel modes differ from the current object default are baked to LINEAR samples. Smooth uses 32 samples per segment;
 Constant overrides add a near-boundary sample so the hold is preserved with a
-very narrow transition. This export path is an approximation. Editable Bezier
-handles, tangent editing, graph-based key manipulation and batch curve
-operations remain future work.
+very narrow transition. This export path is an approximation. Bezier handles, tangent editing,
+independent per-channel key times and batch curve operations remain future work.
 
 ## Kimodo rigging
 
