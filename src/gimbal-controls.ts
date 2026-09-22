@@ -74,7 +74,10 @@ export class GimbalControls {
 
   setEnabled(enabled: boolean) {
     this.enabled = enabled;
-    if (!enabled) this.drag = null;
+    if (!enabled && this.drag) {
+      this.drag = null;
+      this.onDraggingChange?.(false);
+    }
     this.update();
   }
 
