@@ -64,6 +64,8 @@ export class Editor extends EventTarget {
   private raycaster = new THREE.Raycaster();
   private mouseDown = new THREE.Vector2();
   private suppressClick = false;
+  private rotationDragObject: THREE.Object3D | null = null;
+  private rotationDragReference = new THREE.Vector3();
   private viewStyle = 'material';
   private solid = new THREE.MeshStandardMaterial({ color: 0xadb0b7, roughness: 0.8 });
   private wire = new THREE.MeshBasicMaterial({ color: 0xaac7d7, wireframe: true });
@@ -99,10 +101,18 @@ export class Editor extends EventTarget {
     this.scene.add(this.transform.getHelper());
     this.transform.addEventListener('dragging-changed', e => {
       this.orbit.enabled = !e.value;
-      if (e.value) { this.suppressClick = true; this.beginComponentDrag(); }
-      else { this.componentDrag = null; this.commit(); }
+      if (e.value) {
+        this.suppressClick = true;
+        this.beginComponentDrag();
+        this.beginRotationDrag();
+      } else {
+        this.componentDrag = null;
+        this.rotationDragObject = null;
+        this.commit();
+      }
     });
     this.transform.addEventListener('objectChange', () => {
+      this.unwrapRotationDrag();
       if (this.editMode) this.updateVertex();
       this.updateSelection();
       this.emit('transform');
@@ -172,6 +182,23 @@ export class Editor extends EventTarget {
     this.resizeObserver = new ResizeObserver(() => this.resize());
     this.resizeObserver.observe(host);
     this.resize();
+  }
+
+  private beginRotationDrag() {
+    const object = !this.editMode && this.transform.mode === 'rotate' && this.transform.object === this.selected ? this.selected : null;
+    this.rotationDragObject = object;
+    if (object) this.rotationDragReference.set(object.rotation.x, object.rotation.y, object.rotation.z);
+  }
+  private unwrapRotationDrag() {
+    const object = this.rotationDragObject;
+    if (!object || this.transform.object !== object) return;
+    const turn = Math.PI * 2;
+    const unwrap = (value: number, reference: number) => value + Math.round((reference - value) / turn) * turn;
+    const x = unwrap(object.rotation.x, this.rotationDragReference.x);
+    const y = unwrap(object.rotation.y, this.rotationDragReference.y);
+    const z = unwrap(object.rotation.z, this.rotationDragReference.z);
+    object.rotation.set(x, y, z, object.rotation.order);
+    this.rotationDragReference.set(x, y, z);
   }
 
   emit(type = 'change') { this.dispatchEvent(new Event(type)); }
