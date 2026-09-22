@@ -48,26 +48,26 @@ export function sampleAnimation(keys: Keyframe[], frame: number, mode: Animation
 }
 
 function exportSamples(keys: Keyframe[], mode: AnimationInterpolation): Keyframe[] {
-  const hasContinuousRotation = keys.some(key => key.rotation);
-  if (!hasContinuousRotation) {
-    return mode === 'smooth' ? keys.flatMap((key, index) => index === keys.length - 1 ? [key] :
-      Array.from({ length: 32 }, (_, step) => sampleAnimation(keys, key.frame + (keys[index + 1].frame - key.frame) * step / 32, mode))) : keys;
+  if (mode === 'smooth') {
+    return keys.flatMap((key, index) => index === keys.length - 1 ? [key] :
+      Array.from({ length: 32 }, (_, step) => sampleAnimation(keys, key.frame + (keys[index + 1].frame - key.frame) * step / 32, mode)));
   }
+  if (mode === 'constant' || !keys.some(key => key.rotation)) return keys;
 
   const samples: Keyframe[] = [];
   for (let index = 0; index < keys.length - 1; index++) {
     const key = keys[index], next = keys[index + 1];
-    const frameSpan = Math.max(1, next.frame - key.frame);
-    const angularSpan = key.rotation && next.rotation
+    const frameSpan = next.frame - key.frame;
+    const sameOrder = (key.rotationOrder ?? 'XYZ') === (next.rotationOrder ?? 'XYZ');
+    const angularSpan = key.rotation && next.rotation && sameOrder
       ? Math.max(...key.rotation.map((value, axis) => Math.abs(next.rotation![axis] - value)))
       : 0;
-    const angularSteps = Math.ceil(angularSpan / (Math.PI / 2));
-    const steps = mode === 'constant' ? 1 : Math.max(1, Math.ceil(frameSpan), angularSteps, mode === 'smooth' ? 32 : 1);
+    const steps = angularSpan >= Math.PI - 1e-9 ? Math.max(2, Math.ceil(angularSpan / (Math.PI / 2))) : 1;
     for (let step = 0; step < steps; step++) {
-      samples.push(sampleAnimation(keys, key.frame + frameSpan * step / steps, mode));
+      samples.push(step === 0 ? cloneKeyframe(key) : sampleAnimation(keys, key.frame + frameSpan * step / steps, mode));
     }
   }
-  samples.push(sampleAnimation(keys, keys[keys.length - 1].frame, mode));
+  samples.push(cloneKeyframe(keys[keys.length - 1]));
   return samples;
 }
 
