@@ -12,7 +12,6 @@ test.beforeEach(async ({ page }) => {
     e.selected.position.set(8, 3, 4);
     e.selected.scale.set(2, 3, 4);
     e.insertKey();
-    e.setAnimationInterpolation('linear');
   });
 });
 
@@ -64,7 +63,6 @@ test('edits unwrapped rotation channels and keeps quaternion, interpolation, his
     e.frame = 25;
     object.rotation.set(rad(20), rad(540), rad(40), 'XYZ');
     e.insertKey();
-    e.setAnimationInterpolation('linear');
     e.scrub(25);
 
     e.editKeyChannel('rotation.y', 720);
