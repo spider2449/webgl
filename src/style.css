@@ -28,7 +28,7 @@
 #paint-view { display: block; width: 100%; height: auto; aspect-ratio: 1; image-rendering: auto; border: 1px solid #444; background: #202329; cursor: crosshair; }
 
 
-/* Animation Graph Editor v1 */
+/* Animation Graph Editor */
 .animation-graph{display:none;background:#1c1e24;border-bottom:1px solid #30333a}
 .animation-workspace .timeline{height:360px}
 .animation-workspace .animation-graph{display:block;height:214px}
