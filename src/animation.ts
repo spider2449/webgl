@@ -151,10 +151,10 @@ export function animationTracks(object: THREE.Object3D): THREE.KeyframeTrack[] {
   if (!keys.length) return [];
   const mode: AnimationInterpolation = object.userData.animationInterpolation ?? 'linear';
   const overrides: AnimationChannelInterpolation = object.userData.animationChannelInterpolation ?? {};
-  const hasOverrides = Object.keys(overrides).length > 0;
-  const samples = hasOverrides ? bakedExportSamples(keys, mode, overrides) : legacyExportSamples(keys, mode);
+  const hasEffectiveOverrides = Object.values(overrides).some(override => override !== mode);
+  const samples = hasEffectiveOverrides ? bakedExportSamples(keys, mode, overrides) : legacyExportSamples(keys, mode);
   const times = samples.map(k => (k.frame - 1) / 24);
-  const interpolation = !hasOverrides && mode === 'constant' ? THREE.InterpolateDiscrete : THREE.InterpolateLinear;
+  const interpolation = !hasEffectiveOverrides && mode === 'constant' ? THREE.InterpolateDiscrete : THREE.InterpolateLinear;
   return [
     new THREE.VectorKeyframeTrack(`${object.uuid}.position`, times, samples.flatMap(k => k.position), interpolation),
     new THREE.QuaternionKeyframeTrack(`${object.uuid}.quaternion`, times, samples.flatMap(k => k.quaternion), interpolation),
