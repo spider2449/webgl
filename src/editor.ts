@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { animationChannelNativeValue, sampleAnimation, validAnimationChannel, validChannelInterpolation, validInterpolation, validKeyCurves, validKeyInterpolation, type AnimationChannelInterpolation, type AnimationInterpolation } from './animation';
+import { animationChannelNativeValue, sampleAnimation, validAnimationChannel, validKeyCurves, validKeyInterpolation } from './animation';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { TransformControls } from 'three/addons/controls/TransformControls.js';
 import { GimbalControls } from './gimbal-controls';
@@ -1167,8 +1167,9 @@ export class Editor extends EventTarget {
         if (!(o instanceof THREE.Mesh) || o instanceof THREE.SkinnedMesh) throw new Error('Only ordinary meshes support modifiers.');
         validateModifierStack(o.userData.modifierStack);
       }
-      if (o.userData.animationInterpolation !== undefined && !validInterpolation(o.userData.animationInterpolation)) throw new Error('Invalid animation interpolation.');
-      if (o.userData.animationChannelInterpolation !== undefined && !validChannelInterpolation(o.userData.animationChannelInterpolation)) throw new Error('Invalid animation channel interpolation.');
+      if ('animationInterpolation' in o.userData || 'animationChannelInterpolation' in o.userData) {
+        throw new Error('Legacy animation interpolation metadata is unsupported.');
+      }
       if (o.userData.keyframes) {
         if (!Array.isArray(o.userData.keyframes) || o.userData.keyframes.some((k: Keyframe) =>
           !Number.isFinite(k.frame) ||
@@ -1177,10 +1178,9 @@ export class Editor extends EventTarget {
           (k.rotationOrder !== undefined && !['XYZ','YZX','ZXY','XZY','YXZ','ZYX'].includes(k.rotationOrder)) ||
           !validKeyCurves(k.curves)
         )) throw new Error('Invalid animation keyframes.');
-        const overrides: AnimationChannelInterpolation = o.userData.animationChannelInterpolation ?? {};
         const keys = o.userData.keyframes as Keyframe[];
         const hasRotationCurveMetadata = keys.some(key => Object.keys(key.curves ?? {}).some(channel => channel.startsWith('rotation.')));
-        if (Object.keys(overrides).some(channel => channel.startsWith('rotation.')) || hasRotationCurveMetadata) {
+        if (hasRotationCurveMetadata) {
           if (keys.some(key => !key.rotation)) throw new Error('Rotation curves require Euler key metadata.');
           if (new Set(keys.map(key => key.rotationOrder ?? 'XYZ')).size > 1) throw new Error('Rotation curves require one Euler order.');
         }
@@ -1197,52 +1197,6 @@ export class Editor extends EventTarget {
     if (commit) this.commit();
   }
   newProject() { this.playing = false; this.select(null); this.disposeObject(this.content); this.content.clear(); this.name = 'Untitled scene'; this.frame = 1; this.seed(); }
-  setAnimationInterpolation(mode: AnimationInterpolation) {
-    if (!validInterpolation(mode)) throw new Error('Invalid animation interpolation.');
-    if (!this.selected || this.editMode) return false;
-    if ((this.selected.userData.animationInterpolation ?? 'linear') === mode) return true;
-    this.selected.userData.animationInterpolation = mode;
-    this.evaluateAnimation();
-    this.commit();
-    return true;
-  }
-  setAnimationChannelInterpolation(channel: ScalarAnimationChannel, mode: AnimationInterpolation | null) {
-    if (!validAnimationChannel(channel) || (mode !== null && !validInterpolation(mode))) throw new Error('Invalid animation channel interpolation.');
-    if (!this.selected || this.editMode) return false;
-    const keys: Keyframe[] = this.selected.userData.keyframes ?? [];
-    if (!keys.length) return false;
-
-    const current: AnimationChannelInterpolation = this.selected.userData.animationChannelInterpolation ?? {};
-    const next: AnimationChannelInterpolation = { ...current };
-    if (mode === null) delete next[channel];
-    else next[channel] = mode;
-
-    let upgradedRotationKeys = false;
-    if (channel.startsWith('rotation.') && next[channel]) {
-      if (new Set(keys.map(key => key.rotationOrder ?? 'XYZ')).size > 1) throw new Error('Rotation channel interpolation requires one Euler order.');
-      this.selected.userData.keyframes = keys.map(key => {
-        if (key.rotation) return key;
-        upgradedRotationKeys = true;
-        const order = key.rotationOrder ?? 'XYZ';
-        const euler = new THREE.Euler().setFromQuaternion(new THREE.Quaternion().fromArray(key.quaternion), order);
-        return {
-          ...key,
-          position: [...key.position],
-          quaternion: [...key.quaternion],
-          scale: [...key.scale],
-          rotation: [euler.x, euler.y, euler.z],
-          rotationOrder: order,
-        };
-      });
-    }
-
-    if (JSON.stringify(current) === JSON.stringify(next) && !upgradedRotationKeys) return true;
-    if (Object.keys(next).length) this.selected.userData.animationChannelInterpolation = next;
-    else delete this.selected.userData.animationChannelInterpolation;
-    this.evaluateAnimation();
-    this.commit();
-    return true;
-  }
   private prepareCurveKeys(keys: Keyframe[], channel: ScalarAnimationChannel) {
     let prepared = keys.map(cloneAnimationKey);
     if (!channel.startsWith('rotation.')) return prepared;
@@ -1561,12 +1515,7 @@ export class Editor extends EventTarget {
     this.content.traverse(o => {
       const keys = o.userData.keyframes as Keyframe[] | undefined;
       if (!keys?.length) return;
-      const sample = sampleAnimation(
-        keys,
-        this.frame,
-        o.userData.animationInterpolation ?? 'linear',
-        o.userData.animationChannelInterpolation ?? {},
-      );
+      const sample = sampleAnimation(keys, this.frame);
       o.position.fromArray(sample.position);
       if (sample.rotation) {
         o.rotation.set(sample.rotation[0], sample.rotation[1], sample.rotation[2], sample.rotationOrder ?? o.rotation.order);
