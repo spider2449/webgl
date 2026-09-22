@@ -366,7 +366,12 @@ test('Gimbal orientation changes only the chosen Euler axis', async ({ page }) =
     return { x: run('X'), y: run('Y'), z: run('Z') };
   });
 
-  expect(result.x).toEqual(expect.arrayContaining([expect.closeTo(25, 5), expect.closeTo(25, 5), expect.closeTo(35, 5)]));
-  expect(result.y).toEqual(expect.arrayContaining([expect.closeTo(15, 5), expect.closeTo(35, 5), expect.closeTo(35, 5)]));
-  expect(result.z).toEqual(expect.arrayContaining([expect.closeTo(15, 5), expect.closeTo(25, 5), expect.closeTo(45, 5)]));
+  const expected = {
+    x: [25, 25, 35],
+    y: [15, 35, 35],
+    z: [15, 25, 45],
+  };
+  for (const axis of ['x', 'y', 'z'] as const) {
+    result[axis].forEach((value: number, index: number) => expect(value).toBeCloseTo(expected[axis][index], 5));
+  }
 });
