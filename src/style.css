@@ -26,3 +26,27 @@
 .painting-section { margin: 14px 0; border-top: 1px solid #3a3d43; padding-top: 10px; }
 .painting-section summary { cursor: pointer; color: #dfbb87; margin-bottom: 10px; }
 #paint-view { display: block; width: 100%; height: auto; aspect-ratio: 1; image-rendering: auto; border: 1px solid #444; background: #202329; cursor: crosshair; }
+
+
+/* Animation Graph Editor v1 */
+.animation-graph{display:none;background:#1c1e24;border-bottom:1px solid #30333a}
+.animation-workspace .timeline{height:360px}
+.animation-workspace .animation-graph{display:block;height:214px}
+.animation-workspace .timeline-track{height:108px}
+.animation-graph-header{height:32px;display:flex;align-items:center;gap:12px;padding:0 22px;border-bottom:1px solid #2f3239;background:#1f2127}
+.animation-graph-header>span:first-child{font:500 10px var(--mono);color:#d7b487;letter-spacing:.2px}
+.animation-graph-header>span:last-child{font:9px var(--mono);color:#6f7886}
+#animation-graph{display:block;width:100%;height:182px;background:#1b1d22}
+.graph-grid,.graph-key-grid,.graph-curve,.graph-playhead{vector-effect:non-scaling-stroke}
+.graph-grid{stroke:#30333b;stroke-width:1}
+.graph-key-grid{stroke:#3b3e46;stroke-width:1;stroke-dasharray:3 4}
+.graph-curve{fill:none;stroke:#dfb581;stroke-width:2}
+.graph-key-point{fill:#e1bd8c;stroke:#17191e;stroke-width:1;vector-effect:non-scaling-stroke}
+.graph-playhead{stroke:#d8b382;stroke-width:1.5;pointer-events:none;vector-effect:non-scaling-stroke}
+.graph-playhead.outside{opacity:.3;stroke-dasharray:3 3}
+.graph-value-label{fill:#687180;font:9px var(--mono);pointer-events:none}
+@media(max-width:760px){
+  .animation-workspace .animation-graph{display:none}
+  .animation-workspace .timeline{height:115px}
+  .animation-workspace .timeline-track{height:calc(100% - 38px)}
+}
