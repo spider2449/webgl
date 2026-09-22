@@ -72,6 +72,7 @@ export class Editor extends EventTarget {
   private rotationDragReference = new THREE.Vector3();
   private rotationDragMatrix = new THREE.Matrix4();
   transformOrientation: TransformOrientation = 'world';
+  private transformTool: 'select' | 'translate' | 'rotate' | 'scale' = 'translate';
   private viewStyle = 'material';
   private solid = new THREE.MeshStandardMaterial({ color: 0xadb0b7, roughness: 0.8 });
   private wire = new THREE.MeshBasicMaterial({ color: 0xaac7d7, wireframe: true });
@@ -405,7 +406,7 @@ export class Editor extends EventTarget {
     }
   }
   private syncTransformControls() {
-    const mode = this.editMode ? 'translate' : this.transform.mode;
+    const mode = this.editMode ? 'translate' : this.transformTool;
     const useGimbal = !this.editMode && mode === 'rotate' && this.transformOrientation === 'gimbal' && !!this.selected?.visible;
     this.gimbal.attach(this.selected);
     this.gimbal.setEnabled(useGimbal);
@@ -433,6 +434,7 @@ export class Editor extends EventTarget {
     this.gimbal.rotationSnap = enabled ? Math.PI / 12 : null;
   }
   setTool(mode: 'translate' | 'rotate' | 'scale' | 'select') {
+    this.transformTool = mode;
     this.transform.setMode(this.editMode ? 'translate' : mode === 'select' ? 'translate' : mode);
     this.transform.setSpace(this.transformOrientation === 'world' ? 'world' : 'local');
     if (mode === 'select') {
@@ -704,6 +706,7 @@ export class Editor extends EventTarget {
     this.vertexIndices = [];
     this.selectedFace = null;
     this.transform.detach();
+    this.gimbal.setEnabled(false);
     if (this.vertexPoints) {
       this.vertexPoints.removeFromParent();
       this.componentEdges?.geometry.dispose();
@@ -728,7 +731,9 @@ export class Editor extends EventTarget {
       this.componentEdges.renderOrder = 9;
       this.vertexPoints.add(this.componentEdges);
       this.refreshComponents();
-    } else if (this.selected?.visible) this.transform.attach(this.selected);
+    } else {
+      this.syncTransformControls();
+    }
     this.updateSelection();
     this.emit('mode');
     this.invalidate();
