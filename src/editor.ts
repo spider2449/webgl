@@ -1149,9 +1149,10 @@ export class Editor extends EventTarget {
           (k.rotationOrder !== undefined && !['XYZ','YZX','ZXY','XZY','YXZ','ZYX'].includes(k.rotationOrder))
         )) throw new Error('Invalid animation keyframes.');
         const overrides: AnimationChannelInterpolation = o.userData.animationChannelInterpolation ?? {};
-        if (Object.keys(overrides).some(channel => channel.startsWith('rotation.')) &&
-            (o.userData.keyframes as Keyframe[]).some(key => !key.rotation)) {
-          throw new Error('Rotation channel interpolation requires Euler key metadata.');
+        if (Object.keys(overrides).some(channel => channel.startsWith('rotation.'))) {
+          const keys = o.userData.keyframes as Keyframe[];
+          if (keys.some(key => !key.rotation)) throw new Error('Rotation channel interpolation requires Euler key metadata.');
+          if (new Set(keys.map(key => key.rotationOrder ?? 'XYZ')).size > 1) throw new Error('Rotation channel interpolation requires one Euler order.');
         }
       }
     }); } catch (error) { this.disposeObject(root); throw error; }
@@ -1188,6 +1189,7 @@ export class Editor extends EventTarget {
 
     let upgradedRotationKeys = false;
     if (channel.startsWith('rotation.') && next[channel]) {
+      if (new Set(keys.map(key => key.rotationOrder ?? 'XYZ')).size > 1) throw new Error('Rotation channel interpolation requires one Euler order.');
       this.selected.userData.keyframes = keys.map(key => {
         if (key.rotation) return key;
         upgradedRotationKeys = true;
