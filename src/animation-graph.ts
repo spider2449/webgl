@@ -1,10 +1,16 @@
 import * as THREE from 'three';
-import { sampleAnimation, type AnimationChannelInterpolation, type AnimationInterpolation } from './animation';
+import {
+  effectiveSegmentInterpolation,
+  sampleAnimation,
+  type AnimationChannelInterpolation,
+  type AnimationInterpolation,
+  type EffectiveSegmentInterpolation,
+} from './animation';
 import type { Keyframe, ScalarAnimationChannel } from './editor';
 
 export type AnimationGraphData = {
   channel: ScalarAnimationChannel;
-  mode: AnimationInterpolation;
+  mode: EffectiveSegmentInterpolation | 'mixed';
   frameMin: number;
   frameMax: number;
   valueMin: number;
@@ -13,6 +19,8 @@ export type AnimationGraphData = {
   actualMax: number;
   samples: { frame: number; value: number }[];
   keys: { frame: number; value: number }[];
+  sourceKeys: Keyframe[];
+  segmentModes: EffectiveSegmentInterpolation[];
 };
 
 const axes = ['x', 'y', 'z'] as const;
@@ -35,6 +43,10 @@ export function animationChannelValue(key: Keyframe, channel: ScalarAnimationCha
   return THREE.MathUtils.radToDeg([euler.x, euler.y, euler.z][component]);
 }
 
+function displayDelta(channel: ScalarAnimationChannel, nativeDelta: number) {
+  return channel.startsWith('rotation.') ? THREE.MathUtils.radToDeg(nativeDelta) : nativeDelta;
+}
+
 function sampledChannelValue(key: Keyframe, channel: ScalarAnimationChannel) {
   return animationChannelValue(key, channel);
 }
@@ -47,11 +59,11 @@ export function buildAnimationGraphData(
 ): AnimationGraphData | null {
   if (!keys.length) return null;
   const sorted = [...keys].sort((a, b) => a.frame - b.frame);
-  const mode = overrides[channel] ?? defaultMode;
   const keyPoints = sorted.map(key => ({ frame: key.frame, value: animationChannelValue(key, channel) }));
   const frameMin = sorted[0].frame;
   const frameMax = sorted[sorted.length - 1].frame;
   const samples: { frame: number; value: number }[] = [];
+  const segmentModes: EffectiveSegmentInterpolation[] = [];
 
   if (sorted.length === 1) {
     samples.push({ ...keyPoints[0] });
@@ -60,10 +72,11 @@ export function buildAnimationGraphData(
       const a = sorted[index];
       const b = sorted[index + 1];
       const span = b.frame - a.frame;
-      const steps = mode === 'constant' ? 2 : 32;
+      const mode = effectiveSegmentInterpolation(a, channel, defaultMode, overrides);
+      segmentModes.push(mode);
+      const steps = mode === 'constant' ? 2 : mode === 'linear' ? 2 : 32;
       for (let step = 0; step < steps; step++) {
-        const t = step / steps;
-        const frame = a.frame + span * t;
+        const frame = a.frame + span * step / steps;
         const sample = sampleAnimation(sorted, frame, defaultMode, overrides);
         samples.push({ frame, value: sampledChannelValue(sample, channel) });
       }
@@ -76,7 +89,27 @@ export function buildAnimationGraphData(
     samples.push({ ...keyPoints[keyPoints.length - 1] });
   }
 
-  const values = [...samples.map(point => point.value), ...keyPoints.map(point => point.value)];
+  const uniqueModes = new Set(segmentModes);
+  const mode: AnimationGraphData['mode'] = uniqueModes.size > 1 ? 'mixed' :
+    segmentModes[0] ?? effectiveSegmentInterpolation(sorted[0], channel, defaultMode, overrides);
+
+  const handleValues: number[] = [];
+  sorted.forEach((key, index) => {
+    const value = animationChannelValue(key, channel);
+    const curve = key.curves?.[channel];
+    if (curve?.left) handleValues.push(value + displayDelta(channel, curve.left[1]));
+    if (curve?.right) handleValues.push(value + displayDelta(channel, curve.right[1]));
+    if (index > 0 && sorted[index - 1].curves?.[channel]?.interpolation === 'bezier' && !curve?.left) {
+      const previous = sorted[index - 1];
+      handleValues.push(value - (value - animationChannelValue(previous, channel)) / 3);
+    }
+    if (index < sorted.length - 1 && curve?.interpolation === 'bezier' && !curve.right) {
+      const next = sorted[index + 1];
+      handleValues.push(value + (animationChannelValue(next, channel) - value) / 3);
+    }
+  });
+
+  const values = [...samples.map(point => point.value), ...keyPoints.map(point => point.value), ...handleValues];
   const actualMin = Math.min(...values);
   const actualMax = Math.max(...values);
   let valueMin = actualMin;
@@ -92,7 +125,7 @@ export function buildAnimationGraphData(
     valueMax += pad;
   }
 
-  return { channel, mode, frameMin, frameMax, valueMin, valueMax, actualMin, actualMax, samples, keys: keyPoints };
+  return { channel, mode, frameMin, frameMax, valueMin, valueMax, actualMin, actualMax, samples, keys: keyPoints, sourceKeys: sorted, segmentModes };
 }
 
 const NS = 'http://www.w3.org/2000/svg';
@@ -107,12 +140,17 @@ function svgElement<K extends keyof SVGElementTagNameMap>(
 }
 
 export type AnimationGraphEditCallbacks = {
+  select: (frame: number, channel: ScalarAnimationChannel) => void;
   begin: (frame: number, channel: ScalarAnimationChannel) => boolean;
   preview: (frame: number, channel: ScalarAnimationChannel, value: number) => boolean;
   end: (cancel: boolean) => void;
+  beginHandle: (frame: number, channel: ScalarAnimationChannel, side: 'left' | 'right') => boolean;
+  previewHandle: (frame: number, value: number) => { frame: number; value: number } | false;
+  endHandle: (cancel: boolean) => void;
 };
 
-type GraphDragState = {
+type KeyDragState = {
+  kind: 'key';
   pointerId: number;
   sourceFrame: number;
   startValue: number;
@@ -123,12 +161,26 @@ type GraphDragState = {
   marker: SVGRectElement;
 };
 
+type HandleDragState = {
+  kind: 'handle';
+  pointerId: number;
+  keyFrame: number;
+  side: 'left' | 'right';
+  valueMin: number;
+  valueMax: number;
+  marker: SVGCircleElement;
+  line: SVGLineElement;
+};
+
+type GraphDragState = KeyDragState | HandleDragState;
+
 export class AnimationGraphView {
   private signature = '';
   private data: AnimationGraphData | null = null;
   private readonly curveLayer = svgElement('g', { class: 'graph-static' });
   private readonly playhead = svgElement('line', { class: 'graph-playhead', x1: 0, x2: 0, y1: 18, y2: 162 });
   private drag: GraphDragState | null = null;
+  private selectedFrame: number | null = null;
 
   constructor(
     private readonly svg: SVGSVGElement,
@@ -149,6 +201,8 @@ export class AnimationGraphView {
     });
   }
 
+  get selectedKeyFrame() { return this.selectedFrame; }
+
   update(
     object: THREE.Object3D | null,
     channel: ScalarAnimationChannel,
@@ -157,11 +211,13 @@ export class AnimationGraphView {
     const keys: Keyframe[] = object?.userData.keyframes ?? [];
     const defaultMode: AnimationInterpolation = object?.userData.animationInterpolation ?? 'linear';
     const overrides: AnimationChannelInterpolation = object?.userData.animationChannelInterpolation ?? {};
+    if (this.selectedFrame !== null && !keys.some(key => key.frame === this.selectedFrame)) this.selectedFrame = null;
     const signature = JSON.stringify({
       uuid: object?.uuid ?? null,
       channel,
       defaultMode,
       override: overrides[channel] ?? null,
+      selectedFrame: this.selectedFrame,
       keys: keys.map(key => ({
         frame: key.frame,
         position: key.position,
@@ -169,6 +225,7 @@ export class AnimationGraphView {
         rotationOrder: key.rotationOrder,
         quaternion: key.rotation ? undefined : key.quaternion,
         scale: key.scale,
+        curves: key.curves,
       })),
     });
 
@@ -186,6 +243,7 @@ export class AnimationGraphView {
     this.svg.dataset.channel = data?.channel ?? '';
     this.svg.dataset.mode = data?.mode ?? '';
     this.svg.dataset.keyCount = String(data?.keys.length ?? 0);
+    this.svg.dataset.selectedFrame = this.selectedFrame === null ? '' : String(this.selectedFrame);
 
     if (!data) {
       this.title.textContent = 'Graph Editor';
@@ -194,10 +252,11 @@ export class AnimationGraphView {
       return;
     }
 
+    const modeLabel = data.mode === 'mixed' ? 'Mixed' : data.mode[0].toUpperCase() + data.mode.slice(1);
     this.title.textContent = animationChannelLabel(data.channel);
-    this.detail.textContent = `${data.mode[0].toUpperCase() + data.mode.slice(1)} · Keys F${this.formatFrame(data.frameMin)}–${this.formatFrame(data.frameMax)} · ${this.format(data.actualMin)} to ${this.format(data.actualMax)}`;
-    const x = (frame: number) => this.frameX(data, frame);
-    const y = (value: number) => 18 + (data.valueMax - value) / (data.valueMax - data.valueMin) * 144;
+    this.detail.textContent = `${modeLabel} · Keys F${this.formatFrame(data.frameMin)}–${this.formatFrame(data.frameMax)} · ${this.format(data.actualMin)} to ${this.format(data.actualMax)}`;
+    const x = (frame: number) => this.frameX(frame);
+    const y = (value: number) => this.valueY(data, value);
 
     for (let index = 0; index < 5; index++) {
       const gy = 18 + index * 36;
@@ -217,7 +276,7 @@ export class AnimationGraphView {
 
     for (const key of data.keys) {
       const marker = svgElement('rect', {
-        class: 'graph-key-point',
+        class: `graph-key-point${key.frame === this.selectedFrame ? ' selected' : ''}`,
         x: x(key.frame) - 4,
         y: y(key.value) - 4,
         width: 8,
@@ -233,6 +292,8 @@ export class AnimationGraphView {
       this.curveLayer.append(marker);
     }
 
+    this.renderHandles(data, x, y);
+
     const top = svgElement('text', { class: 'graph-value-label', x: 8, y: 24 });
     top.textContent = this.format(data.valueMax);
     const bottom = svgElement('text', { class: 'graph-value-label', x: 8, y: 160 });
@@ -245,31 +306,113 @@ export class AnimationGraphView {
     this.playhead.setAttribute('visibility', 'visible');
   }
 
+  private renderHandles(data: AnimationGraphData, x: (frame: number) => number, y: (value: number) => number) {
+    if (this.selectedFrame === null) return;
+    const index = data.sourceKeys.findIndex(key => key.frame === this.selectedFrame);
+    if (index < 0) return;
+    const key = data.sourceKeys[index];
+    const keyValue = animationChannelValue(key, data.channel);
+
+    const addHandle = (side: 'left' | 'right', handleFrame: number, handleValue: number) => {
+      const line = svgElement('line', {
+        class: 'graph-handle-line',
+        x1: x(key.frame),
+        y1: y(keyValue),
+        x2: x(handleFrame),
+        y2: y(handleValue),
+      });
+      line.dataset.handleLine = side;
+      line.dataset.keyFrame = String(key.frame);
+      const marker = svgElement('circle', {
+        class: 'graph-handle',
+        cx: x(handleFrame),
+        cy: y(handleValue),
+        r: 4,
+      });
+      marker.dataset.handle = side;
+      marker.dataset.keyFrame = String(key.frame);
+      marker.dataset.handleFrame = String(handleFrame);
+      marker.dataset.handleValue = String(handleValue);
+      marker.dataset.channel = data.channel;
+      this.curveLayer.append(line, marker);
+    };
+
+    if (index > 0 && data.sourceKeys[index - 1].curves?.[data.channel]?.interpolation === 'bezier') {
+      const previous = data.sourceKeys[index - 1];
+      const span = key.frame - previous.frame;
+      const delta = keyValue - animationChannelValue(previous, data.channel);
+      const handle = key.curves?.[data.channel]?.left ?? [-span / 3, data.channel.startsWith('rotation.') ? THREE.MathUtils.degToRad(-delta / 3) : -delta / 3];
+      addHandle('left', key.frame + handle[0], keyValue + displayDelta(data.channel, handle[1]));
+    }
+
+    if (index < data.sourceKeys.length - 1 && key.curves?.[data.channel]?.interpolation === 'bezier') {
+      const next = data.sourceKeys[index + 1];
+      const span = next.frame - key.frame;
+      const delta = animationChannelValue(next, data.channel) - keyValue;
+      const handle = key.curves?.[data.channel]?.right ?? [span / 3, data.channel.startsWith('rotation.') ? THREE.MathUtils.degToRad(delta / 3) : delta / 3];
+      addHandle('right', key.frame + handle[0], keyValue + displayDelta(data.channel, handle[1]));
+    }
+  }
+
   private renderPlayhead(frame: number) {
     const data = this.data;
     if (!data) return;
     const clamped = THREE.MathUtils.clamp(frame, 1, 250);
-    const x = this.frameX(data, clamped);
+    const x = this.frameX(clamped);
     this.playhead.setAttribute('x1', x.toFixed(2));
     this.playhead.setAttribute('x2', x.toFixed(2));
     this.playhead.dataset.frame = String(frame);
     this.playhead.classList.toggle('outside', frame < 1 || frame > 250);
   }
 
-  private frameX(_data: AnimationGraphData, frame: number) {
+  private frameX(frame: number) {
     return 48 + (frame - 1) / 249 * 924;
+  }
+
+  private valueY(data: AnimationGraphData, value: number) {
+    return 18 + (data.valueMax - value) / (data.valueMax - data.valueMin) * 144;
   }
 
   private pointerDown = (event: PointerEvent) => {
     if (event.button !== 0 || this.drag || !this.data) return;
-    const target = event.target instanceof Element ? event.target.closest<SVGRectElement>('.graph-key-point') : null;
+    const element = event.target instanceof Element ? event.target : null;
+    const handle = element?.closest<SVGCircleElement>('.graph-handle');
+    if (handle) {
+      const keyFrame = Number(handle.dataset.keyFrame);
+      const side = handle.dataset.handle as 'left' | 'right' | undefined;
+      const channel = handle.dataset.channel as ScalarAnimationChannel | undefined;
+      if (!Number.isFinite(keyFrame) || !side || !channel || !this.edits.beginHandle(keyFrame, channel, side)) return;
+      const line = this.curveLayer.querySelector<SVGLineElement>(`.graph-handle-line[data-handle-line="${side}"][data-key-frame="${keyFrame}"]`);
+      if (!line) return;
+      this.drag = {
+        kind: 'handle',
+        pointerId: event.pointerId,
+        keyFrame,
+        side,
+        valueMin: this.data.valueMin,
+        valueMax: this.data.valueMax,
+        marker: handle,
+        line,
+      };
+      handle.classList.add('dragging');
+      this.svg.setPointerCapture(event.pointerId);
+      event.preventDefault();
+      return;
+    }
+
+    const target = element?.closest<SVGRectElement>('.graph-key-point');
     if (!target) return;
     const frame = Number(target.dataset.frame);
     const value = Number(target.dataset.value);
     const channel = target.dataset.channel as ScalarAnimationChannel | undefined;
-    if (!Number.isFinite(frame) || !Number.isFinite(value) || !channel || !this.edits.begin(frame, channel)) return;
+    if (!Number.isFinite(frame) || !Number.isFinite(value) || !channel) return;
+    this.selectedFrame = frame;
+    this.edits.select(frame, channel);
+    this.signature = '';
+    if (!this.edits.begin(frame, channel)) return;
 
     this.drag = {
+      kind: 'key',
       pointerId: event.pointerId,
       sourceFrame: frame,
       startValue: value,
@@ -279,7 +422,7 @@ export class AnimationGraphView {
       valueMax: this.data.valueMax,
       marker: target,
     };
-    target.classList.add('dragging');
+    target.classList.add('dragging', 'selected');
     this.svg.setPointerCapture(event.pointerId);
     event.preventDefault();
   };
@@ -291,6 +434,29 @@ export class AnimationGraphView {
     const rect = this.svg.getBoundingClientRect();
     if (rect.width <= 0 || rect.height <= 0) return;
 
+    if (drag.kind === 'handle') {
+      const viewX = (event.clientX - rect.left) / rect.width * 1000;
+      const viewY = (event.clientY - rect.top) / rect.height * 180;
+      const targetFrame = 1 + (viewX - 48) / 924 * 249;
+      const span = drag.valueMax - drag.valueMin;
+      const rawValue = drag.valueMax - (viewY - 18) / 144 * span;
+      const precision = data.channel.startsWith('rotation.') ? 0.1 : 0.001;
+      const targetValue = Math.round(rawValue / precision) * precision;
+      const applied = this.edits.previewHandle(targetFrame, targetValue);
+      if (!applied) return;
+      const x = this.frameX(applied.frame);
+      const y = this.valueY(data, applied.value);
+      drag.marker.setAttribute('cx', String(x));
+      drag.marker.setAttribute('cy', String(y));
+      drag.line.setAttribute('x2', String(x));
+      drag.line.setAttribute('y2', String(y));
+      drag.marker.dataset.handleFrame = String(applied.frame);
+      drag.marker.dataset.handleValue = String(applied.value);
+      this.detail.textContent = `Tangent · F${this.formatFrame(applied.frame)} · ${this.format(applied.value)}`;
+      event.preventDefault();
+      return;
+    }
+
     const deltaViewX = (event.clientX - drag.startClientX) / rect.width * 1000;
     const deltaViewY = (event.clientY - drag.startClientY) / rect.height * 180;
     const targetFrame = THREE.MathUtils.clamp(Math.round(drag.sourceFrame + deltaViewX / 924 * 249), 1, 250);
@@ -300,10 +466,11 @@ export class AnimationGraphView {
     const targetValue = Math.round(rawValue / precision) * precision;
     if (!this.edits.preview(targetFrame, data.channel, targetValue)) return;
 
+    this.selectedFrame = targetFrame;
     drag.marker.dataset.frame = String(targetFrame);
     drag.marker.dataset.value = String(targetValue);
-    drag.marker.setAttribute('x', String(this.frameX(data, targetFrame) - 4));
-    const y = 18 + (drag.valueMax - targetValue) / span * 144;
+    drag.marker.setAttribute('x', String(this.frameX(targetFrame) - 4));
+    const y = this.valueY(data, targetValue);
     drag.marker.setAttribute('y', String(THREE.MathUtils.clamp(y - 4, 4, 168)));
     this.detail.textContent = `Editing · F${targetFrame} · ${this.format(targetValue)}`;
     event.preventDefault();
@@ -327,7 +494,11 @@ export class AnimationGraphView {
     if (this.svg.hasPointerCapture(drag.pointerId)) this.svg.releasePointerCapture(drag.pointerId);
     this.drag = null;
     this.signature = '';
-    this.edits.end(cancel);
+    if (drag.kind === 'handle') this.edits.endHandle(cancel);
+    else {
+      if (cancel) this.selectedFrame = drag.sourceFrame;
+      this.edits.end(cancel);
+    }
   }
 
   private formatFrame(frame: number) {
