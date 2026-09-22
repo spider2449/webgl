@@ -349,6 +349,21 @@ export class Editor extends EventTarget {
     this.select(copy);
     this.commit();
   }
+  duplicateLinked() {
+    if (!(this.selected instanceof THREE.Mesh) || this.selected instanceof THREE.SkinnedMesh || this.selected.userData.modifierStack) return false;
+    this.setEditMode(false);
+    const source = this.selected;
+    const copy = source.clone(false) as THREE.Mesh;
+    copy.geometry = source.geometry;
+    copy.material = source.material;
+    copy.name = this.uniqueName(source.name);
+    copy.position.x += 2.5;
+    const parent = this.isCollection(source.parent) ? source.parent : this.content;
+    parent.add(copy);
+    this.select(copy);
+    this.commit();
+    return true;
+  }
   remove() {
     if (!this.selected) return;
     if (this.selected instanceof THREE.Bone) return;
