@@ -150,7 +150,7 @@ function svgElement<K extends keyof SVGElementTagNameMap>(
 
 export type AnimationGraphEditCallbacks = {
   select: (frame: number, channel: ScalarAnimationChannel) => void;
-  begin: (frame: number, channel: ScalarAnimationChannel) => boolean;
+  begin: (frame: number, channel: ScalarAnimationChannel, copy: boolean) => boolean;
   preview: (frame: number, channel: ScalarAnimationChannel, value: number) => boolean;
   end: (cancel: boolean) => void;
   beginHandle: (frame: number, channel: ScalarAnimationChannel, side: 'left' | 'right') => boolean;
@@ -168,6 +168,7 @@ type KeyDragState = {
   valueMin: number;
   valueMax: number;
   marker: SVGRectElement;
+  copy: boolean;
 };
 
 type HandleDragState = {
@@ -445,7 +446,8 @@ export class AnimationGraphView {
     if (!Number.isFinite(frame) || !Number.isFinite(value) || !channel) return;
     this.selectedFrame = frame;
     this.signature = '';
-    if (!this.edits.begin(frame, channel)) {
+    const copy = event.altKey;
+    if (!this.edits.begin(frame, channel, copy)) {
       this.edits.select(frame, channel);
       return;
     }
@@ -460,6 +462,7 @@ export class AnimationGraphView {
       valueMin: this.data.valueMin,
       valueMax: this.data.valueMax,
       marker: target,
+      copy,
     };
     target.classList.add('dragging', 'selected');
     this.svg.setPointerCapture(event.pointerId);
@@ -512,7 +515,7 @@ export class AnimationGraphView {
     drag.marker.setAttribute('x', String(this.frameX(targetFrame) - 4));
     const y = this.valueY(data, targetValue);
     drag.marker.setAttribute('y', String(THREE.MathUtils.clamp(y - 4, 4, 168)));
-    this.detail.textContent = `Editing · F${targetFrame} · ${this.format(targetValue)}`;
+    this.detail.textContent = `${drag.copy ? 'Copying' : 'Editing'} · F${targetFrame} · ${this.format(targetValue)}`;
     event.preventDefault();
   };
 
