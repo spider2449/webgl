@@ -42,7 +42,7 @@ $('#app').innerHTML = `
     <aside class="sidebar">
       <section class="outliner"><div class="panel-heading"><span class="panel-title">${icon('layers')} Scene Collection</span><span class="count" id="object-count">1</span>${button('add-outliner','plus','Add mesh')}</div><div class="search-field">${icon('search')}<input id="object-search" placeholder="Search objects…" aria-label="Search objects"><kbd>/</kbd></div><div class="collection-row">${icon('chevron-down')}${icon('folder-open')}<span>Scene Collection</span>${button('add-collection','plus','Create collection')}</div><div id="object-list" class="object-list"></div><div class="outliner-footer"><span id="selection-count">1 object selected</span>${button('delete-outliner','trash-2','Delete selected object')}<input id="collection-name" aria-label="New collection name" value="Collection" maxlength="100"><select id="collection-target" aria-label="Target collection"><option value="">Move selected to…</option></select>${button('move-to-collection','folder-open','Move selected to collection')}${button('unlink-collection','log-out','Unlink from collection')}${button('delete-collection','trash-2','Delete empty collection')}</div></section>
       <section class="properties"><div class="properties-tabs"><button class="active" data-panel="object">${icon('sliders-horizontal')} Object</button><button data-panel="material">${icon('circle')} Material</button><button data-panel="scene">${icon('settings-2')} Scene</button></div><div class="properties-content">
-        <div id="panel-object" class="property-panel"><div class="object-title">${icon('box')}<input id="object-name" aria-label="Object name" maxlength="100" value="Cube"><span class="object-type" id="object-type">MESH</span></div><div id="no-selection" class="empty-state hidden">Select an object to edit its properties.</div><div id="object-fields"><div class="section-heading"><span>${icon('chevron-down')} Transform</span><button id="reset-transform" title="Reset transform" aria-label="Reset transform">${icon('undo-2')}</button></div>${['position','rotation','scale'].map((group) => `<div class="transform-group"><label>${group === 'position' ? 'Location' : group[0].toUpperCase()+group.slice(1)}</label><div class="vector-inputs">${['x','y','z'].map(axis => `<label class="axis-input ${axis}"><span>${axis.toUpperCase()}</span><input type="number" step="${group === 'rotation' ? 1 : 0.1}" data-transform="${group}" data-axis="${axis}" aria-label="${group} ${axis}" value="0"></label>`).join('')}</div></div>`).join('')}<div class="property-note">${icon('globe')} Local object transform · Rotation in degrees · Gimbal edits Euler channels directly</div><div class="section-heading border-top"><span>${icon('chevron-down')} Geometry</span></div><div class="geometry-stats"><div><span>Vertices</span><strong id="mesh-vertices">24</strong></div><div><span>Triangles</span><strong id="mesh-triangles">12</strong></div></div><div class="action-row"><button id="smooth">Shade smooth</button><button id="flat">Shade flat</button></div><label class="property-row">Extrusion distance<input id="extrude-distance" aria-label="Extrusion distance" type="number" min="0.0001" max="1000" step="0.1" value="0.5"></label><button class="wide-button" id="extrude-face">Extrude selected triangle</button><p class="field-help">Select a triangle face in Edit Mode. Extrusion follows its normal in local units.</p><button class="wide-button" id="mirror">${icon('copy')} Mirror geometry on X</button><p class="field-help">Mirror is applied to the mesh. Use Edit Mode to move vertices, edges or triangle faces.</p><div class="section-heading border-top"><span>${icon('chevron-down')} Animation</span></div><label class="property-row">Interpolation<select id="animation-interpolation" aria-label="Animation interpolation"><option value="linear">Linear</option><option value="constant">Constant</option><option value="smooth">Smooth</option></select></label><button class="wide-button" id="key-property">${icon('diamond')} Insert transform keyframe <kbd>I</kbd></button><p class="field-help">Move to another frame, change the transform, then insert a second keyframe.</p><label class="property-row">Keyframe<select id="animation-key" aria-label="Select keyframe"><option value="">Choose a keyframe</option></select></label><label class="property-row">Channel<select id="animation-channel" aria-label="Animation channel"><option value="position.x">Location X</option><option value="position.y">Location Y</option><option value="position.z">Location Z</option><option value="rotation.x">Rotation X</option><option value="rotation.y">Rotation Y</option><option value="rotation.z">Rotation Z</option><option value="scale.x">Scale X</option><option value="scale.y">Scale Y</option><option value="scale.z">Scale Z</option></select></label><label class="property-row">Channel default<select id="animation-channel-interpolation" aria-label="Animation channel interpolation"><option value="">Object default</option><option value="linear">Linear</option><option value="constant">Constant</option><option value="smooth">Smooth</option></select></label><label class="property-row">Channel value<input id="animation-channel-value" aria-label="Animation channel value" type="number" step="0.1" value="0"></label><button class="wide-button" id="apply-channel-value">Apply channel value</button><p class="field-help">Object and channel interpolation are fallbacks. In the Graph Editor, select a key to set that key’s outbound segment to Constant, Linear or Bezier and edit tangents. Rotation values use unwrapped Euler degrees.</p><label class="property-row">Target frame<input id="key-target-frame" aria-label="Keyframe target frame" type="number" min="1" max="250" step="1" value="25"></label><div class="action-row"><button id="move-key">Move keyframe</button><button id="copy-key">Copy keyframe</button></div><p class="field-help">Select a key, then move or copy its pose to an empty frame.</p></div></div>
+        <div id="panel-object" class="property-panel"><div class="object-title">${icon('box')}<input id="object-name" aria-label="Object name" maxlength="100" value="Cube"><span class="object-type" id="object-type">MESH</span></div><div id="no-selection" class="empty-state hidden">Select an object to edit its properties.</div><div id="object-fields"><div class="section-heading"><span>${icon('chevron-down')} Transform</span><button id="reset-transform" title="Reset transform" aria-label="Reset transform">${icon('undo-2')}</button></div>${['position','rotation','scale'].map((group) => `<div class="transform-group"><label>${group === 'position' ? 'Location' : group[0].toUpperCase()+group.slice(1)}</label><div class="vector-inputs">${['x','y','z'].map(axis => `<label class="axis-input ${axis}"><span>${axis.toUpperCase()}</span><input type="number" step="${group === 'rotation' ? 1 : 0.1}" data-transform="${group}" data-axis="${axis}" aria-label="${group} ${axis}" value="0"></label>`).join('')}</div></div>`).join('')}<div class="property-note">${icon('globe')} Local object transform · Rotation in degrees · Gimbal edits Euler channels directly</div><div class="section-heading border-top"><span>${icon('chevron-down')} Geometry</span></div><div class="geometry-stats"><div><span>Vertices</span><strong id="mesh-vertices">24</strong></div><div><span>Triangles</span><strong id="mesh-triangles">12</strong></div></div><div class="action-row"><button id="smooth">Shade smooth</button><button id="flat">Shade flat</button></div><label class="property-row">Extrusion distance<input id="extrude-distance" aria-label="Extrusion distance" type="number" min="0.0001" max="1000" step="0.1" value="0.5"></label><button class="wide-button" id="extrude-face">Extrude selected triangle</button><p class="field-help">Select a triangle face in Edit Mode. Extrusion follows its normal in local units.</p><button class="wide-button" id="mirror">${icon('copy')} Mirror geometry on X</button><p class="field-help">Mirror is applied to the mesh. Use Edit Mode to move vertices, edges or triangle faces.</p></div></div>
         <div id="panel-material" class="property-panel hidden"><div class="section-heading"><span>${icon('circle')} Surface material</span></div><div id="material-fields"><div class="material-swatch" id="material-preview"><span></span><small>STANDARD SURFACE</small></div><label class="property-row">Base color<input type="color" id="material-color" value="#b8b6b2"></label><label class="range-property">Roughness<output id="roughness-value">0.42</output><input type="range" id="roughness" min="0" max="1" step="0.01" value="0.42"></label><label class="range-property">Metallic<output id="metalness-value">0.12</output><input type="range" id="metalness" min="0" max="1" step="0.01" value="0.12"></label><p class="field-help">Edits the first standard material of the selected mesh. Lighting is provided by the studio environment.</p></div><div id="no-material" class="empty-state hidden">Select a mesh with a standard material.</div></div>
         <div id="panel-scene" class="property-panel hidden"><div class="section-heading"><span>${icon('settings-2')} Viewport settings</span></div><label class="property-row">Quality<select id="quality"><option value="low">Performance</option><option value="balanced" selected>Balanced</option><option value="high">High quality</option></select></label><label class="property-row">Background<input type="color" id="background" value="#25282e"></label><label class="range-property">Exposure<output id="exposure-value">1.30</output><input id="exposure" type="range" min="0.2" max="3" step="0.05" value="1.3"></label><div class="performance-card">${icon('activity')}<strong>Performance by design</strong><p>The viewport redraws only when something changes. Pixel density is capped to keep interaction responsive.</p></div><p class="field-help">Viewport settings are session-only. Projects store objects, materials and transform keyframes.</p><button class="wide-button" id="restore-local">${icon('folder-open')} Recover last local scene</button></div>
       </div></section><div class="sidebar-bottom">FORGE <span>EARLY ACCESS · 0.1</span></div>
@@ -84,6 +84,7 @@ $('#material-fields').insertAdjacentHTML('beforeend', `<details class="painting-
 refreshIcons();
 
 let editor: Editor;
+let graphChannel: ScalarAnimationChannel = 'position.x';
 try { editor = new Editor($('#viewport')); }
 catch (error) {
   $('#viewport').innerHTML = '<div class="webgl-error"><h2>WebGL 2 is unavailable</h2><p>Enable hardware acceleration in your browser, then reload Forge.</p></div>';
@@ -95,7 +96,7 @@ const animationGraph = new AnimationGraphView(
   $('#animation-graph-detail'),
   {
     select: (frame, channel) => {
-      $<HTMLSelectElement>('#animation-channel').value = channel;
+      graphChannel = channel;
       editor.scrub(frame);
       updateTimeline();
     },
@@ -320,78 +321,38 @@ function renderOutliner() {
 let timelineState = '';
 let markerState = '';
 let wasPlaying = false;
-let keyOptionsState = '';
 function updateTimeline() {
-  const interpolation = $<HTMLSelectElement>('#animation-interpolation');
-  interpolation.value = editor.selected?.userData.animationInterpolation ?? 'linear';
-  interpolation.disabled = !editor.selected || editor.editMode;
   const frame = Math.round(editor.frame);
   const keys: Keyframe[] = editor.selected?.userData.keyframes ?? [];
-  const markers = keys.map(k => k.frame).join(',');
-  const keySelect = $<HTMLSelectElement>('#animation-key');
-  if (keyOptionsState !== markers) {
-    keySelect.replaceChildren(new Option('Choose a keyframe', ''), ...keys.map(key => new Option('Frame ' + key.frame, String(key.frame))));
-    keyOptionsState = markers;
-  }
-  const currentKey = keys.find(key => key.frame === editor.frame);
-  const hasKey = !!currentKey;
-  keySelect.value = hasKey ? String(editor.frame) : '';
-  keySelect.disabled = !keys.length || editor.editMode || editor.playing;
-  for (const id of ['move-key', 'copy-key']) $<HTMLButtonElement>('#' + id).disabled = !hasKey || editor.editMode || editor.playing;
-  const channelSelect = $<HTMLSelectElement>('#animation-channel');
-  const channelInterpolation = $<HTMLSelectElement>('#animation-channel-interpolation');
-  const keyInterpolation = $<HTMLSelectElement>('#graph-key-interpolation');
-  const channelValue = $<HTMLInputElement>('#animation-channel-value');
-  const applyChannel = $<HTMLButtonElement>('#apply-channel-value');
-  const channel = channelSelect.value as ScalarAnimationChannel;
+  const markers = keys.map(key => key.frame).join(',');
   const defaultInterpolation: AnimationInterpolation = editor.selected?.userData.animationInterpolation ?? 'linear';
   const channelOverrides = editor.selected?.userData.animationChannelInterpolation ?? {};
-  animationGraph.update(editor.selected, channel, editor.frame);
+
+  animationGraph.update(editor.selected, graphChannel, editor.frame);
 
   const shortMode = (mode: string) => mode === 'constant' ? 'CST' : mode === 'smooth' ? 'SMT' : mode === 'bezier' ? 'BEZ' : mode === 'mixed' ? 'MIX' : 'LIN';
   document.querySelectorAll<HTMLButtonElement>('[data-graph-channel]').forEach(button => {
-    const graphChannel = button.dataset.graphChannel as ScalarAnimationChannel;
-    const modes = keys.slice(0, -1).map(key => effectiveSegmentInterpolation(key, graphChannel, defaultInterpolation, channelOverrides));
+    const channel = button.dataset.graphChannel as ScalarAnimationChannel;
+    const modes = keys.slice(0, -1).map(key => effectiveSegmentInterpolation(key, channel, defaultInterpolation, channelOverrides));
     const unique = [...new Set(modes)];
-    const effective = unique.length > 1 ? 'mixed' : unique[0] ?? (channelOverrides[graphChannel] ?? defaultInterpolation);
-    button.classList.toggle('active', graphChannel === channel);
+    const effective = unique.length > 1 ? 'mixed' : unique[0] ?? (channelOverrides[channel] ?? defaultInterpolation);
+    button.classList.toggle('active', channel === graphChannel);
     button.disabled = !editor.selected;
     button.querySelector('small')!.textContent = shortMode(effective);
-    button.title = `${animationChannelLabel(graphChannel)} · ${effective}`;
+    button.title = `${animationChannelLabel(channel)} · ${effective}`;
   });
 
-  channelInterpolation.options[0].textContent = `Object default (${defaultInterpolation[0].toUpperCase() + defaultInterpolation.slice(1)})`;
-  channelInterpolation.value = channelOverrides[channel] ?? '';
-  channelInterpolation.disabled = !editor.selected || !keys.length || editor.editMode;
-
+  const keyInterpolation = $<HTMLSelectElement>('#graph-key-interpolation');
   const selectedGraphFrame = animationGraph.selectedKeyFrame;
   const selectedGraphIndex = selectedGraphFrame === null ? -1 : keys.findIndex(key => key.frame === selectedGraphFrame);
   const selectedGraphKey = selectedGraphIndex >= 0 ? keys[selectedGraphIndex] : null;
   const inheritedMode = selectedGraphKey
-    ? (channelOverrides[channel] ?? defaultInterpolation)
+    ? (channelOverrides[graphChannel] ?? defaultInterpolation)
     : defaultInterpolation;
   keyInterpolation.options[0].textContent = `Inherit (${inheritedMode[0].toUpperCase() + inheritedMode.slice(1)})`;
-  keyInterpolation.value = selectedGraphKey?.curves?.[channel]?.interpolation ?? '';
+  keyInterpolation.value = selectedGraphKey?.curves?.[graphChannel]?.interpolation ?? '';
   keyInterpolation.disabled = !selectedGraphKey || selectedGraphIndex === keys.length - 1 || editor.editMode || editor.playing;
-  if (currentKey && document.activeElement !== channelValue) {
-    const [property, axis] = channel.split('.') as ['position' | 'rotation' | 'scale', 'x' | 'y' | 'z'];
-    const component = axis === 'x' ? 0 : axis === 'y' ? 1 : 2;
-    if (property === 'rotation') {
-      const order = currentKey.rotationOrder ?? 'XYZ';
-      const rotation = currentKey.rotation ?? (() => {
-        const euler = new THREE.Euler().setFromQuaternion(new THREE.Quaternion().fromArray(currentKey.quaternion), order);
-        return [euler.x, euler.y, euler.z];
-      })();
-      channelValue.value = String(THREE.MathUtils.radToDeg(rotation[component]));
-      channelValue.step = '1';
-    } else {
-      channelValue.value = String(property === 'position' ? currentKey.position[component] : currentKey.scale[component]);
-      channelValue.step = '0.1';
-    }
-  }
-  channelSelect.disabled = !keys.length || editor.editMode;
-  channelValue.disabled = !hasKey || editor.editMode || editor.playing;
-  applyChannel.disabled = !hasKey || editor.editMode || editor.playing;
+
   const state = `${frame}|${editor.playing}|${markers}`;
   if (timelineState === state) return;
   timelineState = state;
@@ -401,7 +362,7 @@ function updateTimeline() {
   $('#playhead span').textContent = String(frame);
   if (wasPlaying !== editor.playing) { $('#play').innerHTML = icon(editor.playing ? 'pause' : 'play'); refreshIcons(); wasPlaying = editor.playing; }
   $('#draw-status').textContent = editor.playing ? 'PLAYING · 24 FPS' : 'ON DEMAND';
-  if (markerState !== markers) { $('#keyframe-markers').innerHTML = keys.map(k => `<span class="key-marker" title="Keyframe ${k.frame}" style="left:${(k.frame-1)/249*100}%"></span>`).join(''); markerState = markers; }
+  if (markerState !== markers) { $('#keyframe-markers').innerHTML = keys.map(key => `<span class="key-marker" title="Keyframe ${key.frame}" style="left:${(key.frame-1)/249*100}%"></span>`).join(''); markerState = markers; }
 }
 editor.addEventListener('change', updateUI);
 editor.addEventListener('transform', updateTransforms);
@@ -563,61 +524,28 @@ $<HTMLInputElement>('#exposure').oninput = e => { editor.renderer.toneMappingExp
 on('play', () => editor.togglePlayback());
 on('first-frame', () => editor.scrub(1)); on('last-frame', () => editor.scrub(250));
 for (const [id, direction] of [['previous-key',-1],['next-key',1]] as const) on(id, () => { const keys: Keyframe[] = editor.selected?.userData.keyframes ?? []; const next = direction === 1 ? keys.find(k => k.frame > editor.frame) : [...keys].reverse().find(k => k.frame < editor.frame); if (next) editor.scrub(next.frame); });
-$('#animation-interpolation').addEventListener('change', event => {
-  editor.setAnimationInterpolation((event.target as HTMLSelectElement).value as AnimationInterpolation);
-});
 function insertKey() { toast(editor.insertKey() ? `Transform keyframe inserted at frame ${Math.round(editor.frame)}.` : 'Select an object in Object Mode first.'); }
-$('#animation-key').addEventListener('change', event => {
-  const value = (event.target as HTMLSelectElement).value;
-  if (value) {
-    animationGraph.selectKeyFrame(Number(value));
-    editor.scrub(Number(value));
-  }
-});
-$('#animation-channel').addEventListener('change', () => updateTimeline());
+
 document.querySelectorAll<HTMLButtonElement>('[data-graph-channel]').forEach(button => button.addEventListener('click', () => {
-  $<HTMLSelectElement>('#animation-channel').value = button.dataset.graphChannel!;
+  graphChannel = button.dataset.graphChannel as ScalarAnimationChannel;
   updateTimeline();
 }));
+
 $('#graph-key-interpolation').addEventListener('change', event => {
   const frame = animationGraph.selectedKeyFrame;
   if (frame === null) return;
   const value = (event.target as HTMLSelectElement).value as KeyInterpolation | '';
   try {
-    editor.setKeyInterpolation(
-      frame,
-      $<HTMLSelectElement>('#animation-channel').value as ScalarAnimationChannel,
-      value || null,
-    );
+    editor.setKeyInterpolation(frame, graphChannel, value || null);
     updateTimeline();
   } catch (error) {
     toast((error as Error).message);
     updateTimeline();
   }
 });
-$('#animation-channel-interpolation').addEventListener('change', event => {
-  const value = (event.target as HTMLSelectElement).value as AnimationInterpolation | '';
-  editor.setAnimationChannelInterpolation(
-    $<HTMLSelectElement>('#animation-channel').value as ScalarAnimationChannel,
-    value || null,
-  );
-});
-on('apply-channel-value', () => {
-  try {
-    editor.editKeyChannel(
-      $<HTMLSelectElement>('#animation-channel').value as ScalarAnimationChannel,
-      $<HTMLInputElement>('#animation-channel-value').valueAsNumber,
-    );
-    toast('Animation channel value updated.');
-  } catch (error) { toast((error as Error).message); }
-});
-for (const [id, copy] of [['move-key', false], ['copy-key', true]] as const) on(id, () => {
-  try {
-    editor.retimeKey(Number($<HTMLInputElement>('#key-target-frame').value), copy);
-    toast(copy ? 'Keyframe copied.' : 'Keyframe moved.');
-  } catch (error) { toast((error as Error).message); }
-});
-on('insert-key', insertKey); on('key-property', insertKey); on('remove-key', () => editor.removeKey());
+
+on('insert-key', insertKey);
+on('remove-key', () => editor.removeKey());
 $<HTMLInputElement>('#scrubber').oninput = e => { if (editor.playing) editor.togglePlayback(); editor.scrub(Number((e.target as HTMLInputElement).value)); };
 $<HTMLInputElement>('#current-frame').onchange = e => { const frame = Number((e.target as HTMLInputElement).value); if (Number.isFinite(frame)) editor.scrub(frame); };
 for (const id of ['help','help-menu']) on(id, () => $<HTMLDialogElement>('#help-dialog').showModal());
