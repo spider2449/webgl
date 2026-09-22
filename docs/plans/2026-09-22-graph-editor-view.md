@@ -1,19 +1,19 @@
 # Graph Editor key curves and tangents
 
-Add a bounded editable Graph Editor for scalar transform animation channels with per-key segment interpolation and cubic Bezier handles.
+Add a bounded editable Graph Editor for scalar transform animation channels with
+per-key segment interpolation and cubic Bezier handles.
 
 ## Scope
 
-- Display the Graph Editor in the Animation workspace.
+- Make the Graph Editor the sole animation editing UI.
+- Keep playback, current frame, Insert key and Remove key in the timeline header.
 - Add a left-side channel rail for Location X/Y/Z, Rotation X/Y/Z and Scale X/Y/Z.
-- Make the Graph Editor the sole animation editing UI; remove the duplicated Object-panel Animation controls.
-- Keep object-wide and channel-wide Linear / Constant / Smooth metadata as backward-compatible project/API fallbacks only.
-- Let every authored key override its outbound segment as Constant, Linear or Bezier.
-- Show MIX on a channel when its segments use different effective interpolation modes.
+- Use Linear as the only implicit/default segment mode.
+- Let every authored key choose its outbound segment as Linear, Constant or Bezier.
+- Show MIX on a channel when its segments use different modes.
 - Visualize authored key points using the same sampling function as playback.
 - Display unwrapped Euler rotation channels in degrees.
 - Show the current frame as a moving playhead on the same 1–250 horizontal domain as the timeline.
-- Report the authored key range and exact value range in the graph header.
 - Selecting Bezier initializes a straight-line-equivalent right handle on the selected key and left handle on the next key.
 - Drag left/right tangent handles directly in frame/value space.
 - Constrain handle time coordinates to adjacent segments and prevent control-time crossing so frame→value remains single-valued.
@@ -25,33 +25,41 @@ Add a bounded editable Graph Editor for scalar transform animation channels with
 - Commit one history entry when the pointer is released.
 - Restore original key/tangent data on Escape or pointer cancellation.
 - Preserve per-key curve metadata through key replacement, scalar edits, retime/copy, undo/redo and Forge project save/load.
-- Keep the graph hidden outside the Animation workspace and on narrow mobile layouts.
+- Reject the removed object/channel interpolation metadata on load.
 
-## Data model
+## Animation model
 
 Each transform key may contain sparse per-channel curve metadata:
 
-- `interpolation`: Constant, Linear or Bezier for the key → next-key segment.
+- `interpolation`: Linear, Constant or Bezier for the key → next-key segment.
 - `right`: relative `[frameOffset, valueOffset]` for the key's outgoing Bezier control point.
 - `left`: relative `[frameOffset, valueOffset]` for the incoming Bezier control point used by the previous key's Bezier segment.
 
-Rotation handle value offsets are stored in radians with the key's unwrapped Euler values; the Graph Editor displays degrees.
+If a segment has no interpolation metadata, it is Linear.
 
-Legacy projects with no key-curve metadata continue to use object/channel interpolation defaults without a project-version bump. Legacy quaternion-only rotation keys are upgraded to canonical Euler metadata when a rotation key curve is first authored; historical turn counts cannot be recovered from quaternion-only data.
+There is no object-wide interpolation mode, no channel-wide interpolation
+override, no Smooth mode and no Inherit mode.
+
+Rotation handle value offsets are stored in radians with the key's unwrapped
+Euler values; the Graph Editor displays degrees.
 
 ## Data-model boundary
 
-Forge transform keys still store Position, Rotation and Scale together at one frame. Therefore horizontal Graph Editor dragging retimes the entire transform key. Independent per-channel key times require a different animation data model and are not claimed here.
+Forge transform keys still store Position, Rotation and Scale together at one
+frame. Horizontal Graph Editor move/copy therefore operates on the entire
+transform key. Independent per-channel key times require a different animation
+data model and are not claimed here.
 
 ## Evaluation and export
 
-- Constant holds the source key until the next key.
 - Linear lerps scalar values.
-- Legacy Smooth remains smoothstep fallback when no key-level override is authored.
+- Constant holds the source key until the next key.
 - Bezier evaluates a real cubic curve in `(frame,value)` space: solve cubic X for the current frame, then evaluate cubic Y.
 - Playback, scrubbing and Graph visualization use the same evaluator.
-- GLB has no native per-axis/per-segment Bezier tangent representation; objects with key-curve interpolation are baked to LINEAR samples.
-- Smooth/Bezier segments use 32 export samples per segment.
+- Pure Linear animation exports as LINEAR transform tracks.
+- glTF has no native per-axis/per-segment Bezier tangent representation.
+- Segments requiring baking export as LINEAR samples.
+- Bezier segments use 32 samples per segment.
 - Constant segments add a near-boundary hold sample.
 - Mixed scalar/per-key GLB export remains an approximation.
 
@@ -67,26 +75,28 @@ This increment does not add:
 - batch curve operations,
 - replacement of the existing timeline.
 
-Handles are free but time-bounded; there is no automatic tangent coupling mode in this increment.
+Handles are free but time-bounded; there is no automatic tangent coupling mode.
 
 ## Validation
 
 Playwright coverage verifies:
 
-- Graph Editor appears only in the Animation workspace.
-- Nine graph-channel controls provide the only user-facing scalar-channel selection UI.
-- The legacy Object-panel Animation controls are absent.
-- Channel labels report LIN / CST / SMT / BEZ / MIX as appropriate.
-- Different keys on one channel can author different outbound modes.
-- Per-key Bezier and Constant segments evaluate independently.
-- Bezier default handles reproduce the straight linear segment.
-- Actual pointer dragging of a tangent changes playback evaluation.
-- Tangent drag is one-step undoable/redoable.
-- Curve metadata survives Forge project round trips.
-- Malformed modes, handles and unknown curve fields fail closed.
-- Per-key Bezier curves bake to LINEAR GLB samples matching the Forge evaluator.
-- Rotation key curves upgrade legacy quaternion-only keys without orientation drift.
-- Key value drag, whole-transform retiming, and Alt-drag key copy regressions remain covered.
-- Occupied target frames are not overwritten.
+- the legacy Object-panel Animation controls are absent,
+- nine graph-channel controls provide the only scalar-channel selection UI,
+- Linear is the implicit default,
+- different keys/channels can author Linear, Constant and Bezier independently,
+- channel labels report LIN / CST / BEZ / MIX,
+- per-key Bezier and Constant segments evaluate independently,
+- Bezier default handles reproduce the straight linear segment,
+- actual pointer dragging of a tangent changes playback evaluation,
+- tangent drag is one-step undoable/redoable,
+- curve metadata survives Forge project round trips,
+- removed object/channel interpolation fields are rejected,
+- malformed curve modes, handles and unknown curve fields fail closed,
+- per-key Bezier curves bake to LINEAR GLB samples matching the Forge evaluator,
+- Rotation key curves upgrade quaternion-only keys without orientation drift,
+- key value drag, whole-transform retiming and Alt-drag key copy remain covered,
+- occupied target frames are not overwritten.
 
-This branch is intentionally held for Windows-local build, Playwright and manual interaction validation before merge.
+This branch is intentionally held for Windows-local build, Playwright and manual
+interaction validation before merge.
