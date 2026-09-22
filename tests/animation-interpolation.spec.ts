@@ -91,6 +91,7 @@ test('scalar channel interpolation overrides evaluate independently and survive 
 
     e.setAnimationChannelInterpolation('position.x', 'constant');
     e.setAnimationChannelInterpolation('position.y', 'smooth');
+    e.setAnimationChannelInterpolation('position.z', 'linear');
     e.setAnimationChannelInterpolation('scale.z', 'smooth');
     e.setAnimationChannelInterpolation('rotation.y', 'constant');
     e.scrub(7);
@@ -141,13 +142,14 @@ test('scalar channel interpolation overrides evaluate independently and survive 
   expect(result.linearDefault.overrides).toEqual({
     'position.x': 'constant',
     'position.y': 'smooth',
+    'position.z': 'linear',
     'scale.z': 'smooth',
     'rotation.y': 'constant',
   });
 
   expect(result.smoothDefault.position[0]).toBeCloseTo(0, 6);
   expect(result.smoothDefault.position[1]).toBeCloseTo(1.25, 6);
-  expect(result.smoothDefault.position[2]).toBeCloseTo(1.25, 6);
+  expect(result.smoothDefault.position[2]).toBeCloseTo(2, 6);
   expect(result.smoothDefault.scale[2]).toBeCloseTo(1.3125, 6);
   expect(result.smoothDefault.rotationY).toBeCloseTo(0, 6);
   expect(result.restored).toEqual(result.smoothDefault);
@@ -194,6 +196,14 @@ test('rotation channel interpolation upgrades legacy quaternion keys and malform
     let missingEulerRejected = false;
     try { e.load(missingEuler); } catch { missingEulerRejected = true; }
 
+    const mixedOrder = JSON.parse(validSaved);
+    const mixedTarget = mixedOrder.scene.object.children[0];
+    mixedTarget.userData.animationChannelInterpolation = { 'rotation.y': 'smooth' };
+    mixedTarget.userData.keyframes[0].rotationOrder = 'XYZ';
+    mixedTarget.userData.keyframes[1].rotationOrder = 'ZYX';
+    let mixedOrderRejected = false;
+    try { e.load(mixedOrder); } catch { mixedOrderRejected = true; }
+
     return {
       upgraded: upgraded.map((key: any) => ({
         rotation: key.rotation.map((value: number) => value * 180 / Math.PI),
@@ -202,6 +212,7 @@ test('rotation channel interpolation upgrades legacy quaternion keys and malform
       dots,
       invalidChannelRejected,
       missingEulerRejected,
+      mixedOrderRejected,
       loadUnchanged: e.snapshot() === validSaved,
     };
   });
@@ -214,6 +225,7 @@ test('rotation channel interpolation upgrades legacy quaternion keys and malform
   expect(result.dots.every((dot: number) => Math.abs(dot - 1) < 1e-10)).toBe(true);
   expect(result.invalidChannelRejected).toBe(true);
   expect(result.missingEulerRejected).toBe(true);
+  expect(result.mixedOrderRejected).toBe(true);
   expect(result.loadUnchanged).toBe(true);
 });
 
