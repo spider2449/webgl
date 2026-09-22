@@ -63,22 +63,59 @@ test('invalid timing requests preserve scene, frame and history', async ({ page 
   expect(result.noop).toEqual({ rejected: false, unchanged: true });
 });
 
-test('UI selects, moves and copies keys and GLB uses the resulting timing', async ({ page }) => {
-  const select = page.getByLabel('Select keyframe', { exact: true });
-  await select.selectOption('25');
-  await page.getByLabel('Keyframe target frame').fill('49');
-  await page.getByRole('button', { name: 'Move keyframe', exact: true }).click();
-  await expect(select).toHaveValue('49');
+test('Graph Editor moves and Alt-drags copies while GLB uses the resulting timing', async ({ page }) => {
+  await page.getByRole('button', { name: 'Animation', exact: true }).click();
+  const graph = page.getByLabel('Animation graph editor');
+  const graphBox = await graph.boundingBox();
+  expect(graphBox).not.toBeNull();
+  const frameX = (frame: number) => graphBox!.x + (48 + (frame - 1) / 249 * 924) / 1000 * graphBox!.width;
+
+  const moveMarker = graph.locator('.graph-key-point[data-frame="25"]');
+  const moveBox = await moveMarker.boundingBox();
+  expect(moveBox).not.toBeNull();
+  const moveY = moveBox!.y + moveBox!.height / 2;
+  await page.mouse.move(moveBox!.x + moveBox!.width / 2, moveY);
+  await page.mouse.down();
+  await page.mouse.move(frameX(49), moveY, { steps: 10 });
+  await page.mouse.up();
+
+  let frames = await page.evaluate(() => (window as any).__forge.selected.userData.keyframes.map((key: any) => key.frame));
+  expect(frames).toEqual([1, 49]);
   await expect(page.locator('#current-frame')).toHaveValue('49');
-  await page.getByLabel('Keyframe target frame').fill('1');
-  await page.getByRole('button', { name: 'Copy keyframe', exact: true }).click();
-  await expect(page.locator('#toast')).toContainText('already has a keyframe');
-  await page.getByLabel('Keyframe target frame').fill('73');
-  await page.getByRole('button', { name: 'Copy keyframe', exact: true }).click();
-  await expect(select).toHaveValue('73');
-  await expect(select.locator('option')).toHaveText(['Choose a keyframe', 'Frame 1', 'Frame 49', 'Frame 73']);
-  await page.getByLabel('Animation interpolation', { exact: true }).selectOption('linear');
-  const pending = page.waitForEvent('download'); await page.locator('#export-top').click();
+
+  const copyMarker = graph.locator('.graph-key-point[data-frame="49"]');
+  const copyBox = await copyMarker.boundingBox();
+  expect(copyBox).not.toBeNull();
+  const copyY = copyBox!.y + copyBox!.height / 2;
+  await page.keyboard.down('Alt');
+  await page.mouse.move(copyBox!.x + copyBox!.width / 2, copyY);
+  await page.mouse.down();
+  await page.mouse.move(frameX(73), copyY, { steps: 10 });
+  await page.mouse.up();
+  await page.keyboard.up('Alt');
+
+  frames = await page.evaluate(() => (window as any).__forge.selected.userData.keyframes.map((key: any) => key.frame));
+  expect(frames).toEqual([1, 49, 73]);
+  expect(await page.evaluate(() => {
+    const keys = (window as any).__forge.selected.userData.keyframes;
+    return keys[1].position !== keys[2].position && keys[1].frame === 49 && keys[2].frame === 73;
+  })).toBe(true);
+
+  const occupiedMarker = graph.locator('.graph-key-point[data-frame="49"]');
+  const occupiedBox = await occupiedMarker.boundingBox();
+  expect(occupiedBox).not.toBeNull();
+  await page.keyboard.down('Alt');
+  await page.mouse.move(occupiedBox!.x + occupiedBox!.width / 2, occupiedBox!.y + occupiedBox!.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(frameX(1), occupiedBox!.y + occupiedBox!.height / 2, { steps: 10 });
+  await page.mouse.up();
+  await page.keyboard.up('Alt');
+  frames = await page.evaluate(() => (window as any).__forge.selected.userData.keyframes.map((key: any) => key.frame));
+  expect(frames).toEqual([1, 49, 73]);
+
+  await page.evaluate(() => (window as any).__forge.setAnimationInterpolation('linear'));
+  const pending = page.waitForEvent('download');
+  await page.locator('#export-top').click();
   const download = await pending, stream = await download.createReadStream();
   const chunks: Buffer[] = []; for await (const chunk of stream!) chunks.push(Buffer.from(chunk));
   const glb = Buffer.concat(chunks), jsonLength = glb.readUInt32LE(12);
@@ -86,19 +123,7 @@ test('UI selects, moves and copies keys and GLB uses the resulting timing', asyn
   const accessor = json.accessors[json.animations[0].samplers[0].input], view = json.bufferViews[accessor.bufferView];
   const offset = 28 + jsonLength + (view.byteOffset ?? 0) + (accessor.byteOffset ?? 0);
   expect(Array.from({ length: accessor.count }, (_, i) => glb.readFloatLE(offset + i * 4))).toEqual([0, 2, 3]);
-  await page.locator('#copy-key').scrollIntoViewIfNeeded();
-  await page.screenshot({ path: 'test-results/keyframe-timing.png' });
-  await page.evaluate(() => { const e = (window as any).__forge; e.scrub(12); });
-  await expect(page.locator('#move-key')).toBeDisabled();
-  await select.selectOption('49');
-  await expect(page.locator('#move-key')).toBeEnabled();
-  await page.evaluate(() => (window as any).__forge.setEditMode(true));
-  await expect(select).toBeDisabled();
-  await expect(page.locator('#move-key')).toBeDisabled();
-  await page.evaluate(() => (window as any).__forge.setEditMode(false));
-  await expect(select).toBeEnabled();
-  await expect(page.locator('#move-key')).toBeEnabled();
-  await page.evaluate(() => { const e = (window as any).__forge; e.add('sphere'); });
-  await expect(select).toBeDisabled();
-  await expect(select.locator('option')).toHaveCount(1);
+
+  await graph.screenshot({ path: 'test-results/keyframe-timing.png' });
 });
+
