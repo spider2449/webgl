@@ -328,11 +328,15 @@ test('Gimbal orientation edits the selected Euler channel directly across Y lock
       multiTurn: run(540, 15),
       orientation: e.transformOrientation,
       space: e.transform.space,
+      showE: e.transform.showE,
+      showXYZE: e.transform.showXYZE,
     };
   });
 
   expect(result.orientation).toBe('gimbal');
   expect(result.space).toBe('local');
+  expect(result.showE).toBe(false);
+  expect(result.showXYZE).toBe(false);
   for (const sample of [result.ninety, result.twoSeventy, result.multiTurn]) {
     expect(sample.after[0]).toBeCloseTo(30, 6);
     expect(sample.after[2]).toBeCloseTo(20, 6);
