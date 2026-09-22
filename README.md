@@ -138,14 +138,19 @@ retain the mode.
 Use **Keyframe** to jump to an authored transform key. Set **Target frame**
 (1-250), then **Move keyframe** or **Copy keyframe** to change its timing or
 repeat its pose. The destination must be empty. Actions follow the resulting
-key, preserve interpolation and support undo/redo and project saving. Pause
-playback and use Object Mode first. These actions affect one complete transform
-key on the selected object; batch retiming and per-channel editing are deferred.
+key, preserve interpolation and support undo/redo and project saving.
+
+For an existing key, choose **Channel** and edit one scalar **Location X/Y/Z**
+or **Scale X/Y/Z** value without replacing the other transform values in that
+key. Changes evaluate immediately, participate in undo/redo, survive Forge
+project round trips and flow into GLB export. Playback must be paused and Object
+Mode active. Rotation remains stored and interpolated as a quaternion, so
+component-level rotation editing is intentionally not exposed.
 
 GLB export preserves Constant as STEP. Smooth exports 32 evenly spaced samples
 per segment and uses linear interpolation between them, so exported motion is
-an approximation. Editable Bezier handles, per-channel curves and per-key
-interpolation remain future work.
+an approximation. Editable Bezier handles, per-channel interpolation, rotation
+curve editing and batch curve operations remain future work.
 
 ## Kimodo rigging
 
