@@ -128,57 +128,54 @@ Linked duplication is intentionally bounded: skinned meshes and meshes with an a
 
 ## Animation interpolation
 
-In the Object panel, **Interpolation** and **Channel default** provide
-backward-compatible fallback interpolation for transform curves. The Graph Editor
-can override those defaults per authored key: a key's **Segment** setting controls
-that key → next-key span as **Constant**, **Linear**, or **Bezier**. Different
-segments on the same channel can therefore use different interpolation modes.
-Existing projects without key-curve metadata retain their previous object/channel
-defaults. Rotation curves use unwrapped Euler metadata while the evaluated
-quaternion remains synchronized.
+Open the **Animation** workspace to author and edit transform animation. The
+timeline header owns playback, the current frame, and **Insert/Remove transform
+key**. The **Graph Editor is the sole animation editing UI**; the Object panel no
+longer duplicates key, channel, timing, value, or interpolation controls.
 
-Use **Keyframe** to jump to an authored transform key. Set **Target frame**
-(1-250), then **Move keyframe** or **Copy keyframe** to change its timing or
-repeat its pose. The destination must be empty. Actions follow the resulting
-key, preserve interpolation and support undo/redo and project saving.
+The graph's channel rail exposes all nine scalar transform channels:
+**Location X/Y/Z**, **Rotation X/Y/Z**, and **Scale X/Y/Z**. Click a channel to
+make it active. Click a key to select it.
 
-For an existing key, choose **Channel** and edit one scalar **Location X/Y/Z**,
-**Rotation X/Y/Z**, or **Scale X/Y/Z** value without replacing the other
-transform values in that key. Rotation channels are displayed in degrees and
-edit the key's unwrapped Euler values; the stored quaternion is regenerated so
-playback and GLB export stay synchronized. Existing quaternion-only keys are
-upgraded on first rotation-channel edit. Changes evaluate immediately,
-participate in undo/redo and survive Forge project round trips. Playback must be
-paused and Object Mode active.
+Each authored key can control its outbound segment with **Segment**:
 
-Open the **Animation** workspace to use the **Graph Editor**. A channel rail
-beside the graph provides direct access to all nine Location/Rotation/Scale
-scalar channels and stays synchronized with the Object panel. If one channel
-contains multiple segment modes the rail shows **MIX**.
+- **Inherit** — use legacy project fallback interpolation.
+- **Constant** — hold the current key value until the next key.
+- **Linear** — interpolate linearly.
+- **Bezier** — evaluate a cubic curve in frame/value space.
 
-Click a key to select it. **Segment** chooses the selected key's outbound
-interpolation: Inherit, Constant, Linear, or Bezier. Bezier creates a right
-handle on the selected key and a left handle on the next key; drag either handle
-to edit the cubic tangent in frame/value space. Handle time is bounded to its
-adjacent segment so the frame→value curve remains single-valued. Graph,
-scrubbing and playback use the same cubic evaluator.
+Different segments on one channel may use different modes; the channel rail
+shows **MIX** when they differ. Existing projects without per-key curve metadata
+still read their stored object/channel Linear, Constant, or Smooth settings as
+compatibility fallbacks, but those legacy defaults are no longer exposed as
+editing controls.
 
-Drag a key vertically to edit only the selected scalar value. Drag it
-horizontally to retime the whole transform key because Forge currently stores
-Position/Rotation/Scale together at one key time. Frame retiming snaps to integer
-frames; an occupied destination is never overwritten and the drag keeps its last
-valid frame. Key and tangent drags each create one undoable history entry;
-Escape or pointer cancellation restores the original data. Independent
-per-channel key times and arbitrary F-curves are not implemented yet.
+Bezier creates a right handle on the source key and a left handle on the next
+key. Drag either tangent directly in the graph. Handle time is bounded to the
+adjacent segment so frame→value remains single-valued. Rotation curves display
+degrees while preserving unwrapped Euler radians internally; quaternion
+orientation stays synchronized.
 
-GLB export preserves the existing object-wide Constant mode as STEP when no
-scalar/channel/key-curve overrides are present. glTF transform samplers cannot
-represent mixed per-axis/per-segment Bezier tangents directly, so any object with
-effective scalar overrides or per-key curve modes is baked to LINEAR samples.
-Smooth and Bezier segments use 32 samples per segment; Constant segments add a
-near-boundary sample so the hold changes across a very narrow interval. This
-export path is an approximation. Independent per-channel key times, arbitrary
-F-curves and batch curve operations remain future work.
+Graph key interaction is direct:
+
+- drag vertically to edit the active scalar value,
+- drag horizontally to retime the whole transform key,
+- **Alt-drag** horizontally to copy the whole transform key,
+- drag onto an occupied frame and Forge keeps the last valid frame instead of
+  overwriting an existing key.
+
+Forge currently stores Position, Rotation, and Scale together at one shared key
+time, so horizontal move/copy operates on the complete transform key rather than
+an independent scalar-key time. Key and tangent drags each create one undoable
+history entry; Escape or pointer cancellation restores the original data.
+
+GLB export preserves unchanged legacy object-wide Constant as STEP. glTF
+transform samplers cannot represent Forge's mixed per-axis/per-segment Bezier
+tangents directly, so objects with effective scalar overrides or per-key curve
+modes are baked to LINEAR samples. Smooth and Bezier segments use 32 samples per
+segment; Constant segments add a near-boundary hold sample. This export path is
+an approximation. Independent per-channel key times, arbitrary F-curves, tangent
+coupling modes, and batch curve operations remain future work.
 
 ## Kimodo rigging
 
