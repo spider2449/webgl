@@ -1172,7 +1172,7 @@ export class Editor extends EventTarget {
   }
   setAnimationChannelInterpolation(channel: ScalarAnimationChannel, mode: AnimationInterpolation | null) {
     if (!validAnimationChannel(channel) || (mode !== null && !validInterpolation(mode))) throw new Error('Invalid animation channel interpolation.');
-    if (!this.selected || this.editMode || this.playing) return false;
+    if (!this.selected || this.editMode) return false;
     const keys: Keyframe[] = this.selected.userData.keyframes ?? [];
     if (!keys.length) return false;
 
