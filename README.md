@@ -152,13 +152,21 @@ upgraded on first rotation-channel edit. Changes evaluate immediately,
 participate in undo/redo and survive Forge project round trips. Playback must be
 paused and Object Mode active.
 
+Open the **Animation** workspace to see the selected scalar channel in the
+read-only **Graph Editor**. It shows authored key points, the effective
+Linear/Constant/Smooth curve and the current-frame playhead. The graph uses the
+same animation sampling path as playback, including unwrapped rotation degrees.
+This first graph increment is visualization-only; key dragging, Bezier handles,
+tangents and graph-based editing are not implemented yet.
+
 GLB export preserves the existing object-wide Constant mode as STEP when no
 scalar overrides are present. Mixed scalar interpolation cannot be represented
 natively by glTF's whole-vector transform channels, so objects whose explicit
 channel modes differ from the current object default are baked to LINEAR samples. Smooth uses 32 samples per segment;
 Constant overrides add a near-boundary sample so the hold is preserved with a
 very narrow transition. This export path is an approximation. Editable Bezier
-handles, graph/tangent editing and batch curve operations remain future work.
+handles, tangent editing, graph-based key manipulation and batch curve
+operations remain future work.
 
 ## Kimodo rigging
 
