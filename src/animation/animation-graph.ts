@@ -148,6 +148,7 @@ export type AnimationGraphEditCallbacks = {
   beginHandle: (frame: number, channel: ScalarAnimationChannel, side: 'left' | 'right') => boolean;
   previewHandle: (frame: number, value: number) => { frame: number; value: number } | false;
   endHandle: (cancel: boolean) => void;
+  selectionChanged: () => void;
 };
 
 type KeyDragState = {
@@ -178,12 +179,25 @@ type HandleDragState = {
   line: SVGLineElement;
 };
 
-type GraphDragState = KeyDragState | HandleDragState;
+type BoxDragState = {
+  kind: 'box';
+  pointerId: number;
+  startX: number;
+  startY: number;
+  currentX: number;
+  currentY: number;
+  baseSelection: Set<number>;
+  additive: boolean;
+  moved: boolean;
+};
+
+type GraphDragState = KeyDragState | HandleDragState | BoxDragState;
 
 export class AnimationGraphView {
   private signature = '';
   private data: AnimationGraphData | null = null;
   private readonly curveLayer = svgElement('g', { class: 'graph-static' });
+  private readonly selectionBox = svgElement('rect', { class: 'graph-selection-box', visibility: 'hidden', x: 0, y: 0, width: 0, height: 0 });
   private readonly playhead = svgElement('line', { class: 'graph-playhead', x1: 0, x2: 0, y1: 18, y2: 162 });
   private drag: GraphDragState | null = null;
   private selectedFrames = new Set<number>();
@@ -196,7 +210,7 @@ export class AnimationGraphView {
     private readonly detail: HTMLElement,
     private readonly edits: AnimationGraphEditCallbacks,
   ) {
-    svg.replaceChildren(this.curveLayer, this.playhead);
+    svg.replaceChildren(this.curveLayer, this.selectionBox, this.playhead);
     svg.addEventListener('pointerdown', this.pointerDown);
     svg.addEventListener('pointermove', this.pointerMove);
     svg.addEventListener('pointerup', this.pointerUp);
@@ -417,6 +431,38 @@ export class AnimationGraphView {
     return 18 + (data.valueMax - value) / (data.valueMax - data.valueMin) * 144;
   }
 
+  private viewPoint(event: PointerEvent) {
+    const rect = this.svg.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) return null;
+    return {
+      x: THREE.MathUtils.clamp((event.clientX - rect.left) / rect.width * 1000, 48, 972),
+      y: THREE.MathUtils.clamp((event.clientY - rect.top) / rect.height * 180, 18, 162),
+    };
+  }
+
+  private setSelection(frames: Iterable<number>) {
+    const next = new Set(frames);
+    const before = this.selectedKeyFrames.join(',');
+    this.selectedFrames = next;
+    const after = this.selectedKeyFrames.join(',');
+    if (before === after) return false;
+    this.signature = '';
+    this.renderStatic();
+    this.edits.selectionChanged();
+    return true;
+  }
+
+  private updateSelectionBox(drag: BoxDragState) {
+    const x = Math.min(drag.startX, drag.currentX);
+    const y = Math.min(drag.startY, drag.currentY);
+    const width = Math.abs(drag.currentX - drag.startX);
+    const height = Math.abs(drag.currentY - drag.startY);
+    this.selectionBox.setAttribute('x', String(x));
+    this.selectionBox.setAttribute('y', String(y));
+    this.selectionBox.setAttribute('width', String(width));
+    this.selectionBox.setAttribute('height', String(height));
+  }
+
   private pointerDown = (event: PointerEvent) => {
     if (event.button !== 0 || this.drag || !this.data) return;
     const element = event.target instanceof Element ? event.target : null;
@@ -445,7 +491,26 @@ export class AnimationGraphView {
     }
 
     const target = element?.closest<SVGRectElement>('.graph-key-point');
-    if (!target) return;
+    if (!target) {
+      const point = this.viewPoint(event);
+      if (!point) return;
+      this.drag = {
+        kind: 'box',
+        pointerId: event.pointerId,
+        startX: point.x,
+        startY: point.y,
+        currentX: point.x,
+        currentY: point.y,
+        baseSelection: new Set(this.selectedFrames),
+        additive: event.shiftKey,
+        moved: false,
+      };
+      this.selectionBox.setAttribute('visibility', 'visible');
+      this.updateSelectionBox(this.drag);
+      this.svg.setPointerCapture(event.pointerId);
+      event.preventDefault();
+      return;
+    }
     const frame = Number(target.dataset.frame);
     const value = Number(target.dataset.value);
     const channel = target.dataset.channel as ScalarAnimationChannel | undefined;
@@ -517,6 +582,32 @@ export class AnimationGraphView {
     if (!drag || !data || event.pointerId !== drag.pointerId) return;
     const rect = this.svg.getBoundingClientRect();
     if (rect.width <= 0 || rect.height <= 0) return;
+
+    if (drag.kind === 'box') {
+      const point = this.viewPoint(event);
+      if (!point) return;
+      drag.currentX = point.x;
+      drag.currentY = point.y;
+      drag.moved ||= Math.hypot(drag.currentX - drag.startX, drag.currentY - drag.startY) >= 3;
+      this.updateSelectionBox(drag);
+
+      if (drag.moved) {
+        const minX = Math.min(drag.startX, drag.currentX);
+        const maxX = Math.max(drag.startX, drag.currentX);
+        const minY = Math.min(drag.startY, drag.currentY);
+        const maxY = Math.max(drag.startY, drag.currentY);
+        const inside = data.keys
+          .filter(key => {
+            const x = this.frameX(key.frame);
+            const y = this.valueY(data, key.value);
+            return x >= minX && x <= maxX && y >= minY && y <= maxY;
+          })
+          .map(key => key.frame);
+        this.setSelection(drag.additive ? [...drag.baseSelection, ...inside] : inside);
+      }
+      event.preventDefault();
+      return;
+    }
 
     if (drag.kind === 'handle') {
       const viewX = (event.clientX - rect.left) / rect.width * 1000;
@@ -600,6 +691,21 @@ export class AnimationGraphView {
   private finishDrag(cancel: boolean) {
     const drag = this.drag;
     if (!drag) return;
+
+    if (drag.kind === 'box') {
+      this.selectionBox.setAttribute('visibility', 'hidden');
+      if (cancel) {
+        this.setSelection(drag.baseSelection);
+      } else if (!drag.moved) {
+        this.setSelection(drag.additive ? drag.baseSelection : []);
+      }
+      if (this.svg.hasPointerCapture(drag.pointerId)) this.svg.releasePointerCapture(drag.pointerId);
+      this.drag = null;
+      this.signature = '';
+      this.edits.selectionChanged();
+      return;
+    }
+
     if (drag.kind === 'handle') drag.marker.classList.remove('dragging');
     else {
       drag.markers.forEach(item => item.marker.classList.remove('dragging'));
