@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
-import { buildTopology } from '../src/topology';
-import { proportionalWeights } from '../src/proportional';
+import { buildTopology } from '../src/modeling/topology';
+import { proportionalWeights } from '../src/modeling/proportional';
 
 test('smooth local falloff preserves seams and radius boundaries', () => {
   const positions = [0,0,0, 1,0,0, 2,0,0, 3,0,0, 1,0,0, 0,0,0];
