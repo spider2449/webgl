@@ -237,6 +237,11 @@ export class AnimationGraphView {
     this.signature = '';
   }
 
+  selectKeyFrames(frames: number[]) {
+    this.selectedFrames = new Set(frames);
+    this.signature = '';
+  }
+
   update(
     object: THREE.Object3D | null,
     channel: ScalarAnimationChannel,
