@@ -99,7 +99,6 @@ Playwright coverage verifies:
 - removed object/channel interpolation fields are rejected,
 - malformed curve modes, handles and unknown curve fields fail closed,
 - per-key Bezier curves bake to LINEAR GLB samples matching the Forge evaluator,
-- Rotation key curves upgrade quaternion-only keys without orientation drift,
 - key value drag, whole-transform retiming and Alt-drag key copy remain covered,
 - occupied target frames are not overwritten.
 
