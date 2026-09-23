@@ -681,9 +681,9 @@ async function exportGLB() {
     const { GLTFExporter } = await import('three/addons/exporters/GLTFExporter.js');
     const clips: THREE.AnimationClip[] = [];
     editor.content.traverse(o => {
-      const keys: Keyframe[] = o.userData.keyframes ?? [];
-      if (!keys.length) return;
-      clips.push(new THREE.AnimationClip(`${o.name}Action`, -1, animationTracks(o)));
+      const tracks = animationTracks(o);
+      if (!tracks.length) return;
+      clips.push(new THREE.AnimationClip(`${o.name}Action`, -1, tracks));
     });
     const result = await new GLTFExporter().parseAsync(editor.content, { binary: true, animations: clips });
     download(result as ArrayBuffer, `${editor.name}.glb`, 'model/gltf-binary'); toast('GLB exported with transform animations.');
