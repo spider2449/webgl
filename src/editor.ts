@@ -1231,11 +1231,11 @@ export class Editor extends EventTarget {
       const next = prepared[index + 1];
       const span = next.frame - key.frame;
       const delta = animationChannelNativeValue(next, channel) - animationChannelNativeValue(key, channel);
-      if (!curve.right) curve.right = [span / 3, delta / 3];
+      if ((curve.tangent ?? 'free') !== 'auto' && !curve.right) curve.right = [span / 3, delta / 3];
 
       const nextCurves: NonNullable<Keyframe['curves']> = cloneKeyCurves(next.curves) ?? {};
       const nextCurve: KeyCurve = { ...(nextCurves[channel] ?? {}) };
-      if (!nextCurve.left) nextCurve.left = [-span / 3, -delta / 3];
+      if ((nextCurve.tangent ?? 'free') !== 'auto' && !nextCurve.left) nextCurve.left = [-span / 3, -delta / 3];
       nextCurves[channel] = nextCurve;
       next.curves = nextCurves;
     }
