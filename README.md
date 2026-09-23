@@ -150,8 +150,12 @@ undoable action. The **Segment** control assigns Linear/Constant/Bezier to every
 selected key that owns an outbound segment, while **Tangent** assigns
 Free/Aligned/Auto to every selected key touching a Bezier segment. Mixed
 selections show a **Mixed** placeholder, and each batch assignment is one
-undoable action. Batch timing operations remain all-or-nothing if any target
-frame collides with an unselected key. Other channels keep their own timing.
+undoable action. **Time Scale** accepts a positive numeric factor for two or more
+selected keys and scales their frame spacing around the midpoint of the selected
+frame range. Resulting frames are rounded to integers; the whole operation is
+rejected if rounding collapses keys, a target leaves frames 1–250, or a target
+collides with an unselected key. Successful time scaling is one undoable action
+and keeps the retimed keys selected. Other channels keep their own timing.
 
 Every segment is **Linear by default**. A key controls its outbound segment and
 can use:
@@ -179,9 +183,9 @@ per scalar channel: **yellow** when that channel has a key on the current frame,
 live value differs from the evaluated track and still needs a key, and neutral
 when the channel has no animation.
 
-Key and tangent drags, batch interpolation assignment, and batch tangent-mode
-assignment each create one undoable history entry. Escape or pointer cancellation
-restores the original track data. Forge project loading rejects
+Key and tangent drags, batch interpolation assignment, batch tangent-mode
+assignment, and selected-key time scaling each create one undoable history entry.
+Escape or pointer cancellation restores the original track data. Forge project loading rejects
 the removed transform-wide `keyframes`, `animationInterpolation`, and
 `animationChannelInterpolation` fields rather than maintaining a second
 animation model.
