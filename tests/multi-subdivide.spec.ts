@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 import * as THREE from 'three';
-import { subdivideEdges } from '../src/subdivide';
-import { buildTopology } from '../src/topology';
+import { subdivideEdges } from '../src/modeling/subdivide';
+import { buildTopology } from '../src/modeling/topology';
 
 test('all triangle edge masks preserve area, winding, boundary and interpolated UVs', () => {
   const source = new THREE.BufferGeometry();
