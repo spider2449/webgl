@@ -943,6 +943,10 @@ document.addEventListener('keydown', e => {
       timelineSelectedFrames.clear();
       timelineState = '';
       updateTimeline();
+    } else if (animationGraph.selectedKeyFrames.length) {
+      e.preventDefault();
+      animationGraph.selectKeyFrame(null);
+      updateTimeline();
     } else if (editor.modelingBusy) editor.cancelModeling();
     else if (editor.snapTargetPending) editor.cancelVertexSnap();
     else if (editor.transform.dragging) editor.transform.reset();
