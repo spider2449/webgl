@@ -1643,6 +1643,157 @@ export class Editor extends EventTarget {
     return moved.channels;
   }
 
+  duplicateTimelineKeys(sourceFrames: number[], frameDelta: number) {
+    if (!this.selected || this.editMode || this.playing || this.animationKeyDrag || this.animationHandleDrag) return false;
+    const uniqueFrames = [...new Set(sourceFrames)].sort((a, b) => a - b);
+    if (!uniqueFrames.length || uniqueFrames.some(frame => !Number.isInteger(frame) || frame < 1 || frame > 250)) {
+      throw new Error('Choose authored Timeline keys within frames 1–250.');
+    }
+    if (!Number.isInteger(frameDelta) || frameDelta === 0) {
+      throw new Error('Timeline key duplication must move by at least one whole frame.');
+    }
+
+    const targetFrames = uniqueFrames.map(frame => frame + frameDelta);
+    if (targetFrames.some(frame => frame < 1 || frame > 250)) {
+      throw new Error('Duplicated Timeline keys would leave the 1–250 frame range.');
+    }
+
+    const tracks = this.selected.userData.animationTracks as AnimationTrackMap | undefined;
+    const sourceSet = new Set(uniqueFrames);
+    const authoredFrames = new Set(allAnimationFrames(tracks));
+    if (uniqueFrames.some(frame => !authoredFrames.has(frame))) {
+      throw new Error('Choose authored Timeline keys first.');
+    }
+
+    const copiedChannels = animationChannels.filter(channel =>
+      trackKeys(tracks, channel).some(key => sourceSet.has(key.frame))
+    );
+    if (!copiedChannels.length) return false;
+
+    for (const channel of copiedChannels) {
+      const keys = trackKeys(tracks, channel);
+      const occupied = new Set(keys.map(key => key.frame));
+      const targets = keys
+        .filter(key => sourceSet.has(key.frame))
+        .map(key => key.frame + frameDelta);
+      if (targets.some(frame => occupied.has(frame))) {
+        const collision = targets.find(frame => occupied.has(frame));
+        throw new Error(`Timeline key duplication would collide on ${channel} at frame ${collision}.`);
+      }
+    }
+
+    for (const channel of copiedChannels) {
+      const keys = trackKeys(tracks, channel).map(cloneScalarKey);
+      const copies = keys
+        .filter(key => sourceSet.has(key.frame))
+        .map(key => ({ ...cloneScalarKey(key), frame: key.frame + frameDelta }));
+      this.setAnimationTrack(this.selected, channel, [...keys, ...copies]);
+    }
+
+    this.evaluateAnimation();
+    this.emit('animation');
+    this.emit('transform');
+    this.invalidate();
+    this.commit();
+    return { frames: targetFrames, channels: copiedChannels };
+  }
+
+  removeTimelineKeys(frames: number[]) {
+    if (!this.selected || this.editMode || this.playing || this.animationKeyDrag || this.animationHandleDrag) return false;
+    const uniqueFrames = [...new Set(frames)].sort((a, b) => a - b);
+    if (!uniqueFrames.length || uniqueFrames.some(frame => !Number.isInteger(frame) || frame < 1 || frame > 250)) {
+      throw new Error('Choose authored Timeline keys within frames 1–250.');
+    }
+
+    const tracks = this.selected.userData.animationTracks as AnimationTrackMap | undefined;
+    const sourceSet = new Set(uniqueFrames);
+    const authoredFrames = new Set(allAnimationFrames(tracks));
+    if (uniqueFrames.some(frame => !authoredFrames.has(frame))) {
+      throw new Error('Choose authored Timeline keys first.');
+    }
+
+    const changedChannels = animationChannels.filter(channel =>
+      trackKeys(tracks, channel).some(key => sourceSet.has(key.frame))
+    );
+    if (!changedChannels.length) return false;
+
+    for (const channel of changedChannels) {
+      const next = trackKeys(tracks, channel)
+        .filter(key => !sourceSet.has(key.frame))
+        .map(cloneScalarKey);
+      this.setAnimationTrack(this.selected, channel, next);
+    }
+
+    this.evaluateAnimation();
+    this.emit('animation');
+    this.emit('transform');
+    this.invalidate();
+    this.commit();
+    return changedChannels;
+  }
+
+  scaleTimelineKeyTimes(frames: number[], factor: number) {
+    if (!Number.isFinite(factor) || factor <= 0) {
+      throw new Error('Timeline time scale must be a positive finite number.');
+    }
+    if (!this.selected || this.editMode || this.playing || this.animationKeyDrag || this.animationHandleDrag) return false;
+
+    const uniqueFrames = [...new Set(frames)].sort((a, b) => a - b);
+    if (uniqueFrames.length < 2 || uniqueFrames.some(frame => !Number.isInteger(frame) || frame < 1 || frame > 250)) {
+      throw new Error('Select at least two authored Timeline keys to scale timing.');
+    }
+
+    const tracks = this.selected.userData.animationTracks as AnimationTrackMap | undefined;
+    const authoredFrames = new Set(allAnimationFrames(tracks));
+    if (uniqueFrames.some(frame => !authoredFrames.has(frame))) {
+      throw new Error('Choose authored Timeline keys first.');
+    }
+
+    const pivot = (uniqueFrames[0] + uniqueFrames[uniqueFrames.length - 1]) / 2;
+    const targetFrames = uniqueFrames.map(frame => Math.round(pivot + (frame - pivot) * factor));
+    if (targetFrames.some(frame => frame < 1 || frame > 250)) {
+      throw new Error('Scaled Timeline keys would leave the 1–250 frame range.');
+    }
+    if (new Set(targetFrames).size !== targetFrames.length) {
+      throw new Error('Scaled Timeline keys would collapse onto the same frame.');
+    }
+    if (targetFrames.every((frame, index) => frame === uniqueFrames[index])) return false;
+
+    const sourceSet = new Set(uniqueFrames);
+    const targetBySource = new Map(uniqueFrames.map((frame, index) => [frame, targetFrames[index]]));
+    const changedChannels = animationChannels.filter(channel =>
+      trackKeys(tracks, channel).some(key => sourceSet.has(key.frame))
+    );
+
+    for (const channel of changedChannels) {
+      const keys = trackKeys(tracks, channel);
+      const occupied = new Set(keys.filter(key => !sourceSet.has(key.frame)).map(key => key.frame));
+      const targets = keys
+        .filter(key => sourceSet.has(key.frame))
+        .map(key => targetBySource.get(key.frame)!);
+      if (targets.some(frame => occupied.has(frame))) {
+        const collision = targets.find(frame => occupied.has(frame));
+        throw new Error(`Scaled Timeline keys would collide on ${channel} at frame ${collision}.`);
+      }
+    }
+
+    for (const channel of changedChannels) {
+      const next = trackKeys(tracks, channel).map(key => {
+        const target = targetBySource.get(key.frame);
+        if (target === undefined) return cloneScalarKey(key);
+        return { ...cloneScalarKey(key), frame: target };
+      });
+      this.setAnimationTrack(this.selected, channel, next);
+    }
+
+    this.evaluateAnimation();
+    this.emit('animation');
+    this.emit('transform');
+    this.invalidate();
+    this.commit();
+    return { frames: targetFrames, channels: changedChannels };
+  }
+
   scaleChannelKeyTimes(channel: ScalarAnimationChannel, frames: number[], factor: number) {
     if (!validAnimationChannel(channel) || !Number.isFinite(factor) || factor <= 0) {
       throw new Error('Time scale must be a positive finite number.');
