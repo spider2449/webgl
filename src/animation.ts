@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import type { Keyframe, KeyInterpolation, ScalarAnimationChannel } from './editor';
+import type { Keyframe, KeyInterpolation, KeyTangentMode, ScalarAnimationChannel } from './editor';
 
 export const animationChannels: ScalarAnimationChannel[] = [
   'position.x', 'position.y', 'position.z',
@@ -13,6 +13,10 @@ export function validKeyInterpolation(value: unknown): value is KeyInterpolation
   return value === 'linear' || value === 'constant' || value === 'bezier';
 }
 
+export function validKeyTangentMode(value: unknown): value is KeyTangentMode {
+  return value === 'free' || value === 'aligned' || value === 'auto';
+}
+
 export function validAnimationChannel(value: unknown): value is ScalarAnimationChannel {
   return typeof value === 'string' && animationChannels.includes(value as ScalarAnimationChannel);
 }
@@ -22,9 +26,10 @@ export function validKeyCurves(value: unknown): value is Keyframe['curves'] {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
   return Object.entries(value).every(([channel, curve]) => {
     if (!validAnimationChannel(channel) || !curve || typeof curve !== 'object' || Array.isArray(curve)) return false;
-    const item = curve as { interpolation?: unknown; left?: unknown; right?: unknown };
-    if (Object.keys(item).some(key => key !== 'interpolation' && key !== 'left' && key !== 'right')) return false;
+    const item = curve as { interpolation?: unknown; tangent?: unknown; left?: unknown; right?: unknown };
+    if (Object.keys(item).some(key => key !== 'interpolation' && key !== 'tangent' && key !== 'left' && key !== 'right')) return false;
     if (item.interpolation !== undefined && !validKeyInterpolation(item.interpolation)) return false;
+    if (item.tangent !== undefined && !validKeyTangentMode(item.tangent)) return false;
     for (const handle of [item.left, item.right]) {
       if (handle !== undefined && (!Array.isArray(handle) || handle.length !== 2 || handle.some(value => !Number.isFinite(value)))) return false;
     }
@@ -36,6 +41,7 @@ function cloneCurves(curves: Keyframe['curves']): Keyframe['curves'] {
   if (!curves) return undefined;
   return Object.fromEntries(Object.entries(curves).map(([channel, curve]) => [channel, {
     ...(curve!.interpolation ? { interpolation: curve!.interpolation } : {}),
+    ...(curve!.tangent ? { tangent: curve!.tangent } : {}),
     ...(curve!.left ? { left: [...curve!.left] as [number, number] } : {}),
     ...(curve!.right ? { right: [...curve!.right] as [number, number] } : {}),
   }])) as Keyframe['curves'];
