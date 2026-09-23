@@ -663,6 +663,7 @@ on('apply-graph-time-scale', () => {
       return;
     }
     animationGraph.selectKeyFrames(scaled);
+    $<HTMLInputElement>('#graph-time-scale').value = '1';
     toast(`${frames.length} selected key times scaled ×${factor} around F${((frames[0] + frames[frames.length - 1]) / 2).toFixed(1).replace('.0', '')}.`);
     updateTimeline();
   } catch (error) {
