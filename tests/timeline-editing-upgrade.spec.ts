@@ -175,9 +175,9 @@ test('Timeline Time Scale rejects a collision on one channel without partially r
   await page.evaluate(() => {
     const e = (window as any).__forge;
     delete e.selected.userData.animationTracks;
+    e.scrub(30); e.selected.position.x = 3; e.insertChannelKey('position.x');
     e.scrub(40); e.selected.position.x = 1; e.insertChannelKey('position.x');
     e.scrub(60); e.selected.position.y = 2; e.insertChannelKey('position.y');
-    e.scrub(70); e.selected.position.x = 3; e.insertChannelKey('position.x');
     e.scrub(1);
   });
 
@@ -190,7 +190,7 @@ test('Timeline Time Scale rejects a collision on one channel without partially r
   const tracks = await page.evaluate(() =>
     structuredClone((window as any).__forge.selected.userData.animationTracks)
   );
-  expect(tracks['position.x'].map((key: any) => key.frame)).toEqual([40, 70]);
+  expect(tracks['position.x'].map((key: any) => key.frame)).toEqual([30, 40]);
   expect(tracks['position.y'].map((key: any) => key.frame)).toEqual([60]);
   await expect(page.locator('#toast')).toContainText('collide');
   await expect(page.getByRole('button', { name: 'Animation key at frame 40' })).toHaveClass(/selected/);
