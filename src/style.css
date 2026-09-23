@@ -37,9 +37,13 @@
 .animation-graph-header>span:first-child{font:500 10px var(--mono);color:#d7b487;letter-spacing:.2px}
 #animation-graph-detail{font:9px var(--mono);color:#6f7886}
 .graph-segment-control{margin-left:auto}
-.graph-segment-control,.graph-tangent-control{display:flex;align-items:center;gap:5px;font:8px var(--mono);letter-spacing:.5px;text-transform:uppercase;color:#6f7886}
-.graph-segment-control select,.graph-tangent-control select{height:22px;min-width:88px;font:9px var(--mono);padding:1px 5px;border:1px solid #3b414b;background:#191b20;color:#aab2bf;border-radius:3px}
-.graph-segment-control select:disabled,.graph-tangent-control select:disabled{opacity:.45}
+.graph-segment-control,.graph-tangent-control,.graph-time-scale-control{display:flex;align-items:center;gap:5px;font:8px var(--mono);letter-spacing:.5px;text-transform:uppercase;color:#6f7886}
+.graph-segment-control select,.graph-tangent-control select,.graph-time-scale-control input{height:22px;font:9px var(--mono);padding:1px 5px;border:1px solid #3b414b;background:#191b20;color:#aab2bf;border-radius:3px}
+.graph-segment-control select,.graph-tangent-control select{min-width:88px}
+.graph-time-scale-control input{width:54px;min-width:54px}
+.graph-segment-control select:disabled,.graph-tangent-control select:disabled,.graph-time-scale-control input:disabled{opacity:.45}
+.graph-time-scale-button{height:22px;padding:2px 7px;font:8px var(--mono);letter-spacing:.4px;text-transform:uppercase;border:1px solid #3b414b;border-radius:3px}
+.graph-time-scale-button:disabled{opacity:.4}
 .graph-editor-badge{font:8px var(--mono)!important;letter-spacing:.8px;color:#8a806e!important;border:1px solid #4b4337;border-radius:3px;padding:2px 5px}
 .animation-graph-body{display:grid;grid-template-columns:132px minmax(0,1fr);height:182px}
 .graph-channels{background:#191b20;border-right:1px solid #30333a;padding:8px 7px;overflow:auto;scrollbar-width:thin;scrollbar-color:#3c414a transparent}
