@@ -108,12 +108,14 @@ test('scalar channels own independent key times and segment interpolation', asyn
     const first = { x: object.position.x, y: object.position.y };
     e.scrub(31);
     const second = { x: object.position.x, y: object.position.y };
+    e.scrub(43);
+    const third = { x: object.position.x, y: object.position.y };
 
     const saved = e.snapshot();
     e.load(JSON.parse(saved));
     const tracks = structuredClone(e.selected.userData.animationTracks);
 
-    return { first, second, tracks };
+    return { first, second, third, tracks };
   });
 
   expect(result.tracks['position.x'].map((key: any) => key.frame)).toEqual([1, 37, 49]);
@@ -125,9 +127,10 @@ test('scalar channels own independent key times and segment interpolation', asyn
   expect(result.first.x).toBeCloseTo(0, 6);
   expect(result.first.y).toBeGreaterThan(0);
   expect(result.first.y).toBeLessThan(8);
-  expect(result.second.x).toBeGreaterThan(0);
-  expect(result.second.x).toBeLessThan(8);
+  expect(result.second.x).toBeCloseTo(0, 6);
   expect(result.second.y).toBeCloseTo(8, 6);
+  expect(result.third.x).toBeCloseTo(12, 6);
+  expect(result.third.y).toBeCloseTo(8, 6);
 });
 
 test('Bezier scalar tracks persist and bake evaluated values into GLB', async ({ page }) => {
