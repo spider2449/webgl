@@ -114,11 +114,13 @@ test('Shift-click toggles Timeline selection and Escape cancels a multi-key drag
   await page.keyboard.press('Escape');
   await page.mouse.up();
 
-  const tracks = await page.evaluate(() =>
-    structuredClone((window as any).__forge.selected.userData.animationTracks)
-  );
-  expect(tracks['position.x'].map((key: any) => key.frame)).toEqual([20]);
-  expect(tracks['position.y'].map((key: any) => key.frame)).toEqual([40]);
+  const state = await page.evaluate(() => ({
+    selectedUuid: (window as any).__forge.selected?.uuid ?? null,
+    tracks: structuredClone((window as any).__forge.selected?.userData.animationTracks),
+  }));
+  expect(state.selectedUuid).not.toBeNull();
+  expect(state.tracks['position.x'].map((key: any) => key.frame)).toEqual([20]);
+  expect(state.tracks['position.y'].map((key: any) => key.frame)).toEqual([40]);
   await expect(page.getByRole('button', { name: 'Animation key at frame 20' })).toHaveClass(/selected/);
   await expect(page.getByRole('button', { name: 'Animation key at frame 40' })).toHaveClass(/selected/);
 });
