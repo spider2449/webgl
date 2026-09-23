@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { buildTopology } from '../src/topology';
+import { buildTopology } from '../src/modeling/topology';
 
 test.beforeEach(async ({ page }) => {
   await page.goto('/');
