@@ -41,10 +41,6 @@ export function animationChannelValue(key: Keyframe, channel: ScalarAnimationCha
   return THREE.MathUtils.radToDeg([euler.x, euler.y, euler.z][component]);
 }
 
-function displayDelta(channel: ScalarAnimationChannel, nativeDelta: number) {
-  return channel.startsWith('rotation.') ? THREE.MathUtils.radToDeg(nativeDelta) : nativeDelta;
-}
-
 function displayNative(channel: ScalarAnimationChannel, nativeValue: number) {
   return channel.startsWith('rotation.') ? THREE.MathUtils.radToDeg(nativeValue) : nativeValue;
 }
