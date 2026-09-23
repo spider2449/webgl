@@ -933,7 +933,21 @@ document.addEventListener('keydown', e => {
   if (key === ' ') { e.preventDefault(); editor.togglePlayback(); }
   if (key === '1') $('#axis-z').click(); if (key === '3') $('#axis-x').click(); if (key === '7') $('#axis-y').click(); if (key === '5') editor.toggleProjection();
   if (key === '/') { e.preventDefault(); $('#object-search').focus(); }
-  if (key === 'escape') { closeMenus(); if (timelineKeyDrag) cancelTimelineKeyDrag(); else if (editor.modelingBusy) editor.cancelModeling(); else if (editor.snapTargetPending) editor.cancelVertexSnap(); else if (editor.transform.dragging) editor.transform.reset(); else editor.select(null); }
+  if (key === 'escape') {
+    closeMenus();
+    if (timelineKeyDrag) {
+      e.preventDefault();
+      cancelTimelineKeyDrag();
+    } else if (timelineSelectedFrames.size) {
+      e.preventDefault();
+      timelineSelectedFrames.clear();
+      timelineState = '';
+      updateTimeline();
+    } else if (editor.modelingBusy) editor.cancelModeling();
+    else if (editor.snapTargetPending) editor.cancelVertexSnap();
+    else if (editor.transform.dragging) editor.transform.reset();
+    else editor.select(null);
+  }
 });
 document.addEventListener('keyup', e => { if (e.key === 'Alt') editor.orbit.mouseButtons.LEFT = null as unknown as THREE.MOUSE; });
 window.addEventListener('blur', () => { editor.orbit.mouseButtons.LEFT = null as unknown as THREE.MOUSE; cancelTimelineKeyDrag(); if (editor.playing) editor.togglePlayback(); });
