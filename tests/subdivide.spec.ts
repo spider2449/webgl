@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 import * as THREE from 'three';
-import { subdivideEdge } from '../src/subdivide';
-import { buildTopology } from '../src/topology';
+import { subdivideEdge } from '../src/modeling/subdivide';
+import { buildTopology } from '../src/modeling/topology';
 
 for (const expanded of [false, true]) test(`edge subdivision preserves closed cube winding and groups (${expanded})`, () => {
   const box = new THREE.BoxGeometry(2,2,2), source = expanded ? box.toNonIndexed() : box;

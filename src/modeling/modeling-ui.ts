@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import type { Editor } from './editor';
+import type { Editor } from '../editor';
 import type { Modifier, ModifierStack } from './modifiers';
 
 export function mountModelingUI(editor: Editor, toast: (message: string) => void) {

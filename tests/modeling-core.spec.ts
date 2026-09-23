@@ -1,8 +1,8 @@
 import { test, expect } from '@playwright/test';
 import * as THREE from 'three';
-import { bevelEdges, loopCut, editUV } from '../src/modeling';
-import { buildTopology } from '../src/topology';
-import { evaluateModifiers } from '../src/modifiers';
+import { bevelEdges, loopCut, editUV } from '../src/modeling/modeling';
+import { buildTopology } from '../src/modeling/topology';
+import { evaluateModifiers } from '../src/modeling/modifiers';
 
 function topology(g: THREE.BufferGeometry) { return buildTopology(g.getAttribute('position').array, g.index?.array); }
 function closed(g: THREE.BufferGeometry) {

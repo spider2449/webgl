@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 import * as THREE from 'three';
-import { extrudeRegion } from '../src/extrude-region';
-import { buildTopology } from '../src/topology';
+import { extrudeRegion } from '../src/modeling/extrude-region';
+import { buildTopology } from '../src/modeling/topology';
 
 function edgeUses(geometry: THREE.BufferGeometry) {
   const topology=buildTopology(geometry.attributes.position.array,geometry.index!.array), uses=new Map<string,number[]>();

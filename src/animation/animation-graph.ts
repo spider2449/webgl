@@ -10,7 +10,7 @@ import type {
   KeyInterpolation,
   ScalarAnimationChannel,
   ScalarKey,
-} from './editor';
+} from '../editor';
 
 export type AnimationGraphData = {
   channel: ScalarAnimationChannel;

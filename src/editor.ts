@@ -1,17 +1,17 @@
 import * as THREE from 'three';
-import { animationChannels, effectiveBezierHandle, sampleAnimationChannel, trackKeys, validAnimationChannel, validAnimationTracks, validKeyInterpolation, validKeyTangentMode } from './animation';
+import { animationChannels, effectiveBezierHandle, sampleAnimationChannel, trackKeys, validAnimationChannel, validAnimationTracks, validKeyInterpolation, validKeyTangentMode } from './animation/animation';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { TransformControls } from 'three/addons/controls/TransformControls.js';
-import { GimbalControls } from './gimbal-controls';
+import { GimbalControls } from './viewport/gimbal-controls';
 import { clone as cloneSkeleton } from 'three/addons/utils/SkeletonUtils.js';
-import { createGrid } from './grid';
-import { extrudeTriangle, insetTriangle } from './extrude';
-import { buildTopology, type MeshTopology, type ComponentMode } from './topology';
-import { proportionalWeights } from './proportional';
-import { subdivideEdges } from './subdivide';
-import { extrudeRegion } from './extrude-region';
-import { modelingJob, type ModelingOperation } from './modeling-worker-client';
-import { validateModifierStack, type Modifier, type ModifierStack } from './modifiers';
+import { createGrid } from './viewport/grid';
+import { extrudeTriangle, insetTriangle } from './modeling/extrude';
+import { buildTopology, type MeshTopology, type ComponentMode } from './modeling/topology';
+import { proportionalWeights } from './modeling/proportional';
+import { subdivideEdges } from './modeling/subdivide';
+import { extrudeRegion } from './modeling/extrude-region';
+import { modelingJob, type ModelingOperation } from './modeling/modeling-worker-client';
+import { validateModifierStack, type Modifier, type ModifierStack } from './modeling/modifiers';
 
 export type Primitive = 'cube' | 'sphere' | 'cylinder' | 'cone' | 'torus' | 'plane' | 'icosphere';
 export type EulerOrder = 'XYZ' | 'YZX' | 'ZXY' | 'XZY' | 'YXZ' | 'ZYX';

@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 import * as THREE from 'three';
-import { insetTriangle } from '../src/extrude';
-import { buildTopology } from '../src/topology';
+import { insetTriangle } from '../src/modeling/extrude';
+import { buildTopology } from '../src/modeling/topology';
 
 for (const expanded of [false, true]) {
   test(`inset preserves boundary, winding and interpolated UVs (${expanded})`, () => {

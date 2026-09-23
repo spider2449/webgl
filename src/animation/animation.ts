@@ -5,7 +5,7 @@ import type {
   KeyTangentMode,
   ScalarAnimationChannel,
   ScalarKey,
-} from './editor';
+} from '../editor';
 
 export const animationChannels: ScalarAnimationChannel[] = [
   'position.x', 'position.y', 'position.z',

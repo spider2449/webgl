@@ -1,11 +1,11 @@
-import { allAnimationFrames, animationChannels, animationTracks, effectiveSegmentInterpolation, sampleAnimationChannel, trackKeys } from './animation';
-import { AnimationGraphView, animationChannelLabel } from './animation-graph';
+import { allAnimationFrames, animationChannels, animationTracks, effectiveSegmentInterpolation, sampleAnimationChannel, trackKeys } from './animation/animation';
+import { AnimationGraphView, animationChannelLabel } from './animation/animation-graph';
 import './style.css';
 import * as THREE from 'three';
 import { createIcons, Box, ChevronDown, ChevronRight, Plus, MousePointer2, Move, Rotate3d, Scaling, Magnet, Grid2x2, Scan, Eye, EyeOff, Search, SlidersHorizontal, Layers, Diamond, Play, Pause, SkipBack, SkipForward, ChevronFirst, ChevronLast, Undo2, Redo2, Copy, Trash2, X, HelpCircle, Download, Upload, Camera, Check, Circle, Triangle, Hexagon, FolderOpen, FolderPlus, LogOut, Save, FilePlus2, Maximize, Globe, Settings2, Crosshair, Sun, Activity, PanelRightClose } from 'lucide';
-import { mountModelingUI } from './modeling-ui';
+import { mountModelingUI } from './modeling/modeling-ui';
 import { Editor, type AnimationTrackMap, type Primitive, type Project, type KeyInterpolation, type KeyTangentMode, type ScalarAnimationChannel, type TransformOrientation } from './editor';
-import { RigSystem, rigBones, RIG_SOURCE } from './rig';
+import { RigSystem, rigBones, RIG_SOURCE } from './rig/rig';
 
 const icons = { Box, ChevronDown, ChevronRight, Plus, MousePointer2, Move, Rotate3d, Scaling, Magnet, Grid2x2, Scan, Eye, EyeOff, Search, SlidersHorizontal, Layers, Diamond, Play, Pause, SkipBack, SkipForward, ChevronFirst, ChevronLast, Undo2, Redo2, Copy, Trash2, X, HelpCircle, Download, Upload, Camera, Check, Circle, Triangle, Hexagon, FolderOpen, FolderPlus, LogOut, Save, FilePlus2, Maximize, Globe, Settings2, Crosshair, Sun, Activity, PanelRightClose };
 const icon = (name: string, cls = '') => `<i data-lucide="${name}" class="${cls}"></i>`;

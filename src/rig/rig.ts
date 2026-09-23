@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import type { Editor } from './editor';
+import type { Editor } from '../editor';
 import { SOMA77 } from './soma77';
 
 export const RIG_SOURCE = 'https://github.com/nv-tlabs/kimodo/tree/1aece8c124d73d255ceff5086d983b844c9f4e94/kimodo/assets/skeletons/somaskel77';
