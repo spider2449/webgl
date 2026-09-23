@@ -751,3 +751,28 @@ test('Escape cancels Graph box selection and restores the pre-drag selection', a
   }));
   expect(after).toEqual(before);
 });
+
+
+test('Escape clears Graph key selection before object selection', async ({ page }) => {
+  await page.evaluate(() => {
+    const e = (window as any).__forge;
+    delete e.selected.userData.animationTracks;
+    e.scrub(20);
+    e.selected.position.x = 4;
+    e.insertChannelKey('position.x');
+    e.scrub(20);
+  });
+
+  await page.getByRole('button', { name: 'Animation', exact: true }).click();
+  const graph = page.getByLabel('Animation graph editor');
+  await graph.locator('.graph-key-point[data-frame="20"]').click();
+  await expect(graph).toHaveAttribute('data-selected-frames', '20');
+
+  const selectedUuid = await page.evaluate(() => (window as any).__forge.selected?.uuid ?? null);
+  expect(selectedUuid).not.toBeNull();
+
+  await page.keyboard.press('Escape');
+
+  await expect(graph).toHaveAttribute('data-selected-frames', '');
+  expect(await page.evaluate(() => (window as any).__forge.selected?.uuid ?? null)).toBe(selectedUuid);
+});
