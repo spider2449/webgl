@@ -4,28 +4,35 @@ Add Blender-style visual state feedback to the Object panel's transform fields.
 
 ## Scope
 
-- Apply state independently to Location X/Y/Z, Rotation X/Y/Z and Scale X/Y/Z.
-- Neutral styling when the selected object has no animation keys.
-- Yellow when the current frame is an authored transform key and the displayed value still matches the keyed value.
-- Green when the property is animated but the current frame is not a key.
-- Orange when the current live value differs from the animation evaluator at the current frame, signaling an unkeyed edit.
-- Preserve existing X/Y/Z axis letter colors so animation state does not erase axis identity.
-- Update during scrub, playback, gizmo changes, numeric edits, key insertion/removal and project load.
+State is calculated independently for Location X/Y/Z, Rotation X/Y/Z and Scale X/Y/Z:
 
-## Data-model boundary
+- Neutral: the scalar channel has no animation track.
+- Yellow: that channel has a key on the current frame and the displayed value matches it.
+- Green: that channel has animation keys, but not on the current frame.
+- Orange: the live value differs from the scalar track's evaluated value and has not been keyed.
 
-Forge currently authors transform-wide keys: one key contains Position, Rotation and Scale together. Therefore all nine transform channels are considered keyed on an authored key frame. State calculation is still performed independently per scalar channel so a manual edit can turn only the changed field orange.
+Existing X/Y/Z axis letter colors remain unchanged. State refreshes during
+scrub, playback, gizmo/numeric edits, channel or transform key insertion/removal,
+undo/redo and project load.
 
-If Forge later adopts independent per-channel key times, the same UI state mechanism can use channel-specific key existence without changing the visual contract.
+## Data-model relationship
+
+Forge stores nine independent scalar animation tracks. A transform-wide Insert
+key is only a convenience operation that adds one key to every channel at the
+same frame. Graph channel-key insertion can therefore produce states such as
+Location X yellow while Location Y/Z remain neutral, or one channel yellow while
+another animated channel is green.
 
 ## Validation
 
 Playwright coverage verifies:
 
-- unanimated fields report neutral state,
-- inserting a transform key marks all transform fields keyed-current,
-- scrubbing away marks them animated,
-- changing only Location X marks only Location X changed,
-- inserting a key at the modified frame returns the fields to keyed-current.
+- all fields start neutral,
+- transform-wide insert marks all nine channels keyed-current,
+- scrubbing away marks animated channels green,
+- an unkeyed scalar edit marks only that field orange,
+- channel-only insert marks only the chosen channel yellow,
+- channels without tracks remain neutral,
+- channels with different key times show their own yellow/green state.
 
 This branch remains unmerged until Windows-local validation is reported.
