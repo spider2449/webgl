@@ -343,6 +343,129 @@ test('multi-selected Bezier keys batch-assign tangent mode in one undo step', as
   )).toEqual(['free', 'auto']);
 });
 
+test('Graph Time Scale retimes selected keys around the selection midpoint in one undo step', async ({ page }) => {
+  await page.evaluate(() => {
+    const e = (window as any).__forge;
+    delete e.selected.userData.animationTracks;
+    e.scrub(30); e.selected.position.x = 0; e.insertChannelKey('position.x');
+    e.scrub(40); e.selected.position.x = 8; e.insertChannelKey('position.x');
+    e.scrub(50); e.selected.position.x = 16; e.insertChannelKey('position.x');
+    e.scrub(80); e.selected.position.x = 24; e.insertChannelKey('position.x');
+    e.scrub(30);
+  });
+
+  await page.getByRole('button', { name: 'Animation', exact: true }).click();
+  const graph = page.getByLabel('Animation graph editor');
+  const timeScale = page.getByLabel('Selected key time scale');
+  const apply = page.getByRole('button', { name: 'Scale', exact: true });
+
+  await expect(timeScale).toBeDisabled();
+  await expect(apply).toBeDisabled();
+
+  await page.keyboard.down('Shift');
+  await graph.locator('.graph-key-point[data-frame="30"]').click();
+  await graph.locator('.graph-key-point[data-frame="40"]').click();
+  await graph.locator('.graph-key-point[data-frame="50"]').click();
+  await page.keyboard.up('Shift');
+
+  await expect(timeScale).toBeEnabled();
+  await expect(apply).toBeEnabled();
+  await timeScale.fill('2');
+  await apply.click();
+
+  expect(await page.evaluate(() =>
+    (window as any).__forge.selected.userData.animationTracks['position.x'].map((key: any) => key.frame)
+  )).toEqual([20, 40, 60, 80]);
+  await expect(graph).toHaveAttribute('data-selected-frames', '20,40,60');
+
+  await page.evaluate(() => (window as any).__forge.undo());
+  expect(await page.evaluate(() =>
+    (window as any).__forge.selected.userData.animationTracks['position.x'].map((key: any) => key.frame)
+  )).toEqual([30, 40, 50, 80]);
+});
+
+test('Graph Time Scale rejects collisions atomically', async ({ page }) => {
+  await page.evaluate(() => {
+    const e = (window as any).__forge;
+    delete e.selected.userData.animationTracks;
+    e.scrub(30); e.selected.position.x = 0; e.insertChannelKey('position.x');
+    e.scrub(40); e.selected.position.x = 8; e.insertChannelKey('position.x');
+    e.scrub(45); e.selected.position.x = 16; e.insertChannelKey('position.x');
+    e.scrub(30);
+  });
+
+  await page.getByRole('button', { name: 'Animation', exact: true }).click();
+  const graph = page.getByLabel('Animation graph editor');
+
+  await page.keyboard.down('Shift');
+  await graph.locator('.graph-key-point[data-frame="30"]').click();
+  await graph.locator('.graph-key-point[data-frame="40"]').click();
+  await page.keyboard.up('Shift');
+
+  await page.getByLabel('Selected key time scale').fill('2');
+  await page.getByRole('button', { name: 'Scale', exact: true }).click();
+
+  expect(await page.evaluate(() =>
+    (window as any).__forge.selected.userData.animationTracks['position.x'].map((key: any) => key.frame)
+  )).toEqual([30, 40, 45]);
+  await expect(graph).toHaveAttribute('data-selected-frames', '30,40');
+  await expect(page.locator('#toast')).toContainText('collide');
+});
+
+test('Graph Time Scale rejects rounded frame collapse atomically', async ({ page }) => {
+  await page.evaluate(() => {
+    const e = (window as any).__forge;
+    delete e.selected.userData.animationTracks;
+    e.scrub(30); e.selected.position.x = 0; e.insertChannelKey('position.x');
+    e.scrub(32); e.selected.position.x = 8; e.insertChannelKey('position.x');
+    e.scrub(30);
+  });
+
+  await page.getByRole('button', { name: 'Animation', exact: true }).click();
+  const graph = page.getByLabel('Animation graph editor');
+
+  await page.keyboard.down('Shift');
+  await graph.locator('.graph-key-point[data-frame="30"]').click();
+  await graph.locator('.graph-key-point[data-frame="32"]').click();
+  await page.keyboard.up('Shift');
+
+  await page.getByLabel('Selected key time scale').fill('0.1');
+  await page.getByRole('button', { name: 'Scale', exact: true }).click();
+
+  expect(await page.evaluate(() =>
+    (window as any).__forge.selected.userData.animationTracks['position.x'].map((key: any) => key.frame)
+  )).toEqual([30, 32]);
+  await expect(graph).toHaveAttribute('data-selected-frames', '30,32');
+  await expect(page.locator('#toast')).toContainText('same frame');
+});
+
+test('Graph Time Scale rejects out-of-range targets atomically', async ({ page }) => {
+  await page.evaluate(() => {
+    const e = (window as any).__forge;
+    delete e.selected.userData.animationTracks;
+    e.scrub(10); e.selected.position.x = 0; e.insertChannelKey('position.x');
+    e.scrub(20); e.selected.position.x = 8; e.insertChannelKey('position.x');
+    e.scrub(10);
+  });
+
+  await page.getByRole('button', { name: 'Animation', exact: true }).click();
+  const graph = page.getByLabel('Animation graph editor');
+
+  await page.keyboard.down('Shift');
+  await graph.locator('.graph-key-point[data-frame="10"]').click();
+  await graph.locator('.graph-key-point[data-frame="20"]').click();
+  await page.keyboard.up('Shift');
+
+  await page.getByLabel('Selected key time scale').fill('3');
+  await page.getByRole('button', { name: 'Scale', exact: true }).click();
+
+  expect(await page.evaluate(() =>
+    (window as any).__forge.selected.userData.animationTracks['position.x'].map((key: any) => key.frame)
+  )).toEqual([10, 20]);
+  await expect(graph).toHaveAttribute('data-selected-frames', '10,20');
+  await expect(page.locator('#toast')).toContainText('1–250');
+});
+
 test('dragging a multi-selection moves every selected key by one shared delta', async ({ page }) => {
   await page.evaluate(() => {
     const e = (window as any).__forge;
