@@ -95,21 +95,13 @@ export function buildAnimationGraphData(
 
   const handleValues: number[] = [];
   sorted.forEach((key, index) => {
-    const value = animationChannelValue(key, channel);
-    const curve = key.curves?.[channel];
     if (index > 0 && sorted[index - 1].curves?.[channel]?.interpolation === 'bezier') {
-      if (curve?.left) handleValues.push(value + displayDelta(channel, curve.left[1]));
-      else {
-        const previous = sorted[index - 1];
-        handleValues.push(value - (value - animationChannelValue(previous, channel)) / 3);
-      }
+      const controls = bezierControlPoints(sorted, index - 1, channel);
+      handleValues.push(displayNative(channel, controls.y2));
     }
-    if (index < sorted.length - 1 && curve?.interpolation === 'bezier') {
-      if (curve.right) handleValues.push(value + displayDelta(channel, curve.right[1]));
-      else {
-        const next = sorted[index + 1];
-        handleValues.push(value + (animationChannelValue(next, channel) - value) / 3);
-      }
+    if (index < sorted.length - 1 && key.curves?.[channel]?.interpolation === 'bezier') {
+      const controls = bezierControlPoints(sorted, index, channel);
+      handleValues.push(displayNative(channel, controls.y1));
     }
   });
 
