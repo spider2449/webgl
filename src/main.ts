@@ -767,6 +767,7 @@ function finishTimelineKeyDrag(event: PointerEvent) {
   try {
     const movedChannels = editor.moveTimelineKey(drag.sourceFrame, drag.targetFrame);
     if (!movedChannels) {
+      restoreTimelineMarker(drag.marker, drag.sourceFrame);
       editor.scrub(drag.sourceFrame);
       return;
     }
