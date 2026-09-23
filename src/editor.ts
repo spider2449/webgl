@@ -1574,8 +1574,62 @@ export class Editor extends EventTarget {
     return true;
   }
 
-  moveTimelineKey(sourceFrame: number, targetFrame: number) {
+  moveTimelineKeys(sourceFrames: number[], frameDelta: number) {
     if (!this.selected || this.editMode || this.playing || this.animationKeyDrag || this.animationHandleDrag) return false;
+    const uniqueFrames = [...new Set(sourceFrames)].sort((a, b) => a - b);
+    if (!uniqueFrames.length || uniqueFrames.some(frame => !Number.isInteger(frame) || frame < 1 || frame > 250)) {
+      throw new Error('Choose authored Timeline keys within frames 1–250.');
+    }
+    if (!Number.isInteger(frameDelta)) throw new Error('Timeline key movement must use whole frames.');
+    if (frameDelta === 0) return false;
+
+    const targetFrames = uniqueFrames.map(frame => frame + frameDelta);
+    if (targetFrames.some(frame => frame < 1 || frame > 250)) {
+      throw new Error('Timeline key move would leave the 1–250 frame range.');
+    }
+
+    const tracks = this.selected.userData.animationTracks as AnimationTrackMap | undefined;
+    const sourceSet = new Set(uniqueFrames);
+    const authoredFrames = new Set(allAnimationFrames(tracks));
+    if (uniqueFrames.some(frame => !authoredFrames.has(frame))) {
+      throw new Error('Choose authored Timeline keys first.');
+    }
+
+    const movedChannels = animationChannels.filter(channel =>
+      trackKeys(tracks, channel).some(key => sourceSet.has(key.frame))
+    );
+    if (!movedChannels.length) return false;
+
+    for (const channel of movedChannels) {
+      const keys = trackKeys(tracks, channel);
+      const occupied = new Set(keys.filter(key => !sourceSet.has(key.frame)).map(key => key.frame));
+      const targets = keys
+        .filter(key => sourceSet.has(key.frame))
+        .map(key => key.frame + frameDelta);
+      if (targets.some(frame => occupied.has(frame))) {
+        const collision = targets.find(frame => occupied.has(frame));
+        throw new Error(`Timeline key move would collide on ${channel} at frame ${collision}.`);
+      }
+    }
+
+    for (const channel of movedChannels) {
+      const next = trackKeys(tracks, channel).map(key => {
+        const edited = cloneScalarKey(key);
+        if (sourceSet.has(edited.frame)) edited.frame += frameDelta;
+        return edited;
+      });
+      this.setAnimationTrack(this.selected, channel, next);
+    }
+
+    this.evaluateAnimation();
+    this.emit('animation');
+    this.emit('transform');
+    this.invalidate();
+    this.commit();
+    return { frames: targetFrames, channels: movedChannels };
+  }
+
+  moveTimelineKey(sourceFrame: number, targetFrame: number) {
     if (!Number.isInteger(sourceFrame) || !Number.isInteger(targetFrame) || sourceFrame < 1 || sourceFrame > 250 || targetFrame < 1 || targetFrame > 250) {
       throw new Error('Timeline key frames must stay within 1–250.');
     }
@@ -1583,36 +1637,10 @@ export class Editor extends EventTarget {
       this.scrub(sourceFrame);
       return false;
     }
-
-    const tracks = this.selected.userData.animationTracks as AnimationTrackMap | undefined;
-    const movedChannels = animationChannels.filter(channel =>
-      trackKeys(tracks, channel).some(key => key.frame === sourceFrame)
-    );
-    if (!movedChannels.length) return false;
-
-    for (const channel of movedChannels) {
-      if (trackKeys(tracks, channel).some(key => key.frame === targetFrame)) {
-        throw new Error(`Timeline key move would collide on ${channel} at frame ${targetFrame}.`);
-      }
-    }
-
-    for (const channel of movedChannels) {
-      const next = trackKeys(tracks, channel).map(key => {
-        const edited = cloneScalarKey(key);
-        if (edited.frame === sourceFrame) edited.frame = targetFrame;
-        return edited;
-      });
-      this.setAnimationTrack(this.selected, channel, next);
-    }
-
-    this.frame = targetFrame;
-    this.evaluateAnimation();
-    this.emit('frame');
-    this.emit('animation');
-    this.emit('transform');
-    this.invalidate();
-    this.commit();
-    return movedChannels;
+    const moved = this.moveTimelineKeys([sourceFrame], targetFrame - sourceFrame);
+    if (!moved) return false;
+    this.scrub(targetFrame);
+    return moved.channels;
   }
 
   scaleChannelKeyTimes(channel: ScalarAnimationChannel, frames: number[], factor: number) {
