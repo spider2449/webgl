@@ -1574,6 +1574,56 @@ export class Editor extends EventTarget {
     return true;
   }
 
+  scaleChannelKeyTimes(channel: ScalarAnimationChannel, frames: number[], factor: number) {
+    if (!validAnimationChannel(channel) || !Number.isFinite(factor) || factor <= 0) {
+      throw new Error('Time scale must be a positive finite number.');
+    }
+    if (!this.selected || this.editMode || this.playing || this.animationKeyDrag || this.animationHandleDrag) return false;
+
+    const uniqueFrames = [...new Set(frames)].sort((a, b) => a - b);
+    if (uniqueFrames.length < 2 || uniqueFrames.some(frame => !Number.isInteger(frame) || frame < 1 || frame > 250)) {
+      throw new Error('Select at least two authored channel keys to scale timing.');
+    }
+
+    const keys = trackKeys(this.selected.userData.animationTracks as AnimationTrackMap | undefined, channel).map(cloneScalarKey);
+    const sourceSet = new Set(uniqueFrames);
+    if (uniqueFrames.some(frame => !keys.some(key => key.frame === frame))) {
+      throw new Error('Choose authored channel keys first.');
+    }
+
+    const pivot = (uniqueFrames[0] + uniqueFrames[uniqueFrames.length - 1]) / 2;
+    const targetFrames = uniqueFrames.map(frame => Math.round(pivot + (frame - pivot) * factor));
+    if (targetFrames.some(frame => frame < 1 || frame > 250)) {
+      throw new Error('Scaled keys would leave the 1–250 frame range.');
+    }
+    if (new Set(targetFrames).size !== targetFrames.length) {
+      throw new Error('Scaled keys would collapse onto the same frame.');
+    }
+
+    const occupied = new Set(keys.filter(key => !sourceSet.has(key.frame)).map(key => key.frame));
+    if (targetFrames.some(frame => occupied.has(frame))) {
+      throw new Error('Scaled keys would collide with an unselected key.');
+    }
+    if (targetFrames.every((frame, index) => frame === uniqueFrames[index])) return false;
+
+    const targetBySource = new Map(uniqueFrames.map((frame, index) => [frame, targetFrames[index]]));
+    const next = keys.map(key => {
+      const target = targetBySource.get(key.frame);
+      if (target === undefined) return cloneScalarKey(key);
+      const edited = cloneScalarKey(key);
+      edited.frame = target;
+      return edited;
+    });
+
+    this.setAnimationTrack(this.selected, channel, next);
+    this.evaluateAnimation();
+    this.emit('animation');
+    this.emit('transform');
+    this.invalidate();
+    this.commit();
+    return targetFrames;
+  }
+
   removeChannelKeys(channel: ScalarAnimationChannel, frames: number[]) {
     if (!validAnimationChannel(channel) || !this.selected || this.editMode || this.playing) return false;
     const frameSet = new Set(frames.filter(frame => Number.isInteger(frame) && frame >= 1 && frame <= 250));
