@@ -1407,12 +1407,15 @@ export class Editor extends EventTarget {
     return true;
   }
 
+  keyObjectTransform(object: THREE.Object3D, frame = Math.round(this.frame)) {
+    for (const channel of animationChannels) {
+      this.upsertChannelKey(object, channel, frame, this.channelNativeValue(object, channel));
+    }
+  }
+
   insertKey() {
     if (!this.selected || this.editMode || this.playing) return false;
-    const frame = Math.round(this.frame);
-    for (const channel of animationChannels) {
-      this.upsertChannelKey(this.selected, channel, frame, this.channelNativeValue(this.selected, channel));
-    }
+    this.keyObjectTransform(this.selected);
     this.commit();
     return true;
   }
