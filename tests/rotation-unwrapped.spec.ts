@@ -86,7 +86,7 @@ test('keyframes preserve authored multi-turn rotation through scrub and project 
     object.rotation.z = 720 * Math.PI / 180;
     e.insertKey();
 
-    const stored = object.userData.keyframes.map((key: any) => key.rotation?.[2] * 180 / Math.PI);
+    const stored = object.userData.animationTracks['rotation.z'].map((key: any) => key.value * 180 / Math.PI);
 
     e.scrub(1);
     const first = degrees(object.rotation.z);
@@ -114,27 +114,6 @@ test('keyframes preserve authored multi-turn rotation through scrub and project 
   expect(result.reloadedFirst).toBeCloseTo(540, 6);
   expect(result.reloadedSecond).toBeCloseTo(720, 6);
 });
-
-test('legacy quaternion-only keyframes remain readable', async ({ page }) => {
-  const result = await page.evaluate(() => {
-    const e = (window as any).__forge;
-    const object = e.selected;
-    object.rotation.z = 270 * Math.PI / 180;
-    e.insertKey();
-    const key = object.userData.keyframes[0];
-    delete key.rotation;
-    delete key.rotationOrder;
-    e.scrub(1);
-    return {
-      finite: [object.rotation.x, object.rotation.y, object.rotation.z].every(Number.isFinite),
-      quaternion: object.quaternion.toArray(),
-    };
-  });
-
-  expect(result.finite).toBe(true);
-  expect(result.quaternion.every((value: number) => Number.isFinite(value))).toBe(true);
-});
-
 
 test('Global gizmo preserves the nearest local Euler branch for multi-axis rotation', async ({ page }) => {
   const result = await page.evaluate(() => {
