@@ -112,4 +112,9 @@ test('Escape cancels timeline key drag without history or retiming', async ({ pa
   )).toEqual([20, 40]);
   await expect(page.getByRole('button', { name: 'Animation key at frame 20' })).toBeVisible();
   expect(await page.evaluate(() => (window as any).__forge.frame)).toBe(20);
+
+  await page.evaluate(() => (window as any).__forge.undo());
+  expect(await page.evaluate(() =>
+    (window as any).__forge.selected.userData.animationTracks['position.x'].map((key: any) => key.frame)
+  )).toEqual([20]);
 });
