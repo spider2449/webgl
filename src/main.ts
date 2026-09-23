@@ -760,6 +760,8 @@ type TimelineKeyDrag = {
   targetFrame: number;
   sourceFrames: number[];
   markers: Array<{ marker: HTMLButtonElement; frame: number }>;
+  copy: boolean;
+  ghostMarkers: Array<{ marker: HTMLButtonElement; frame: number }>;
 };
 let timelineKeyDrag: TimelineKeyDrag | null = null;
 
@@ -836,18 +838,26 @@ function restoreTimelineMarker(marker: HTMLButtonElement, frame: number) {
 }
 
 function setTimelineMarkerSelection() {
-  timelineMarkers.querySelectorAll<HTMLButtonElement>('.key-marker').forEach(marker => {
+  timelineMarkers.querySelectorAll<HTMLButtonElement>('.key-marker:not(.copy-ghost)').forEach(marker => {
     marker.classList.toggle('selected', timelineSelectedFrames.has(Number(marker.dataset.frame)));
   });
+}
+
+function clearTimelineCopyGhosts(drag: TimelineKeyDrag) {
+  for (const item of drag.ghostMarkers) item.marker.remove();
 }
 
 function cancelTimelineKeyDrag() {
   const drag = timelineKeyDrag;
   if (!drag) return false;
   timelineKeyDrag = null;
-  for (const item of drag.markers) {
-    item.marker.classList.remove('dragging');
-    restoreTimelineMarker(item.marker, item.frame);
+  if (drag.copy) {
+    clearTimelineCopyGhosts(drag);
+  } else {
+    for (const item of drag.markers) {
+      item.marker.classList.remove('dragging');
+      restoreTimelineMarker(item.marker, item.frame);
+    }
   }
   if (drag.anchorMarker.hasPointerCapture(drag.pointerId)) drag.anchorMarker.releasePointerCapture(drag.pointerId);
   editor.scrub(drag.anchorFrame);
@@ -935,6 +945,19 @@ timelineMarkers.addEventListener('pointerdown', event => {
     }))
     .filter((item): item is { marker: HTMLButtonElement; frame: number } => item.marker !== null);
 
+  const copy = event.altKey;
+  const ghostMarkers = copy
+    ? selectedMarkers.map(item => {
+        const ghost = item.marker.cloneNode(true) as HTMLButtonElement;
+        ghost.classList.remove('selected');
+        ghost.classList.add('copy-ghost', 'dragging');
+        ghost.setAttribute('aria-label', `Animation key copy preview at frame ${item.frame}`);
+        ghost.title = `Copy animation key from frame ${item.frame}`;
+        timelineMarkers.append(ghost);
+        return { marker: ghost, frame: item.frame };
+      })
+    : [];
+
   timelineKeyDrag = {
     anchorMarker: marker,
     pointerId: event.pointerId,
@@ -942,8 +965,10 @@ timelineMarkers.addEventListener('pointerdown', event => {
     targetFrame: sourceFrame,
     sourceFrames,
     markers: selectedMarkers,
+    copy,
+    ghostMarkers,
   };
-  for (const item of selectedMarkers) item.marker.classList.add('dragging', 'selected');
+  if (!copy) for (const item of selectedMarkers) item.marker.classList.add('dragging', 'selected');
   marker.setPointerCapture(event.pointerId);
   editor.scrub(sourceFrame);
 });
@@ -960,12 +985,17 @@ timelineMarkers.addEventListener('pointermove', event => {
   const targetFrame = drag.anchorFrame + frameDelta;
   drag.targetFrame = targetFrame;
 
-  for (const item of drag.markers) {
+  const previewMarkers = drag.copy ? drag.ghostMarkers : drag.markers;
+  for (const item of previewMarkers) {
     const previewFrame = item.frame + frameDelta;
     item.marker.style.left = `${(previewFrame - 1) / 249 * 100}%`;
     item.marker.dataset.frame = String(previewFrame);
-    item.marker.setAttribute('aria-label', `Animation key preview at frame ${previewFrame}`);
-    item.marker.title = `Move animation key to frame ${previewFrame}`;
+    item.marker.setAttribute('aria-label', drag.copy
+      ? `Animation key copy preview at frame ${previewFrame}`
+      : `Animation key preview at frame ${previewFrame}`);
+    item.marker.title = drag.copy
+      ? `Copy animation key to frame ${previewFrame}`
+      : `Move animation key to frame ${previewFrame}`;
   }
   editor.scrub(targetFrame);
 });
@@ -974,11 +1004,12 @@ function finishTimelineKeyDrag(event: PointerEvent) {
   const drag = timelineKeyDrag;
   if (!drag || event.pointerId !== drag.pointerId) return;
   timelineKeyDrag = null;
-  for (const item of drag.markers) item.marker.classList.remove('dragging');
+  if (!drag.copy) for (const item of drag.markers) item.marker.classList.remove('dragging');
   if (drag.anchorMarker.hasPointerCapture(event.pointerId)) drag.anchorMarker.releasePointerCapture(event.pointerId);
 
   if (event.type === 'pointercancel') {
-    for (const item of drag.markers) restoreTimelineMarker(item.marker, item.frame);
+    if (drag.copy) clearTimelineCopyGhosts(drag);
+    else for (const item of drag.markers) restoreTimelineMarker(item.marker, item.frame);
     editor.scrub(drag.anchorFrame);
     setTimelineMarkerSelection();
     return;
@@ -986,16 +1017,20 @@ function finishTimelineKeyDrag(event: PointerEvent) {
 
   const frameDelta = drag.targetFrame - drag.anchorFrame;
   if (frameDelta === 0) {
-    for (const item of drag.markers) restoreTimelineMarker(item.marker, item.frame);
+    if (drag.copy) clearTimelineCopyGhosts(drag);
+    else for (const item of drag.markers) restoreTimelineMarker(item.marker, item.frame);
     editor.scrub(drag.anchorFrame);
     setTimelineMarkerSelection();
     return;
   }
 
   try {
-    const moved = editor.moveTimelineKeys(drag.sourceFrames, frameDelta);
-    if (!moved) {
-      for (const item of drag.markers) restoreTimelineMarker(item.marker, item.frame);
+    const edited = drag.copy
+      ? editor.duplicateTimelineKeys(drag.sourceFrames, frameDelta)
+      : editor.moveTimelineKeys(drag.sourceFrames, frameDelta);
+    if (!edited) {
+      if (drag.copy) clearTimelineCopyGhosts(drag);
+      else for (const item of drag.markers) restoreTimelineMarker(item.marker, item.frame);
       editor.scrub(drag.anchorFrame);
       setTimelineMarkerSelection();
       return;
@@ -1007,13 +1042,15 @@ function finishTimelineKeyDrag(event: PointerEvent) {
       animationGraph.selectKeyFrames(graphSelection.map(frame => sourceSet.has(frame) ? frame + frameDelta : frame));
     }
 
-    timelineSelectedFrames = new Set(moved.frames);
+    if (drag.copy) clearTimelineCopyGhosts(drag);
+    timelineSelectedFrames = new Set(edited.frames);
     editor.scrub(drag.targetFrame);
-    toast(`${drag.sourceFrames.length} Timeline key${drag.sourceFrames.length === 1 ? '' : 's'} moved by ${frameDelta > 0 ? '+' : ''}${frameDelta} frame${Math.abs(frameDelta) === 1 ? '' : 's'}.`);
+    toast(`${drag.sourceFrames.length} Timeline key${drag.sourceFrames.length === 1 ? '' : 's'} ${drag.copy ? 'copied' : 'moved'} by ${frameDelta > 0 ? '+' : ''}${frameDelta} frame${Math.abs(frameDelta) === 1 ? '' : 's'}.`);
     timelineState = '';
     updateTimeline();
   } catch (error) {
-    for (const item of drag.markers) restoreTimelineMarker(item.marker, item.frame);
+    if (drag.copy) clearTimelineCopyGhosts(drag);
+    else for (const item of drag.markers) restoreTimelineMarker(item.marker, item.frame);
     editor.scrub(drag.anchorFrame);
     toast((error as Error).message);
     timelineState = '';
@@ -1095,6 +1132,17 @@ on('capture', capture); on('capture-quick', capture);
 document.addEventListener('keydown', e => {
   const key = e.key.toLowerCase();
   const dialogOpen = Boolean(document.querySelector('dialog[open]'));
+  if ((key === 'delete' || key === 'backspace') && timelineSelectedFrames.size && !dialogOpen) {
+    const target = e.target;
+    const editingField = (target instanceof HTMLInputElement && target !== $<HTMLInputElement>('#scrubber'))
+      || target instanceof HTMLTextAreaElement
+      || target instanceof HTMLSelectElement;
+    if (!editingField) {
+      e.preventDefault();
+      removeSelectedTimelineKeys();
+      return;
+    }
+  }
   if (key === 'escape' && !dialogOpen) {
     if (timelineKeyDrag || timelineBoxDrag) {
       e.preventDefault();
