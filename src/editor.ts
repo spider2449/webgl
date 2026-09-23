@@ -1574,6 +1574,47 @@ export class Editor extends EventTarget {
     return true;
   }
 
+  moveTimelineKey(sourceFrame: number, targetFrame: number) {
+    if (!this.selected || this.editMode || this.playing || this.animationKeyDrag || this.animationHandleDrag) return false;
+    if (!Number.isInteger(sourceFrame) || !Number.isInteger(targetFrame) || sourceFrame < 1 || sourceFrame > 250 || targetFrame < 1 || targetFrame > 250) {
+      throw new Error('Timeline key frames must stay within 1–250.');
+    }
+    if (sourceFrame === targetFrame) {
+      this.scrub(sourceFrame);
+      return false;
+    }
+
+    const tracks = this.selected.userData.animationTracks as AnimationTrackMap | undefined;
+    const movedChannels = animationChannels.filter(channel =>
+      trackKeys(tracks, channel).some(key => key.frame === sourceFrame)
+    );
+    if (!movedChannels.length) return false;
+
+    for (const channel of movedChannels) {
+      if (trackKeys(tracks, channel).some(key => key.frame === targetFrame)) {
+        throw new Error(`Timeline key move would collide on ${channel} at frame ${targetFrame}.`);
+      }
+    }
+
+    for (const channel of movedChannels) {
+      const next = trackKeys(tracks, channel).map(key => {
+        const edited = cloneScalarKey(key);
+        if (edited.frame === sourceFrame) edited.frame = targetFrame;
+        return edited;
+      });
+      this.setAnimationTrack(this.selected, channel, next);
+    }
+
+    this.frame = targetFrame;
+    this.evaluateAnimation();
+    this.emit('frame');
+    this.emit('animation');
+    this.emit('transform');
+    this.invalidate();
+    this.commit();
+    return movedChannels;
+  }
+
   scaleChannelKeyTimes(channel: ScalarAnimationChannel, frames: number[], factor: number) {
     if (!validAnimationChannel(channel) || !Number.isFinite(factor) || factor <= 0) {
       throw new Error('Time scale must be a positive finite number.');
