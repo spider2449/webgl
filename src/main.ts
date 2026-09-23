@@ -355,12 +355,16 @@ function renderOutliner() {
 }
 let timelineState = '';
 let markerState = '';
+let timelineSelectedFrames = new Set<number>();
 let wasPlaying = false;
 function updateTimeline() {
   const frame = Math.round(editor.frame);
   const tracks = editor.selected?.userData.animationTracks as AnimationTrackMap | undefined;
   const markerFrames = allAnimationFrames(tracks);
+  const markerFrameSet = new Set(markerFrames);
+  timelineSelectedFrames = new Set([...timelineSelectedFrames].filter(selectedFrame => markerFrameSet.has(selectedFrame)));
   const markers = markerFrames.join(',');
+  const selectedMarkers = [...timelineSelectedFrames].sort((a, b) => a - b).join(',');
   const activeKeys = trackKeys(tracks, graphChannel);
   animationGraph.update(editor.selected, graphChannel, editor.frame);
 
@@ -422,7 +426,7 @@ function updateTimeline() {
     ? `Remove ${selectedGraphFrames.length} selected channel keys`
     : 'Remove selected channel key';
 
-  const state = `${frame}|${editor.playing}|${markers}`;
+  const state = `${frame}|${editor.playing}|${markers}|${selectedMarkers}`;
   if (timelineState === state) return;
   timelineState = state;
   $<HTMLInputElement>('#current-frame').value = String(frame);
@@ -431,11 +435,12 @@ function updateTimeline() {
   $('#playhead span').textContent = String(frame);
   if (wasPlaying !== editor.playing) { $('#play').innerHTML = icon(editor.playing ? 'pause' : 'play'); refreshIcons(); wasPlaying = editor.playing; }
   $('#draw-status').textContent = editor.playing ? 'PLAYING · 24 FPS' : 'ON DEMAND';
-  if (markerState !== markers) {
+  const markerRenderState = `${markers}|${selectedMarkers}`;
+  if (markerState !== markerRenderState) {
     $('#keyframe-markers').innerHTML = markerFrames
-      .map(keyFrame => `<button type="button" class="key-marker" data-frame="${keyFrame}" aria-label="Animation key at frame ${keyFrame}" title="Animation key at frame ${keyFrame}" style="left:${(keyFrame-1)/249*100}%"></button>`)
+      .map(keyFrame => `<button type="button" class="key-marker${timelineSelectedFrames.has(keyFrame) ? ' selected' : ''}" data-frame="${keyFrame}" aria-label="Animation key at frame ${keyFrame}" title="Animation key at frame ${keyFrame}" style="left:${(keyFrame-1)/249*100}%"></button>`)
       .join('');
-    markerState = markers;
+    markerState = markerRenderState;
   }
 }
 editor.addEventListener('change', updateUI);
@@ -676,11 +681,12 @@ on('insert-key', insertKey);
 on('remove-key', () => editor.removeKey());
 
 type TimelineKeyDrag = {
-  marker: HTMLButtonElement;
+  anchorMarker: HTMLButtonElement;
   pointerId: number;
-  sourceFrame: number;
+  anchorFrame: number;
   targetFrame: number;
-  activeChannelHadSource: boolean;
+  sourceFrames: number[];
+  markers: Array<{ marker: HTMLButtonElement; frame: number }>;
 };
 let timelineKeyDrag: TimelineKeyDrag | null = null;
 const timelineMarkers = $('#keyframe-markers');
@@ -698,14 +704,23 @@ function restoreTimelineMarker(marker: HTMLButtonElement, frame: number) {
   marker.title = `Animation key at frame ${frame}`;
 }
 
+function setTimelineMarkerSelection() {
+  timelineMarkers.querySelectorAll<HTMLButtonElement>('.key-marker').forEach(marker => {
+    marker.classList.toggle('selected', timelineSelectedFrames.has(Number(marker.dataset.frame)));
+  });
+}
+
 function cancelTimelineKeyDrag() {
   const drag = timelineKeyDrag;
   if (!drag) return false;
   timelineKeyDrag = null;
-  drag.marker.classList.remove('dragging');
-  restoreTimelineMarker(drag.marker, drag.sourceFrame);
-  if (drag.marker.hasPointerCapture(drag.pointerId)) drag.marker.releasePointerCapture(drag.pointerId);
-  editor.scrub(drag.sourceFrame);
+  for (const item of drag.markers) {
+    item.marker.classList.remove('dragging');
+    restoreTimelineMarker(item.marker, item.frame);
+  }
+  if (drag.anchorMarker.hasPointerCapture(drag.pointerId)) drag.anchorMarker.releasePointerCapture(drag.pointerId);
+  editor.scrub(drag.anchorFrame);
+  setTimelineMarkerSelection();
   return true;
 }
 
@@ -717,17 +732,34 @@ timelineMarkers.addEventListener('pointerdown', event => {
 
   event.preventDefault();
   event.stopPropagation();
+
+  if (event.shiftKey) {
+    if (timelineSelectedFrames.has(sourceFrame)) timelineSelectedFrames.delete(sourceFrame);
+    else timelineSelectedFrames.add(sourceFrame);
+    editor.scrub(sourceFrame);
+    timelineState = '';
+    updateTimeline();
+    return;
+  }
+
+  if (!timelineSelectedFrames.has(sourceFrame)) timelineSelectedFrames = new Set([sourceFrame]);
+  const sourceFrames = [...timelineSelectedFrames].sort((a, b) => a - b);
+  const selectedMarkers = sourceFrames
+    .map(frame => ({
+      frame,
+      marker: timelineMarkers.querySelector<HTMLButtonElement>(`.key-marker[data-frame="${frame}"]`),
+    }))
+    .filter((item): item is { marker: HTMLButtonElement; frame: number } => item.marker !== null);
+
   timelineKeyDrag = {
-    marker,
+    anchorMarker: marker,
     pointerId: event.pointerId,
-    sourceFrame,
+    anchorFrame: sourceFrame,
     targetFrame: sourceFrame,
-    activeChannelHadSource: trackKeys(
-      editor.selected?.userData.animationTracks as AnimationTrackMap | undefined,
-      graphChannel,
-    ).some(key => key.frame === sourceFrame),
+    sourceFrames,
+    markers: selectedMarkers,
   };
-  marker.classList.add('dragging');
+  for (const item of selectedMarkers) item.marker.classList.add('dragging', 'selected');
   marker.setPointerCapture(event.pointerId);
   editor.scrub(sourceFrame);
 });
@@ -736,12 +768,21 @@ timelineMarkers.addEventListener('pointermove', event => {
   const drag = timelineKeyDrag;
   if (!drag || event.pointerId !== drag.pointerId) return;
   event.preventDefault();
-  const targetFrame = timelineFrameAt(event.clientX);
+
+  const rawTarget = timelineFrameAt(event.clientX);
+  const minDelta = 1 - drag.sourceFrames[0];
+  const maxDelta = 250 - drag.sourceFrames[drag.sourceFrames.length - 1];
+  const frameDelta = THREE.MathUtils.clamp(rawTarget - drag.anchorFrame, minDelta, maxDelta);
+  const targetFrame = drag.anchorFrame + frameDelta;
   drag.targetFrame = targetFrame;
-  drag.marker.style.left = `${(targetFrame - 1) / 249 * 100}%`;
-  drag.marker.dataset.frame = String(targetFrame);
-  drag.marker.setAttribute('aria-label', `Animation key preview at frame ${targetFrame}`);
-  drag.marker.title = `Move animation key to frame ${targetFrame}`;
+
+  for (const item of drag.markers) {
+    const previewFrame = item.frame + frameDelta;
+    item.marker.style.left = `${(previewFrame - 1) / 249 * 100}%`;
+    item.marker.dataset.frame = String(previewFrame);
+    item.marker.setAttribute('aria-label', `Animation key preview at frame ${previewFrame}`);
+    item.marker.title = `Move animation key to frame ${previewFrame}`;
+  }
   editor.scrub(targetFrame);
 });
 
@@ -749,39 +790,49 @@ function finishTimelineKeyDrag(event: PointerEvent) {
   const drag = timelineKeyDrag;
   if (!drag || event.pointerId !== drag.pointerId) return;
   timelineKeyDrag = null;
-  drag.marker.classList.remove('dragging');
-  if (drag.marker.hasPointerCapture(event.pointerId)) drag.marker.releasePointerCapture(event.pointerId);
+  for (const item of drag.markers) item.marker.classList.remove('dragging');
+  if (drag.anchorMarker.hasPointerCapture(event.pointerId)) drag.anchorMarker.releasePointerCapture(event.pointerId);
 
   if (event.type === 'pointercancel') {
-    restoreTimelineMarker(drag.marker, drag.sourceFrame);
-    editor.scrub(drag.sourceFrame);
+    for (const item of drag.markers) restoreTimelineMarker(item.marker, item.frame);
+    editor.scrub(drag.anchorFrame);
+    setTimelineMarkerSelection();
     return;
   }
 
-  if (drag.targetFrame === drag.sourceFrame) {
-    restoreTimelineMarker(drag.marker, drag.sourceFrame);
-    editor.scrub(drag.sourceFrame);
+  const frameDelta = drag.targetFrame - drag.anchorFrame;
+  if (frameDelta === 0) {
+    for (const item of drag.markers) restoreTimelineMarker(item.marker, item.frame);
+    editor.scrub(drag.anchorFrame);
+    setTimelineMarkerSelection();
     return;
   }
 
   try {
-    const movedChannels = editor.moveTimelineKey(drag.sourceFrame, drag.targetFrame);
-    if (!movedChannels) {
-      restoreTimelineMarker(drag.marker, drag.sourceFrame);
-      editor.scrub(drag.sourceFrame);
+    const moved = editor.moveTimelineKeys(drag.sourceFrames, frameDelta);
+    if (!moved) {
+      for (const item of drag.markers) restoreTimelineMarker(item.marker, item.frame);
+      editor.scrub(drag.anchorFrame);
+      setTimelineMarkerSelection();
       return;
     }
-    if (drag.activeChannelHadSource && movedChannels.includes(graphChannel)) {
-      animationGraph.selectKeyFrames(animationGraph.selectedKeyFrames.map(frame =>
-        frame === drag.sourceFrame ? drag.targetFrame : frame
-      ));
+
+    const sourceSet = new Set(drag.sourceFrames);
+    const graphSelection = animationGraph.selectedKeyFrames;
+    if (graphSelection.some(frame => sourceSet.has(frame))) {
+      animationGraph.selectKeyFrames(graphSelection.map(frame => sourceSet.has(frame) ? frame + frameDelta : frame));
     }
-    toast(`Animation key moved from frame ${drag.sourceFrame} to ${drag.targetFrame}.`);
+
+    timelineSelectedFrames = new Set(moved.frames);
+    editor.scrub(drag.targetFrame);
+    toast(`${drag.sourceFrames.length} Timeline key${drag.sourceFrames.length === 1 ? '' : 's'} moved by ${frameDelta > 0 ? '+' : ''}${frameDelta} frame${Math.abs(frameDelta) === 1 ? '' : 's'}.`);
+    timelineState = '';
     updateTimeline();
   } catch (error) {
-    restoreTimelineMarker(drag.marker, drag.sourceFrame);
-    editor.scrub(drag.sourceFrame);
+    for (const item of drag.markers) restoreTimelineMarker(item.marker, item.frame);
+    editor.scrub(drag.anchorFrame);
     toast((error as Error).message);
+    timelineState = '';
     updateTimeline();
   }
 }
