@@ -90,6 +90,8 @@ test('Escape cancels Timeline box preview and restores the previous selection wi
   await expect(page.locator('#timeline-selection-box')).toHaveClass(/active/);
   await expect(page.locator('.key-marker.selected')).toHaveCount(3);
 
+  await page.locator('#scrubber').focus();
+  await expect(page.locator('#scrubber')).toBeFocused();
   await page.keyboard.press('Escape');
   await page.mouse.up();
   await page.keyboard.up('Shift');
