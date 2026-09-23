@@ -1,10 +1,10 @@
-import { animationChannels, animationTracks, effectiveSegmentInterpolation } from './animation';
+import { animationChannels, animationTracks, effectiveSegmentInterpolation, sampleAnimationChannel } from './animation';
 import { AnimationGraphView, animationChannelLabel } from './animation-graph';
 import './style.css';
 import * as THREE from 'three';
 import { createIcons, Box, ChevronDown, ChevronRight, Plus, MousePointer2, Move, Rotate3d, Scaling, Magnet, Grid2x2, Scan, Eye, EyeOff, Search, SlidersHorizontal, Layers, Diamond, Play, Pause, SkipBack, SkipForward, ChevronFirst, ChevronLast, Undo2, Redo2, Copy, Trash2, X, HelpCircle, Download, Upload, Camera, Check, Circle, Triangle, Hexagon, FolderOpen, FolderPlus, LogOut, Save, FilePlus2, Maximize, Globe, Settings2, Crosshair, Sun, Activity, PanelRightClose } from 'lucide';
 import { mountModelingUI } from './modeling-ui';
-import { Editor, type Primitive, type Project, type Keyframe, type KeyInterpolation, type ScalarAnimationChannel, type TransformOrientation } from './editor';
+import { Editor, type Primitive, type Project, type Keyframe, type KeyInterpolation, type KeyTangentMode, type ScalarAnimationChannel, type TransformOrientation } from './editor';
 import { RigSystem, rigBones, RIG_SOURCE } from './rig';
 
 const icons = { Box, ChevronDown, ChevronRight, Plus, MousePointer2, Move, Rotate3d, Scaling, Magnet, Grid2x2, Scan, Eye, EyeOff, Search, SlidersHorizontal, Layers, Diamond, Play, Pause, SkipBack, SkipForward, ChevronFirst, ChevronLast, Undo2, Redo2, Copy, Trash2, X, HelpCircle, Download, Upload, Camera, Check, Circle, Triangle, Hexagon, FolderOpen, FolderPlus, LogOut, Save, FilePlus2, Maximize, Globe, Settings2, Crosshair, Sun, Activity, PanelRightClose };
@@ -37,7 +37,7 @@ $('#app').innerHTML = `
         <div class="viewport-caption"><span class="caption-mark"></span><span id="mode-hint">Build something extraordinary.</span></div>
         <div class="viewport-badge">${icon('activity')}<span id="draw-status">ON DEMAND</span></div>
       </div>
-      <section class="timeline" aria-label="Animation timeline"><div class="timeline-header"><span class="panel-title">${icon('diamond')} Timeline</span><span class="timeline-selection" id="timeline-object">Cube</span><div class="playback">${button('first-frame','chevron-first','First frame')}${button('previous-key','skip-back','Previous keyframe')}${button('play','play','Play / pause (Space)')}${button('next-key','skip-forward','Next keyframe')}${button('last-frame','chevron-last','Last frame')}</div><div class="frame-settings"><input id="current-frame" aria-label="Current frame" type="number" min="1" max="250" value="1"><span>/ 250</span><span class="fps">24 fps</span>${button('insert-key','diamond','Insert transform keyframe (I)')}${button('remove-key','x','Remove current keyframe')}</div></div><div class="animation-graph"><div class="animation-graph-header"><span id="animation-graph-title">Graph Editor</span><span id="animation-graph-detail">Add transform keys to display a curve.</span><label class="graph-segment-control">Segment<select id="graph-key-interpolation" aria-label="Selected key interpolation"><option value="linear">Linear</option><option value="constant">Constant</option><option value="bezier">Bezier</option></select></label><span class="graph-editor-badge" title="Drag key to edit or retime · Alt-drag to copy">KEY CURVES</span></div><div class="animation-graph-body"><nav class="graph-channels" aria-label="Graph channels">${(['position','rotation','scale'] as const).map(property => `<div class="graph-channel-group"><span>${property === 'position' ? 'Location' : property[0].toUpperCase()+property.slice(1)}</span>${animationChannels.filter(channel => channel.startsWith(property + '.')).map(channel => `<button type="button" data-graph-channel="${channel}" aria-label="Graph channel ${animationChannelLabel(channel)}"><span>${channel.at(-1)!.toUpperCase()}</span><small>LIN</small></button>`).join('')}</div>`).join('')}</nav><svg id="animation-graph" aria-label="Animation graph editor" role="img" viewBox="0 0 1000 180" preserveAspectRatio="none"></svg></div></div><div class="timeline-track" id="timeline-track"><div class="timeline-ruler">${[1,25,50,75,100,125,150,175,200,225,250].map(n => `<span style="left:${(n-1)/249*100}%">${n}</span>`).join('')}</div><div id="keyframe-markers"></div><div class="playhead" id="playhead"><span>1</span></div><input type="range" id="scrubber" aria-label="Timeline frame" min="1" max="250" value="1"></div></section>
+      <section class="timeline" aria-label="Animation timeline"><div class="timeline-header"><span class="panel-title">${icon('diamond')} Timeline</span><span class="timeline-selection" id="timeline-object">Cube</span><div class="playback">${button('first-frame','chevron-first','First frame')}${button('previous-key','skip-back','Previous keyframe')}${button('play','play','Play / pause (Space)')}${button('next-key','skip-forward','Next keyframe')}${button('last-frame','chevron-last','Last frame')}</div><div class="frame-settings"><input id="current-frame" aria-label="Current frame" type="number" min="1" max="250" value="1"><span>/ 250</span><span class="fps">24 fps</span>${button('insert-key','diamond','Insert transform keyframe (I)')}${button('remove-key','x','Remove current keyframe')}</div></div><div class="animation-graph"><div class="animation-graph-header"><span id="animation-graph-title">Graph Editor</span><span id="animation-graph-detail">Add transform keys to display a curve.</span><label class="graph-segment-control">Segment<select id="graph-key-interpolation" aria-label="Selected key interpolation"><option value="linear">Linear</option><option value="constant">Constant</option><option value="bezier">Bezier</option></select></label><label class="graph-tangent-control">Tangent<select id="graph-key-tangent" aria-label="Selected key tangent mode"><option value="free">Free</option><option value="aligned">Aligned</option><option value="auto">Auto</option></select></label><span class="graph-editor-badge" title="Drag key to edit or retime · Alt-drag to copy">KEY CURVES</span></div><div class="animation-graph-body"><nav class="graph-channels" aria-label="Graph channels">${(['position','rotation','scale'] as const).map(property => `<div class="graph-channel-group"><span>${property === 'position' ? 'Location' : property[0].toUpperCase()+property.slice(1)}</span>${animationChannels.filter(channel => channel.startsWith(property + '.')).map(channel => `<button type="button" data-graph-channel="${channel}" aria-label="Graph channel ${animationChannelLabel(channel)}"><span>${channel.at(-1)!.toUpperCase()}</span><small>LIN</small></button>`).join('')}</div>`).join('')}</nav><svg id="animation-graph" aria-label="Animation graph editor" role="img" viewBox="0 0 1000 180" preserveAspectRatio="none"></svg></div></div><div class="timeline-track" id="timeline-track"><div class="timeline-ruler">${[1,25,50,75,100,125,150,175,200,225,250].map(n => `<span style="left:${(n-1)/249*100}%">${n}</span>`).join('')}</div><div id="keyframe-markers"></div><div class="playhead" id="playhead"><span>1</span></div><input type="range" id="scrubber" aria-label="Timeline frame" min="1" max="250" value="1"></div></section>
     </section>
     <aside class="sidebar">
       <section class="outliner"><div class="panel-heading"><span class="panel-title">${icon('layers')} Scene Collection</span><span class="count" id="object-count">1</span>${button('add-outliner','plus','Add mesh')}</div><div class="search-field">${icon('search')}<input id="object-search" placeholder="Search objects…" aria-label="Search objects"><kbd>/</kbd></div><div class="collection-row">${icon('chevron-down')}${icon('folder-open')}<span>Scene Collection</span>${button('add-collection','plus','Create collection')}</div><div id="object-list" class="object-list"></div><div class="outliner-footer"><span id="selection-count">1 object selected</span>${button('delete-outliner','trash-2','Delete selected object')}<input id="collection-name" aria-label="New collection name" value="Collection" maxlength="100"><select id="collection-target" aria-label="Target collection"><option value="">Move selected to…</option></select>${button('move-to-collection','folder-open','Move selected to collection')}${button('unlink-collection','log-out','Unlink from collection')}${button('delete-collection','trash-2','Delete empty collection')}</div></section>
@@ -219,14 +219,46 @@ document.querySelectorAll<HTMLButtonElement>('[data-workspace]').forEach(b => b.
   if (name === 'modeling') { void editor.enterEditMode(true).then(ok => { if (!ok) toast('Select a mesh and apply its modifiers to enter Edit Mode.'); tool('translate'); }).catch(error => toast(error.message)); }
   else editor.setEditMode(false);
 });
+type TransformKeyState = 'none' | 'keyed-current' | 'animated' | 'changed';
 function updateTransforms() {
   const object = editor.selected;
   if (!object) return;
+  const keys: Keyframe[] = object.userData.keyframes ?? [];
+  const currentFrame = Math.round(editor.frame);
+  const hasCurrentKey = keys.some(key => key.frame === currentFrame);
+
   document.querySelectorAll<HTMLInputElement>('[data-transform]').forEach(input => {
-    if (document.activeElement === input) return;
     const property = input.dataset.transform as 'position' | 'rotation' | 'scale';
     const axis = input.dataset.axis as 'x' | 'y' | 'z';
-    input.value = (object[property][axis] * (property === 'rotation' ? 180 / Math.PI : 1)).toFixed(3);
+    const channel = `${property}.${axis}` as ScalarAnimationChannel;
+    const value = object[property][axis];
+
+    let state: TransformKeyState = 'none';
+    if (keys.length) {
+      const expected = sampleAnimationChannel(keys, editor.frame, channel);
+      const changed = Math.abs(value - expected) > 1e-6;
+      state = changed ? 'changed' : hasCurrentKey ? 'keyed-current' : 'animated';
+    }
+
+    const field = input.closest<HTMLElement>('.axis-input');
+    if (field) {
+      field.dataset.keyState = state;
+      field.classList.toggle('key-state-current', state === 'keyed-current');
+      field.classList.toggle('key-state-animated', state === 'animated');
+      field.classList.toggle('key-state-changed', state === 'changed');
+      field.title = state === 'keyed-current'
+        ? 'Keyframed on the current frame'
+        : state === 'animated'
+          ? 'Animated; keyframe is on another frame'
+          : state === 'changed'
+            ? 'Changed from the animated value; insert a key to store it'
+            : '';
+    }
+
+    input.dataset.keyState = state;
+    if (document.activeElement !== input) {
+      input.value = (value * (property === 'rotation' ? 180 / Math.PI : 1)).toFixed(3);
+    }
   });
 }
 function updateUI() {
@@ -345,6 +377,12 @@ function updateTimeline() {
   const selectedGraphKey = selectedGraphIndex >= 0 ? keys[selectedGraphIndex] : null;
   keyInterpolation.value = selectedGraphKey ? effectiveSegmentInterpolation(selectedGraphKey, graphChannel) : 'linear';
   keyInterpolation.disabled = !selectedGraphKey || selectedGraphIndex === keys.length - 1 || editor.editMode || editor.playing;
+
+  const keyTangent = $<HTMLSelectElement>('#graph-key-tangent');
+  const incomingBezier = selectedGraphIndex > 0 && keys[selectedGraphIndex - 1].curves?.[graphChannel]?.interpolation === 'bezier';
+  const outgoingBezier = selectedGraphIndex >= 0 && selectedGraphIndex < keys.length - 1 && keys[selectedGraphIndex].curves?.[graphChannel]?.interpolation === 'bezier';
+  keyTangent.value = selectedGraphKey?.curves?.[graphChannel]?.tangent ?? 'free';
+  keyTangent.disabled = !selectedGraphKey || (!incomingBezier && !outgoingBezier) || editor.editMode || editor.playing;
 
   const state = `${frame}|${editor.playing}|${markers}`;
   if (timelineState === state) return;
@@ -530,6 +568,19 @@ $('#graph-key-interpolation').addEventListener('change', event => {
   const value = (event.target as HTMLSelectElement).value as KeyInterpolation;
   try {
     editor.setKeyInterpolation(frame, graphChannel, value);
+    updateTimeline();
+  } catch (error) {
+    toast((error as Error).message);
+    updateTimeline();
+  }
+});
+
+$('#graph-key-tangent').addEventListener('change', event => {
+  const frame = animationGraph.selectedKeyFrame;
+  if (frame === null) return;
+  const value = (event.target as HTMLSelectElement).value as KeyTangentMode;
+  try {
+    editor.setKeyTangentMode(frame, graphChannel, value);
     updateTimeline();
   } catch (error) {
     toast((error as Error).message);

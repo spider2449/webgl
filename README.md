@@ -30,7 +30,7 @@ The browser tests use port 5174. Production output is in `dist/`. No backend, ac
 - Edit Mode offers Vertex, Edge and Triangle face selection. Click a component and drag its move gizmo to translate all its vertices together; selected vertices appear orange. Exactly coincident positions move together across normal and UV seams. Edges include triangulation diagonals; faces are individual triangles. Vertex and edge selection can reach through the mesh. Use **Extrude selected triangle** in the Object panel to add an offset cap and three walls along the face normal. Set a positive **Extrusion distance** in local mesh units; the cap stays selected for movement or repeated extrusion. Each operation accepts up to 100k input vertices. Existing UVs/colors and material groups are retained; wall UVs copy the boundary values and need later unwrapping. Unsupported attributes, morph targets and partial draw ranges are rejected. Use **Extrude planar region** for connected coplanar face selections. Inward extrusion and polygon merging are not implemented.
 - Material properties edit the first standard material of a selected mesh. Imported groups expose child meshes in the outliner. Solid and wireframe views are temporary viewport overrides.
 - The Material workspace includes bounded **Texture paint** and texture management tools for UV-mapped meshes. Enable an embedded 256×256 canvas, choose a brush color and size, paint directly on the UV layout, or import PNG/JPEG/WebP pixels and export the active canvas as PNG; clear, undo/redo and Forge project save/load retain the bitmap. Layers, alpha masks and packing are not included.
-- Use the timeline to insert transform keys, move to another frame, change the object, and insert another key. Playback interpolates at a 24 fps timeline timebase across frames 1–250. Newly authored keys retain unwrapped Euler rotation alongside quaternion orientation, so values such as 270° or 540° survive scrubbing, playback and Forge project reloads instead of folding back into ±180°. Existing quaternion-only projects remain supported.
+- Use the timeline to insert transform keys, move to another frame, change the object, and insert another key. Playback interpolates at a 24 fps timeline timebase across frames 1–250. Authored keys retain unwrapped Euler rotation alongside quaternion orientation, so values such as 270° or 540° survive scrubbing, playback and Forge project reloads instead of folding back into ±180°.
 - Ctrl+Z / Ctrl+Shift+Z undo and redo. Shift+D creates an independent duplicate; Alt+D creates a linked duplicate for an ordinary mesh, sharing its geometry and material while keeping transform, name and collection membership independent. Linked duplication rejects skinned meshes and meshes with an active modifier stack. Delete removes objects. Individual bones cannot be deleted or duplicated; duplicate the armature to make an independent character.
 
 ### Triangle inset
@@ -150,10 +150,20 @@ same channel may use different modes; the channel rail shows **MIX** when they
 differ.
 
 Bezier creates a right handle on the source key and a left handle on the next
-key. Drag either tangent directly in the graph. Handle time is bounded to the
-adjacent segment so frame→value remains single-valued. Rotation curves display
-degrees while preserving unwrapped Euler radians internally; quaternion
-orientation stays synchronized.
+key. Each key/channel has a tangent mode: **Free** keeps both handles
+independent; **Aligned** keeps them opposite and collinear while preserving the
+other handle's length; **Auto** derives a monotone slope from neighboring keys
+and updates automatically as key timing or values change. Auto handles are
+visible but not directly draggable. Handle time remains bounded to the adjacent
+segment so frame→value stays single-valued. Rotation curves display degrees
+while preserving unwrapped Euler radians internally; quaternion orientation
+stays synchronized.
+
+Transform fields in the Object panel use Blender-style animation state colors:
+**yellow** when the current frame is keyed, **green** when the property is
+animated but keyed on another frame, and **orange** when the live value has been
+changed away from the evaluated animation value and still needs a key. Unanimated
+fields keep the normal neutral styling.
 
 Graph key interaction is direct:
 
@@ -177,7 +187,7 @@ Bezier tangents. Pure Linear animation exports as LINEAR key tracks. Objects
 containing Constant or Bezier segments are baked to LINEAR samples; Bezier uses
 32 samples per segment and Constant adds a near-boundary hold sample. This
 export path is an approximation. Independent per-channel key times, arbitrary
-F-curves, tangent coupling modes, and batch curve operations remain future work.
+F-curves, weighted tangent types, and batch curve operations remain future work.
 
 ## Kimodo rigging
 

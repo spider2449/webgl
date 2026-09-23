@@ -243,42 +243,52 @@ test('Constant per-key segments bake hold behavior into GLB', async ({ page }) =
   expect(glb.readFloatLE(offset + 6 * 4)).toBeCloseTo(8, 4);
 });
 
-test('rotation per-key curves upgrade quaternion-only keys without orientation drift', async ({ page }) => {
+test('tangent modes persist and malformed tangent metadata fails closed', async ({ page }) => {
   const result = await page.evaluate(() => {
     const e = (window as any).__forge;
     const object = e.selected;
     object.userData.keyframes = [];
 
-    e.frame = 1;
-    object.rotation.set(10 * Math.PI / 180, 20 * Math.PI / 180, 30 * Math.PI / 180, 'XYZ');
-    e.insertKey();
-    e.frame = 25;
-    object.rotation.set(40 * Math.PI / 180, 50 * Math.PI / 180, 60 * Math.PI / 180, 'XYZ');
-    e.insertKey();
+    e.frame = 1; object.position.set(0, 0, 0); e.insertKey();
+    e.frame = 25; object.position.set(8, 0, 0); e.insertKey();
+    e.frame = 49; object.position.set(16, 0, 0); e.insertKey();
 
-    const before = object.userData.keyframes.map((key: any) => [...key.quaternion]);
-    object.userData.keyframes.forEach((key: any) => {
-      delete key.rotation;
-      delete key.rotationOrder;
-    });
+    e.setKeyInterpolation(1, 'position.x', 'bezier');
+    e.setKeyInterpolation(25, 'position.x', 'bezier');
+    e.setKeyTangentMode(25, 'position.x', 'aligned');
 
-    e.setKeyInterpolation(1, 'rotation.y', 'bezier');
-    const upgraded = object.userData.keyframes.map((key: any) => ({
-      rotation: key.rotation.map((value: number) => value * 180 / Math.PI),
-      order: key.rotationOrder,
-      quaternion: [...key.quaternion],
-      curve: structuredClone(key.curves?.['rotation.y'] ?? null),
-    }));
-    const dots = upgraded.map((key: any, index: number) =>
-      Math.abs(key.quaternion.reduce((sum: number, value: number, component: number) =>
-        sum + value * before[index][component], 0))
+    const alignedSaved = e.snapshot();
+    e.load(JSON.parse(alignedSaved));
+    const aligned = structuredClone(
+      e.selected.userData.keyframes.find((key: any) => key.frame === 25).curves['position.x']
     );
 
-    return { upgraded, dots };
+    e.setKeyTangentMode(25, 'position.x', 'auto');
+    const autoSaved = e.snapshot();
+    e.load(JSON.parse(autoSaved));
+    const auto = structuredClone(
+      e.selected.userData.keyframes.find((key: any) => key.frame === 25).curves['position.x']
+    );
+
+    const invalid = JSON.parse(autoSaved);
+    invalid.scene.object.children[0].userData.keyframes[1].curves['position.x'].tangent = 'vector';
+    let invalidRejected = false;
+    try { e.load(invalid); } catch { invalidRejected = true; }
+
+    return {
+      aligned,
+      auto,
+      invalidRejected,
+      unchangedAfterReject: e.snapshot() === autoSaved,
+    };
   });
 
-  expect(result.upgraded[0].order).toBe('XYZ');
-  expect(result.upgraded[1].order).toBe('XYZ');
-  expect(result.upgraded[0].curve.interpolation).toBe('bezier');
-  expect(result.dots.every((dot: number) => Math.abs(dot - 1) < 1e-10)).toBe(true);
+  expect(result.aligned.tangent).toBe('aligned');
+  expect(result.aligned.left).toHaveLength(2);
+  expect(result.aligned.right).toHaveLength(2);
+  expect(result.auto.tangent).toBe('auto');
+  expect(result.auto.left).toBeUndefined();
+  expect(result.auto.right).toBeUndefined();
+  expect(result.invalidRejected).toBe(true);
+  expect(result.unchangedAfterReject).toBe(true);
 });

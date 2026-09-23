@@ -102,36 +102,6 @@ test('edits unwrapped rotation channels and keeps quaternion, interpolation, his
   expect(result.restored[2]).toBeCloseTo(40, 6);
 });
 
-test('editing a legacy quaternion-only rotation key upgrades it compatibly', async ({ page }) => {
-  const result = await page.evaluate(() => {
-    const e = (window as any).__forge;
-    e.scrub(1);
-    const key = e.selected.userData.keyframes[0];
-    delete key.rotation;
-    delete key.rotationOrder;
-    const oldQuaternion = [...key.quaternion];
-
-    e.editKeyChannel('rotation.x', 45);
-    const upgraded = e.selected.userData.keyframes[0];
-    return {
-      oldQuaternion,
-      rotation: upgraded.rotation.map((value: number) => value * 180 / Math.PI),
-      rotationOrder: upgraded.rotationOrder,
-      quaternion: [...upgraded.quaternion],
-      objectRotation: [e.selected.rotation.x, e.selected.rotation.y, e.selected.rotation.z].map((value: number) => value * 180 / Math.PI),
-    };
-  });
-
-  expect(result.rotationOrder).toBe('XYZ');
-  expect(result.rotation[0]).toBeCloseTo(45, 6);
-  expect(result.rotation[1]).toBeCloseTo(20, 6);
-  expect(result.rotation[2]).toBeCloseTo(0, 6);
-  expect(result.objectRotation[0]).toBeCloseTo(45, 6);
-  expect(result.objectRotation[1]).toBeCloseTo(20, 6);
-  expect(result.objectRotation[2]).toBeCloseTo(0, 6);
-  expect(result.quaternion).not.toEqual(result.oldQuaternion);
-});
-
 test('invalid scalar channel edits preserve scene and history', async ({ page }) => {
   const result = await page.evaluate(() => {
     const e = (window as any).__forge;

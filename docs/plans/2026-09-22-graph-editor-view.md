@@ -16,6 +16,10 @@ per-key segment interpolation and cubic Bezier handles.
 - Show the current frame as a moving playhead on the same 1–250 horizontal domain as the timeline.
 - Selecting Bezier initializes a straight-line-equivalent right handle on the selected key and left handle on the next key.
 - Drag left/right tangent handles directly in frame/value space.
+- Add per-key/channel Free, Aligned and Auto tangent modes.
+- Free keeps handles independent.
+- Aligned couples both sides into one line while preserving the opposite handle length when possible within time bounds.
+- Auto derives a monotone neighboring-key slope, shows computed handles and disables direct handle dragging.
 - Constrain handle time coordinates to adjacent segments and prevent control-time crossing so frame→value remains single-valued.
 - Drag a key vertically to edit the selected scalar value.
 - Drag a key horizontally to retime the entire transform key to an integer frame.
@@ -68,14 +72,13 @@ data model and are not claimed here.
 This increment does not add:
 
 - independent per-channel key times,
-- auto/aligned tangent modes,
 - weighted tangent types,
 - arbitrary F-curves,
 - curve modifiers,
 - batch curve operations,
 - replacement of the existing timeline.
 
-Handles are free but time-bounded; there is no automatic tangent coupling mode.
+Handles are time-bounded. Free, Aligned and Auto coupling are implemented; weighted and custom tangent weighting are not.
 
 ## Validation
 
@@ -90,11 +93,12 @@ Playwright coverage verifies:
 - Bezier default handles reproduce the straight linear segment,
 - actual pointer dragging of a tangent changes playback evaluation,
 - tangent drag is one-step undoable/redoable,
-- curve metadata survives Forge project round trips,
+- Aligned dragging updates the opposite handle while preserving collinearity,
+- Auto tangents recompute from neighboring keys and cannot be manually dragged,
+- tangent modes survive Forge project round trips,
 - removed object/channel interpolation fields are rejected,
 - malformed curve modes, handles and unknown curve fields fail closed,
 - per-key Bezier curves bake to LINEAR GLB samples matching the Forge evaluator,
-- Rotation key curves upgrade quaternion-only keys without orientation drift,
 - key value drag, whole-transform retiming and Alt-drag key copy remain covered,
 - occupied target frames are not overwritten.
 

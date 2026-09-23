@@ -41,10 +41,6 @@ export function animationChannelValue(key: Keyframe, channel: ScalarAnimationCha
   return THREE.MathUtils.radToDeg([euler.x, euler.y, euler.z][component]);
 }
 
-function displayDelta(channel: ScalarAnimationChannel, nativeDelta: number) {
-  return channel.startsWith('rotation.') ? THREE.MathUtils.radToDeg(nativeDelta) : nativeDelta;
-}
-
 function displayNative(channel: ScalarAnimationChannel, nativeValue: number) {
   return channel.startsWith('rotation.') ? THREE.MathUtils.radToDeg(nativeValue) : nativeValue;
 }
@@ -95,21 +91,13 @@ export function buildAnimationGraphData(
 
   const handleValues: number[] = [];
   sorted.forEach((key, index) => {
-    const value = animationChannelValue(key, channel);
-    const curve = key.curves?.[channel];
     if (index > 0 && sorted[index - 1].curves?.[channel]?.interpolation === 'bezier') {
-      if (curve?.left) handleValues.push(value + displayDelta(channel, curve.left[1]));
-      else {
-        const previous = sorted[index - 1];
-        handleValues.push(value - (value - animationChannelValue(previous, channel)) / 3);
-      }
+      const controls = bezierControlPoints(sorted, index - 1, channel);
+      handleValues.push(displayNative(channel, controls.y2));
     }
-    if (index < sorted.length - 1 && curve?.interpolation === 'bezier') {
-      if (curve.right) handleValues.push(value + displayDelta(channel, curve.right[1]));
-      else {
-        const next = sorted[index + 1];
-        handleValues.push(value + (animationChannelValue(next, channel) - value) / 3);
-      }
+    if (index < sorted.length - 1 && key.curves?.[channel]?.interpolation === 'bezier') {
+      const controls = bezierControlPoints(sorted, index, channel);
+      handleValues.push(displayNative(channel, controls.y1));
     }
   });
 
@@ -346,6 +334,7 @@ export class AnimationGraphView {
     const key = data.sourceKeys[index];
     const keyValue = animationChannelValue(key, data.channel);
 
+    const tangent = key.curves?.[data.channel]?.tangent ?? 'free';
     const addHandle = (side: 'left' | 'right', handleFrame: number, handleValue: number) => {
       const line = svgElement('line', {
         class: 'graph-handle-line',
@@ -357,7 +346,7 @@ export class AnimationGraphView {
       line.dataset.handleLine = side;
       line.dataset.keyFrame = String(key.frame);
       const marker = svgElement('circle', {
-        class: 'graph-handle',
+        class: `graph-handle${tangent === 'auto' ? ' auto' : ''}`,
         cx: x(handleFrame),
         cy: y(handleValue),
         r: 4,
@@ -367,18 +356,24 @@ export class AnimationGraphView {
       marker.dataset.handleFrame = String(handleFrame);
       marker.dataset.handleValue = String(handleValue);
       marker.dataset.channel = data.channel;
+      marker.dataset.tangent = tangent;
+      const tooltip = svgElement('title', {});
+      tooltip.textContent = tangent === 'auto'
+        ? `Auto ${side} tangent · switch Tangent mode to edit`
+        : `${tangent[0].toUpperCase() + tangent.slice(1)} ${side} tangent`;
+      marker.append(tooltip);
       this.curveLayer.append(line, marker);
     };
 
     if (index > 0 && data.sourceKeys[index - 1].curves?.[data.channel]?.interpolation === 'bezier') {
       const previous = data.sourceKeys[index - 1];
-      const controls = bezierControlPoints(previous, key, data.channel);
+      const controls = bezierControlPoints(data.sourceKeys, index - 1, data.channel);
       addHandle('left', controls.x2, displayNative(data.channel, controls.y2));
     }
 
     if (index < data.sourceKeys.length - 1 && key.curves?.[data.channel]?.interpolation === 'bezier') {
       const next = data.sourceKeys[index + 1];
-      const controls = bezierControlPoints(key, next, data.channel);
+      const controls = bezierControlPoints(data.sourceKeys, index, data.channel);
       addHandle('right', controls.x1, displayNative(data.channel, controls.y1));
     }
   }

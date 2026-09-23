@@ -406,3 +406,133 @@ test('key curve metadata survives reinsert, retime and copy workflows', async ({
   }
   expect(result.frames).toEqual([10, 15, 25]);
 });
+
+
+test('Aligned tangent mode couples opposite Bezier handles while preserving opposite length', async ({ page }) => {
+  await page.evaluate(() => {
+    const e = (window as any).__forge;
+    const object = e.selected;
+    object.userData.keyframes = [];
+    e.frame = 1; object.position.set(0, 0, 0); e.insertKey();
+    e.frame = 25; object.position.set(8, 0, 0); e.insertKey();
+    e.frame = 49; object.position.set(0, 0, 0); e.insertKey();
+    e.setKeyInterpolation(1, 'position.x', 'bezier');
+    e.setKeyInterpolation(25, 'position.x', 'bezier');
+    e.scrub(25);
+  });
+
+  await page.getByRole('button', { name: 'Animation', exact: true }).click();
+  const graph = page.getByLabel('Animation graph editor');
+  await graph.locator('.graph-key-point[data-frame="25"]').click();
+
+  const tangent = page.getByLabel('Selected key tangent mode');
+  await expect(tangent).toBeEnabled();
+  await expect(tangent).toHaveValue('free');
+  await tangent.selectOption('aligned');
+  await expect(tangent).toHaveValue('aligned');
+
+  const before = await page.evaluate(() => {
+    const curve = (window as any).__forge.selected.userData.keyframes
+      .find((key: any) => key.frame === 25).curves['position.x'];
+    return {
+      left: [...curve.left],
+      right: [...curve.right],
+      leftLength: Math.hypot(...curve.left),
+    };
+  });
+
+  const right = graph.locator('.graph-handle[data-handle="right"]');
+  const box = await right.boundingBox();
+  expect(box).not.toBeNull();
+  await page.mouse.move(box!.x + box!.width / 2, box!.y + box!.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(box!.x + box!.width / 2, box!.y - 30, { steps: 8 });
+  await page.mouse.up();
+
+  const after = await page.evaluate(() => {
+    const curve = (window as any).__forge.selected.userData.keyframes
+      .find((key: any) => key.frame === 25).curves['position.x'];
+    const left = [...curve.left], right = [...curve.right];
+    return {
+      tangent: curve.tangent,
+      left,
+      right,
+      leftLength: Math.hypot(...left),
+      cross: left[0] * right[1] - left[1] * right[0],
+      dot: left[0] * right[0] + left[1] * right[1],
+    };
+  });
+
+  expect(after.tangent).toBe('aligned');
+  expect(after.right).not.toEqual(before.right);
+  expect(after.cross).toBeCloseTo(0, 6);
+  expect(after.dot).toBeLessThan(0);
+  expect(after.leftLength).toBeCloseTo(before.leftLength, 6);
+
+  await page.evaluate(() => (window as any).__forge.undo());
+  expect(await page.evaluate(() =>
+    (window as any).__forge.selected.userData.keyframes.find((key: any) => key.frame === 25)
+      .curves['position.x'].tangent
+  )).toBe('aligned');
+});
+
+test('Auto tangent mode is computed from neighbors and its handles are not draggable', async ({ page }) => {
+  await page.evaluate(() => {
+    const e = (window as any).__forge;
+    const object = e.selected;
+    object.userData.keyframes = [];
+    e.frame = 1; object.position.set(0, 0, 0); e.insertKey();
+    e.frame = 25; object.position.set(8, 0, 0); e.insertKey();
+    e.frame = 49; object.position.set(0, 0, 0); e.insertKey();
+    e.setKeyInterpolation(1, 'position.x', 'bezier');
+    e.setKeyInterpolation(25, 'position.x', 'bezier');
+    e.scrub(25);
+  });
+
+  await page.getByRole('button', { name: 'Animation', exact: true }).click();
+  const graph = page.getByLabel('Animation graph editor');
+  await graph.locator('.graph-key-point[data-frame="25"]').click();
+  const tangent = page.getByLabel('Selected key tangent mode');
+  await tangent.selectOption('auto');
+  await expect(tangent).toHaveValue('auto');
+
+  const handles = graph.locator('.graph-handle.auto');
+  await expect(handles).toHaveCount(2);
+  const initialValues = await handles.evaluateAll(nodes =>
+    nodes.map(node => Number((node as SVGElement).dataset.handleValue))
+  );
+  expect(initialValues[0]).toBeCloseTo(8, 6);
+  expect(initialValues[1]).toBeCloseTo(8, 6);
+
+  const stored = await page.evaluate(() => {
+    const curve = (window as any).__forge.selected.userData.keyframes
+      .find((key: any) => key.frame === 25).curves['position.x'];
+    return structuredClone(curve);
+  });
+  expect(stored.tangent).toBe('auto');
+  expect(stored.left).toBeUndefined();
+  expect(stored.right).toBeUndefined();
+
+  const right = graph.locator('.graph-handle[data-handle="right"]');
+  const beforePath = await graph.locator('.graph-curve').getAttribute('d');
+  const box = await right.boundingBox();
+  expect(box).not.toBeNull();
+  await page.mouse.move(box!.x + box!.width / 2, box!.y + box!.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(box!.x + box!.width / 2, box!.y - 30, { steps: 5 });
+  await page.mouse.up();
+  expect(await graph.locator('.graph-curve').getAttribute('d')).toBe(beforePath);
+
+  await page.evaluate(() => {
+    const e = (window as any).__forge;
+    const key = e.selected.userData.keyframes.find((item: any) => item.frame === 49);
+    key.position[0] = 16;
+    e.commit();
+    e.scrub(25);
+  });
+  const updatedValues = await graph.locator('.graph-handle.auto').evaluateAll(nodes =>
+    nodes.map(node => Number((node as SVGElement).dataset.handleValue))
+  );
+  expect(updatedValues[0]).toBeLessThan(8);
+  expect(updatedValues[1]).toBeGreaterThan(8);
+});

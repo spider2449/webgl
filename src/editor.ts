@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { animationChannelNativeValue, sampleAnimation, validAnimationChannel, validKeyCurves, validKeyInterpolation } from './animation';
+import { animationChannelNativeValue, effectiveBezierHandle, sampleAnimation, validAnimationChannel, validKeyCurves, validKeyInterpolation, validKeyTangentMode } from './animation';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { TransformControls } from 'three/addons/controls/TransformControls.js';
 import { GimbalControls } from './gimbal-controls';
@@ -18,7 +18,8 @@ export type EulerOrder = 'XYZ' | 'YZX' | 'ZXY' | 'XZY' | 'YXZ' | 'ZYX';
 export type TransformOrientation = 'world' | 'local' | 'gimbal';
 export type ScalarAnimationChannel = 'position.x' | 'position.y' | 'position.z' | 'rotation.x' | 'rotation.y' | 'rotation.z' | 'scale.x' | 'scale.y' | 'scale.z';
 export type KeyInterpolation = 'constant' | 'linear' | 'bezier';
-export type KeyCurve = { interpolation?: KeyInterpolation; left?: [number, number]; right?: [number, number] };
+export type KeyTangentMode = 'free' | 'aligned' | 'auto';
+export type KeyCurve = { interpolation?: KeyInterpolation; tangent?: KeyTangentMode; left?: [number, number]; right?: [number, number] };
 export type Keyframe = {
   frame: number;
   position: number[];
@@ -33,6 +34,7 @@ const MAX_HISTORY_BYTES = 24 * 1024 * 1024;
 const cloneKeyCurves = (curves: Keyframe['curves']): Keyframe['curves'] => curves ? Object.fromEntries(
   Object.entries(curves).map(([channel, curve]) => [channel, {
     ...(curve!.interpolation ? { interpolation: curve!.interpolation } : {}),
+    ...(curve!.tangent ? { tangent: curve!.tangent } : {}),
     ...(curve!.left ? { left: [...curve!.left] as [number, number] } : {}),
     ...(curve!.right ? { right: [...curve!.right] as [number, number] } : {}),
   }]),
@@ -1229,11 +1231,11 @@ export class Editor extends EventTarget {
       const next = prepared[index + 1];
       const span = next.frame - key.frame;
       const delta = animationChannelNativeValue(next, channel) - animationChannelNativeValue(key, channel);
-      if (!curve.right) curve.right = [span / 3, delta / 3];
+      if ((curve.tangent ?? 'free') !== 'auto' && !curve.right) curve.right = [span / 3, delta / 3];
 
       const nextCurves: NonNullable<Keyframe['curves']> = cloneKeyCurves(next.curves) ?? {};
       const nextCurve: KeyCurve = { ...(nextCurves[channel] ?? {}) };
-      if (!nextCurve.left) nextCurve.left = [-span / 3, -delta / 3];
+      if ((nextCurve.tangent ?? 'free') !== 'auto' && !nextCurve.left) nextCurve.left = [-span / 3, -delta / 3];
       nextCurves[channel] = nextCurve;
       next.curves = nextCurves;
     }
@@ -1248,6 +1250,63 @@ export class Editor extends EventTarget {
     return true;
   }
 
+  setKeyTangentMode(frame: number, channel: ScalarAnimationChannel, mode: KeyTangentMode) {
+    if (!Number.isInteger(frame) || frame < 1 || frame > 250 || !validAnimationChannel(channel) || !validKeyTangentMode(mode)) {
+      throw new Error('Invalid key tangent mode.');
+    }
+    if (!this.selected || this.editMode || this.playing || this.animationKeyDrag || this.animationHandleDrag) return false;
+    const sourceKeys: Keyframe[] = this.selected.userData.keyframes ?? [];
+    const prepared = this.prepareCurveKeys(sourceKeys, channel);
+    const index = prepared.findIndex(key => key.frame === frame);
+    if (index < 0) throw new Error('Choose an authored key first.');
+
+    const incomingBezier = index > 0 && prepared[index - 1].curves?.[channel]?.interpolation === 'bezier';
+    const outgoingBezier = index < prepared.length - 1 && prepared[index].curves?.[channel]?.interpolation === 'bezier';
+    if (!incomingBezier && !outgoingBezier) throw new Error('Tangent mode requires a Bezier segment.');
+
+    const left = incomingBezier ? effectiveBezierHandle(prepared, index, channel, 'left') : null;
+    const right = outgoingBezier ? effectiveBezierHandle(prepared, index, channel, 'right') : null;
+    const key = prepared[index];
+    const curves: NonNullable<Keyframe['curves']> = cloneKeyCurves(key.curves) ?? {};
+    const curve: KeyCurve = { ...(curves[channel] ?? {}), tangent: mode };
+
+    if (mode === 'auto') {
+      delete curve.left;
+      delete curve.right;
+    } else {
+      if (left) curve.left = [...left];
+      if (right) curve.right = [...right];
+      if (mode === 'aligned' && left && right) {
+        const rightLength = Math.hypot(right[0], right[1]);
+        const leftLength = Math.hypot(left[0], left[1]);
+        if (rightLength > 1e-12 && leftLength > 1e-12) {
+          let aligned: [number, number] = [
+            -right[0] / rightLength * leftLength,
+            -right[1] / rightLength * leftLength,
+          ];
+          const previous = prepared[index - 1];
+          const previousRight = effectiveBezierHandle(prepared, index - 1, channel, 'right');
+          const minimumLeftFrame = previousRight
+            ? THREE.MathUtils.clamp(previous.frame + previousRight[0], previous.frame, key.frame)
+            : previous.frame;
+          const maxLeftDx = key.frame - minimumLeftFrame;
+          if (Math.abs(aligned[0]) > maxLeftDx && Math.abs(aligned[0]) > 1e-12) {
+            const scale = maxLeftDx / Math.abs(aligned[0]);
+            aligned = [aligned[0] * scale, aligned[1] * scale];
+          }
+          curve.left = aligned;
+        }
+      }
+    }
+
+    curves[channel] = curve;
+    key.curves = curves;
+    this.selected.userData.keyframes = prepared;
+    this.evaluateAnimation();
+    this.commit();
+    return true;
+  }
+
   beginAnimationHandleDrag(frame: number, channel: ScalarAnimationChannel, side: 'left' | 'right') {
     if (!Number.isInteger(frame) || !validAnimationChannel(channel) || !this.selected || this.editMode || this.playing || this.animationKeyDrag || this.animationHandleDrag) return false;
     const keys: Keyframe[] = this.selected.userData.keyframes ?? [];
@@ -1256,7 +1315,7 @@ export class Editor extends EventTarget {
     const enabled = side === 'right'
       ? index < keys.length - 1 && keys[index].curves?.[channel]?.interpolation === 'bezier'
       : index > 0 && keys[index - 1].curves?.[channel]?.interpolation === 'bezier';
-    if (!enabled) return false;
+    if (!enabled || (keys[index].curves?.[channel]?.tangent ?? 'free') === 'auto') return false;
     this.animationHandleDrag = {
       object: this.selected,
       frame,
@@ -1300,7 +1359,46 @@ export class Editor extends EventTarget {
     const clampedFrame = THREE.MathUtils.clamp(targetFrame, minimumFrame, maximumFrame);
     const curves: NonNullable<Keyframe['curves']> = cloneKeyCurves(key.curves) ?? {};
     const curve: KeyCurve = { ...(curves[drag.channel] ?? {}) };
-    curve[drag.side] = [clampedFrame - key.frame, targetValue - keyValue];
+    const dragged: [number, number] = [clampedFrame - key.frame, targetValue - keyValue];
+    curve[drag.side] = dragged;
+
+    if ((curve.tangent ?? 'free') === 'aligned') {
+      const oppositeSide = drag.side === 'left' ? 'right' : 'left';
+      const oppositeRelevant = oppositeSide === 'left'
+        ? index > 0 && keys[index - 1].curves?.[drag.channel]?.interpolation === 'bezier'
+        : index < keys.length - 1 && keys[index].curves?.[drag.channel]?.interpolation === 'bezier';
+      const opposite = oppositeRelevant ? effectiveBezierHandle(keys, index, drag.channel, oppositeSide) : null;
+      const draggedLength = Math.hypot(dragged[0], dragged[1]);
+      const oppositeLength = opposite ? Math.hypot(opposite[0], opposite[1]) : 0;
+      if (opposite && draggedLength > 1e-12 && oppositeLength > 1e-12) {
+        let aligned: [number, number] = [
+          -dragged[0] / draggedLength * oppositeLength,
+          -dragged[1] / draggedLength * oppositeLength,
+        ];
+        let maxDx: number;
+        if (oppositeSide === 'left') {
+          const previous = keys[index - 1];
+          const previousRight = effectiveBezierHandle(keys, index - 1, drag.channel, 'right');
+          const minimum = previousRight
+            ? THREE.MathUtils.clamp(previous.frame + previousRight[0], previous.frame, key.frame)
+            : previous.frame;
+          maxDx = key.frame - minimum;
+        } else {
+          const next = keys[index + 1];
+          const nextLeft = effectiveBezierHandle(keys, index + 1, drag.channel, 'left');
+          const maximum = nextLeft
+            ? THREE.MathUtils.clamp(next.frame + nextLeft[0], key.frame, next.frame)
+            : next.frame;
+          maxDx = maximum - key.frame;
+        }
+        if (Math.abs(aligned[0]) > maxDx && Math.abs(aligned[0]) > 1e-12) {
+          const scale = maxDx / Math.abs(aligned[0]);
+          aligned = [aligned[0] * scale, aligned[1] * scale];
+        }
+        curve[oppositeSide] = aligned;
+      }
+    }
+
     curves[drag.channel] = curve;
     key.curves = curves;
 
