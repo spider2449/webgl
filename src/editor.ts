@@ -1451,15 +1451,28 @@ export class Editor extends EventTarget {
     const targetFrames = drag.sourceFrames.map(frame => frame + frameDelta);
     const changed = frameDelta !== 0 || Math.abs(valueDelta) > 1e-12;
 
-    if (targetFrames.some(frame => frame < 1 || frame > 250)) return false;
-    if (new Set(targetFrames).size !== targetFrames.length) return false;
+    const rejectPreview = () => {
+      drag.changed = false;
+      delete drag.pendingCopy;
+      if (!drag.copy) this.setAnimationTrack(drag.object, drag.channel, drag.originalTrack);
+      this.frame = drag.anchorFrame;
+      this.evaluateAnimation();
+      this.emit('frame');
+      this.emit('animation');
+      this.emit('transform');
+      this.invalidate();
+      return false;
+    };
+
+    if (targetFrames.some(frame => frame < 1 || frame > 250)) return rejectPreview();
+    if (new Set(targetFrames).size !== targetFrames.length) return rejectPreview();
 
     const occupied = new Set(
       drag.originalTrack
         .filter(key => drag.copy || !sourceSet.has(key.frame))
         .map(key => key.frame),
     );
-    if (targetFrames.some(frame => occupied.has(frame))) return false;
+    if (targetFrames.some(frame => occupied.has(frame))) return rejectPreview();
 
     if (drag.copy) {
       drag.changed = true;
