@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 import * as THREE from 'three';
-import { extrudeTriangle } from '../src/extrude';
-import { buildTopology } from '../src/topology';
+import { extrudeTriangle } from '../src/modeling/extrude';
+import { buildTopology } from '../src/modeling/topology';
 
 for (const expanded of [false, true]) {
   test(`extrusion preserves a closed oriented cube and attributes (${expanded ? 'expanded' : 'indexed'})`, () => {
