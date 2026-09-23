@@ -6,6 +6,28 @@ test.beforeEach(async ({ page }) => {
   await page.waitForFunction(() => (window as any).__forge?.content.children.length === 1);
 });
 
+test('new scenes start with zero cube rotation', async ({ page }) => {
+  const initial = await page.evaluate(() => {
+    const e = (window as any).__forge;
+    return [e.selected.rotation.x, e.selected.rotation.y, e.selected.rotation.z];
+  });
+  expect(initial).toEqual([0, 0, 0]);
+
+  const reset = await page.evaluate(() => {
+    const e = (window as any).__forge;
+    e.selected.rotation.set(0.3, 0.7, -0.2);
+    e.commit();
+    e.newProject();
+    return {
+      name: e.selected.name,
+      rotation: [e.selected.rotation.x, e.selected.rotation.y, e.selected.rotation.z],
+    };
+  });
+
+  expect(reset.name).toBe('Cube');
+  expect(reset.rotation).toEqual([0, 0, 0]);
+});
+
 test('renders the viewport and stops rendering while idle', async ({ page }) => {
   const errors: string[] = [];
   page.on('pageerror', error => errors.push(error.message));

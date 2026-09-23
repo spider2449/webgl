@@ -12,7 +12,6 @@ test.beforeEach(async ({ page }) => {
     e.selected.position.set(8, 3, 4);
     e.selected.scale.set(2, 3, 4);
     e.insertKey();
-    e.setAnimationInterpolation('linear');
   });
 });
 
@@ -64,7 +63,6 @@ test('edits unwrapped rotation channels and keeps quaternion, interpolation, his
     e.frame = 25;
     object.rotation.set(rad(20), rad(540), rad(40), 'XYZ');
     e.insertKey();
-    e.setAnimationInterpolation('linear');
     e.scrub(25);
 
     e.editKeyChannel('rotation.y', 720);
@@ -180,14 +178,28 @@ test('playback refreshes selected object transform values while the timeline adv
   await page.locator('#play').click();
 });
 
-test('animation channel UI edits the selected key and GLB exports the authored value', async ({ page }) => {
-  await page.getByLabel('Select keyframe', { exact: true }).selectOption('25');
-  await page.getByLabel('Animation channel', { exact: true }).selectOption('position.x');
-  await expect(page.getByLabel('Animation channel value', { exact: true })).toHaveValue('8');
-  await page.getByLabel('Animation channel value', { exact: true }).fill('12');
-  await page.getByRole('button', { name: 'Apply channel value', exact: true }).click();
-  await expect(page.locator('#toast')).toContainText('updated');
-  expect(await page.evaluate(() => (window as any).__forge.selected.userData.keyframes[1].position[0])).toBe(12);
+test('Graph Editor edits scalar key values and GLB exports the authored value', async ({ page }) => {
+  await page.getByRole('button', { name: 'Animation', exact: true }).click();
+  const graph = page.getByLabel('Animation graph editor');
+
+  await page.locator('[data-graph-channel="position.x"]').click();
+  const marker = graph.locator('.graph-key-point[data-frame="25"]');
+  const box = await marker.boundingBox();
+  expect(box).not.toBeNull();
+  const before = Number(await marker.getAttribute('data-value'));
+  expect(before).toBeCloseTo(8, 6);
+
+  await page.mouse.move(box!.x + box!.width / 2, box!.y + box!.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(box!.x + box!.width / 2, box!.y - 36, { steps: 8 });
+  await page.mouse.up();
+
+  const edited = await page.evaluate(() => {
+    const e = (window as any).__forge;
+    const key = e.selected.userData.keyframes.find((item: any) => item.frame === 25);
+    return key.position[0];
+  });
+  expect(edited).toBeGreaterThan(8);
 
   const pending = page.waitForEvent('download');
   await page.locator('#export-top').click();
@@ -200,26 +212,12 @@ test('animation channel UI edits the selected key and GLB exports the authored v
   const accessor = json.accessors[sampler.output], view = json.bufferViews[accessor.bufferView];
   const binaryStart = 28 + jsonLength;
   const offset = binaryStart + (view.byteOffset ?? 0) + (accessor.byteOffset ?? 0);
-  expect(glb.readFloatLE(offset + 3 * 4)).toBeCloseTo(12);
+  expect(glb.readFloatLE(offset + 3 * 4)).toBeCloseTo(edited, 4);
 
-  await page.getByLabel('Animation channel', { exact: true }).selectOption('scale.z');
-  await expect(page.getByLabel('Animation channel value', { exact: true })).toHaveValue('4');
+  await page.locator('[data-graph-channel="scale.z"]').click();
+  await expect(graph).toHaveAttribute('data-channel', 'scale.z');
+  expect(Number(await graph.locator('.graph-key-point[data-frame="25"]').getAttribute('data-value'))).toBeCloseTo(4, 6);
 
-  await page.getByLabel('Animation channel', { exact: true }).selectOption('rotation.y');
-  expect(Number(await page.getByLabel('Animation channel value', { exact: true }).inputValue())).toBeCloseTo(20, 6);
-  await page.getByLabel('Animation channel value', { exact: true }).fill('540');
-  await page.getByRole('button', { name: 'Apply channel value', exact: true }).click();
-  const rotation = await page.evaluate(() => {
-    const key = (window as any).__forge.selected.userData.keyframes[1];
-    return {
-      degrees: key.rotation[1] * 180 / Math.PI,
-      objectDegrees: (window as any).__forge.selected.rotation.y * 180 / Math.PI,
-      quaternion: key.quaternion,
-    };
-  });
-  expect(rotation.degrees).toBeCloseTo(540, 6);
-  expect(rotation.objectDegrees).toBeCloseTo(540, 6);
-  expect(rotation.quaternion.every((value: number) => Number.isFinite(value))).toBe(true);
-
-  await page.screenshot({ path: 'test-results/animation-channel-editing.png' });
+  await graph.screenshot({ path: 'test-results/animation-channel-editing.png' });
 });
+

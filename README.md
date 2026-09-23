@@ -128,37 +128,56 @@ Linked duplication is intentionally bounded: skinned meshes and meshes with an a
 
 ## Animation interpolation
 
-In the Object panel, choose **Linear**, **Constant**, or **Smooth** under
-**Animation > Interpolation** as the object-wide default. Each scalar
-**Location X/Y/Z**, **Rotation X/Y/Z**, and **Scale X/Y/Z** channel can then
-override that default under **Channel interpolation**, or return to **Object
-default**. Constant holds the earlier scalar value until the next key; Smooth
-eases that scalar with smoothstep. Rotation overrides use the unwrapped Euler
-key metadata, while the evaluated quaternion remains synchronized. Existing
-projects without overrides keep their previous object-wide behavior. Undo/redo
-and Forge projects retain both defaults and overrides.
+Open the **Animation** workspace to author and edit transform animation. The
+timeline header owns playback, the current frame, and **Insert/Remove transform
+key**. The **Graph Editor is the sole animation editing UI**; the Object panel
+does not duplicate animation controls.
 
-Use **Keyframe** to jump to an authored transform key. Set **Target frame**
-(1-250), then **Move keyframe** or **Copy keyframe** to change its timing or
-repeat its pose. The destination must be empty. Actions follow the resulting
-key, preserve interpolation and support undo/redo and project saving.
+The graph's channel rail exposes all nine scalar transform channels:
+**Location X/Y/Z**, **Rotation X/Y/Z**, and **Scale X/Y/Z**. Click a channel to
+make it active, then click a key to select it.
 
-For an existing key, choose **Channel** and edit one scalar **Location X/Y/Z**,
-**Rotation X/Y/Z**, or **Scale X/Y/Z** value without replacing the other
-transform values in that key. Rotation channels are displayed in degrees and
-edit the key's unwrapped Euler values; the stored quaternion is regenerated so
-playback and GLB export stay synchronized. Existing quaternion-only keys are
-upgraded on first rotation-channel edit. Changes evaluate immediately,
-participate in undo/redo and survive Forge project round trips. Playback must be
-paused and Object Mode active.
+Every segment is **Linear by default**. A selected key controls the segment from
+that key to the next key and can be set to exactly one of:
 
-GLB export preserves the existing object-wide Constant mode as STEP when no
-scalar overrides are present. Mixed scalar interpolation cannot be represented
-natively by glTF's whole-vector transform channels, so objects whose explicit
-channel modes differ from the current object default are baked to LINEAR samples. Smooth uses 32 samples per segment;
-Constant overrides add a near-boundary sample so the hold is preserved with a
-very narrow transition. This export path is an approximation. Editable Bezier
-handles, graph/tangent editing and batch curve operations remain future work.
+- **Linear** — interpolate scalar values linearly.
+- **Constant** — hold the source value until the next key.
+- **Bezier** — evaluate a cubic curve in frame/value space.
+
+There is no object-wide interpolation mode, no channel-wide interpolation
+override, no Smooth fallback, and no Inherit mode. Different segments on the
+same channel may use different modes; the channel rail shows **MIX** when they
+differ.
+
+Bezier creates a right handle on the source key and a left handle on the next
+key. Drag either tangent directly in the graph. Handle time is bounded to the
+adjacent segment so frame→value remains single-valued. Rotation curves display
+degrees while preserving unwrapped Euler radians internally; quaternion
+orientation stays synchronized.
+
+Graph key interaction is direct:
+
+- drag vertically to edit the active scalar value,
+- drag horizontally to retime the whole transform key,
+- **Alt-drag** horizontally to copy the whole transform key,
+- drag onto an occupied frame and Forge keeps the last valid frame instead of
+  overwriting an existing key.
+
+Forge currently stores Position, Rotation, and Scale together at one shared key
+time, so horizontal move/copy operates on the complete transform key rather than
+an independent scalar-key time. Key and tangent drags each create one undoable
+history entry; Escape or pointer cancellation restores the original data.
+
+Project loading rejects the removed `animationInterpolation` and
+`animationChannelInterpolation` fields so the animation model cannot silently
+fall back to the superseded hierarchy.
+
+glTF transform samplers cannot directly represent mixed per-axis/per-segment
+Bezier tangents. Pure Linear animation exports as LINEAR key tracks. Objects
+containing Constant or Bezier segments are baked to LINEAR samples; Bezier uses
+32 samples per segment and Constant adds a near-boundary hold sample. This
+export path is an approximation. Independent per-channel key times, arbitrary
+F-curves, tangent coupling modes, and batch curve operations remain future work.
 
 ## Kimodo rigging
 
