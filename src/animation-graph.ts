@@ -548,7 +548,22 @@ export class AnimationGraphView {
     const rawValue = drag.anchorValue - deltaViewY / 144 * span;
     const precision = data.channel.startsWith('rotation.') ? 0.1 : 0.001;
     const targetValue = Math.round(rawValue / precision) * precision;
-    if (!this.edits.preview(targetFrame, data.channel, targetValue)) return;
+    if (!this.edits.preview(targetFrame, data.channel, targetValue)) {
+      drag.lastFrameDelta = null;
+      drag.lastValueDelta = 0;
+      const visualMarkers = drag.copy ? drag.ghostMarkers : drag.markers.map(item => item.marker);
+      drag.markers.forEach((item, index) => {
+        const marker = visualMarkers[index];
+        marker.dataset.frame = String(item.sourceFrame);
+        marker.dataset.value = String(item.sourceValue);
+        marker.setAttribute('x', String(this.frameX(item.sourceFrame) - 4));
+        const y = this.valueY(data, item.sourceValue);
+        marker.setAttribute('y', String(THREE.MathUtils.clamp(y - 4, 4, 168)));
+      });
+      this.detail.textContent = `Blocked · selected keys would collide or leave the timeline`;
+      event.preventDefault();
+      return;
+    }
 
     const frameDelta = targetFrame - drag.anchorFrame;
     const valueDelta = targetValue - drag.anchorValue;
