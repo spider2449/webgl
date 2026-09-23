@@ -199,9 +199,10 @@ export class AnimationGraphView {
     window.addEventListener('keydown', event => {
       if (event.key === 'Escape' && this.drag) {
         event.preventDefault();
+        event.stopPropagation();
         this.finishDrag(true);
       }
-    });
+    }, { capture: true });
   }
 
   get selectedKeyFrame() { return this.selectedFrame; }
