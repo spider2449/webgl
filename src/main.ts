@@ -433,7 +433,7 @@ function updateTimeline() {
   $('#draw-status').textContent = editor.playing ? 'PLAYING · 24 FPS' : 'ON DEMAND';
   if (markerState !== markers) {
     $('#keyframe-markers').innerHTML = markerFrames
-      .map(keyFrame => `<button type="button" class="key-marker" data-frame="${keyFrame}" aria-label="Animation key at frame ${keyFrame}" title="Drag animation key at frame ${keyFrame}" style="left:${(keyFrame-1)/249*100}%"></button>`)
+      .map(keyFrame => `<button type="button" class="key-marker" data-frame="${keyFrame}" aria-label="Animation key at frame ${keyFrame}" title="Animation key at frame ${keyFrame}" style="left:${(keyFrame-1)/249*100}%"></button>`)
       .join('');
     markerState = markers;
   }
@@ -695,7 +695,7 @@ function restoreTimelineMarker(marker: HTMLButtonElement, frame: number) {
   marker.style.left = `${(frame - 1) / 249 * 100}%`;
   marker.dataset.frame = String(frame);
   marker.setAttribute('aria-label', `Animation key at frame ${frame}`);
-  marker.title = `Drag animation key at frame ${frame}`;
+  marker.title = `Animation key at frame ${frame}`;
 }
 
 function cancelTimelineKeyDrag() {
