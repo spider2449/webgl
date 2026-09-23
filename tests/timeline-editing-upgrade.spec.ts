@@ -144,6 +144,9 @@ test('Timeline Time Scale retimes selected summary frames across channels in one
   await shiftSelectTimelineMarker(page, 50);
   await shiftSelectTimelineMarker(page, 60);
 
+  await expect(page.getByRole('button', { name: 'Scale', exact: true })).toHaveCount(1);
+  await expect(page.getByRole('button', { name: 'Scale selected Timeline keys', exact: true })).toHaveCount(1);
+
   const scale = page.getByLabel('Selected Timeline key time scale');
   await expect(scale).toBeEnabled();
   await scale.fill('2');
