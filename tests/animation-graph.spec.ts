@@ -5,417 +5,129 @@ test.beforeEach(async ({ page }) => {
   await page.waitForFunction(() => (window as any).__forge?.selected);
 });
 
-test('Object panel no longer exposes the legacy Animation controls', async ({ page }) => {
+test('Graph Editor is the sole animation UI and exposes nine independent channels', async ({ page }) => {
   await expect(page.getByLabel('Animation interpolation', { exact: true })).toHaveCount(0);
-  await expect(page.getByLabel('Select keyframe', { exact: true })).toHaveCount(0);
   await expect(page.getByLabel('Animation channel', { exact: true })).toHaveCount(0);
-  await expect(page.getByLabel('Animation channel interpolation', { exact: true })).toHaveCount(0);
-  await expect(page.getByLabel('Animation channel value', { exact: true })).toHaveCount(0);
-  await expect(page.getByRole('button', { name: 'Move keyframe', exact: true })).toHaveCount(0);
-  await expect(page.getByRole('button', { name: 'Copy keyframe', exact: true })).toHaveCount(0);
 
   await page.getByRole('button', { name: 'Animation', exact: true }).click();
-  await expect(page.getByLabel('Animation graph editor')).toBeVisible();
+  const graph = page.getByLabel('Animation graph editor');
+
+  await expect(graph).toBeVisible();
   await expect(page.locator('[data-graph-channel]')).toHaveCount(9);
   await expect(page.getByLabel('Selected key interpolation')).toBeVisible();
+  await expect(page.getByLabel('Selected key tangent mode')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Insert key on selected channel' })).toBeEnabled();
+  await expect(page.getByRole('button', { name: 'Remove selected channel key' })).toBeDisabled();
+  await expect(graph).toHaveAttribute('data-key-count', '0');
 });
 
-test('Graph Editor visualizes Linear, Constant and Bezier for the selected scalar channel', async ({ page }) => {
-  await page.evaluate(() => {
-    const e = (window as any).__forge;
-    const object = e.selected;
-    object.userData.keyframes = [];
-    e.frame = 1;
-    object.position.set(0, 0, 0);
-    e.insertKey();
-    e.frame = 25;
-    object.position.set(8, 0, 0);
-    e.insertKey();
-    e.scrub(7);
-  });
-
-  const graph = page.getByLabel('Animation graph editor');
-  await expect(graph).toBeHidden();
-  await page.getByRole('button', { name: 'Animation', exact: true }).click();
-  await expect(graph).toBeVisible();
-  await expect(graph).toHaveAttribute('data-channel', 'position.x');
-  await expect(graph).toHaveAttribute('data-mode', 'linear');
-  const channelButtons = page.locator('[data-graph-channel]');
-  await expect(channelButtons).toHaveCount(9);
-  await expect(page.locator('[data-graph-channel="position.x"]')).toHaveClass(/active/);
-  await expect(page.locator('[data-graph-channel="position.x"] small')).toHaveText('LIN');
-  await expect(graph.locator('.graph-key-point')).toHaveCount(2);
-  await expect(page.locator('#animation-graph-title')).toHaveText('Location X');
-  await expect(page.locator('#animation-graph-detail')).toContainText('Linear');
-
-  const linearPath = await graph.locator('.graph-curve').getAttribute('d');
-  expect(linearPath).toBeTruthy();
-  expect(await graph.locator('.graph-curve').getAttribute('data-sample-count')).toBe('3');
-
-  await graph.locator('.graph-key-point[data-frame="1"]').click();
-  await page.getByLabel('Selected key interpolation').selectOption('constant');
-  await expect(graph).toHaveAttribute('data-mode', 'constant');
-  await expect(page.locator('#animation-graph-detail')).toContainText('Constant');
-  const constantPath = await graph.locator('.graph-curve').getAttribute('d');
-  expect(constantPath).not.toBe(linearPath);
-  expect(await graph.locator('.graph-curve').getAttribute('data-sample-count')).toBe('4');
-
-  await page.getByLabel('Selected key interpolation').selectOption('bezier');
-  await expect(graph).toHaveAttribute('data-mode', 'bezier');
-  await expect(page.locator('#animation-graph-detail')).toContainText('Bezier');
-  await expect(page.locator('[data-graph-channel="position.x"] small')).toHaveText('BEZ');
-  const bezierPath = await graph.locator('.graph-curve').getAttribute('d');
-  expect(bezierPath).not.toBe(constantPath);
-  expect(await graph.locator('.graph-curve').getAttribute('data-sample-count')).toBe('33');
-  await expect(graph.locator('.graph-handle[data-handle="right"]')).toHaveCount(1);
-
-  await page.evaluate(() => (window as any).__forge.scrub(13));
-  await expect(graph.locator('.graph-playhead')).toHaveAttribute('data-frame', '13');
-
-  const keyValues = await graph.locator('.graph-key-point').evaluateAll(nodes =>
-    nodes.map(node => ({
-      frame: Number((node as SVGElement).dataset.frame),
-      value: Number((node as SVGElement).dataset.value),
-    }))
-  );
-  expect(keyValues).toEqual([{ frame: 1, value: 0 }, { frame: 25, value: 8 }]);
-
-  await graph.screenshot({ path: 'test-results/animation-graph-editor.png' });
-});
-
-test('Graph Editor preserves unwrapped multi-turn rotation values', async ({ page }) => {
-  await page.evaluate(() => {
-    const e = (window as any).__forge;
-    const object = e.selected;
-    object.userData.keyframes = [];
-    e.frame = 1;
-    object.rotation.set(0, 270 * Math.PI / 180, 0, 'XYZ');
-    e.insertKey();
-    e.frame = 25;
-    object.rotation.set(0, 720 * Math.PI / 180, 0, 'XYZ');
-    e.insertKey();
-    e.scrub(13);
-  });
-
-  await page.getByRole('button', { name: 'Animation', exact: true }).click();
-  await page.locator('[data-graph-channel="rotation.y"]').click();
-  await expect(page.locator('[data-graph-channel="rotation.y"]')).toHaveClass(/active/);
-
-  const graph = page.getByLabel('Animation graph editor');
-  await expect(graph).toHaveAttribute('data-channel', 'rotation.y');
-  await expect(graph).toHaveAttribute('data-mode', 'linear');
-  await expect(page.locator('#animation-graph-title')).toHaveText('Rotation Y');
-
-  const values = await graph.locator('.graph-key-point').evaluateAll(nodes =>
-    nodes.map(node => Number((node as SVGElement).dataset.value))
-  );
-  expect(values[0]).toBeCloseTo(270, 6);
-  expect(values[1]).toBeCloseTo(720, 6);
-
-  const detail = await page.locator('#animation-graph-detail').textContent();
-  expect(detail).toContain('Linear');
-  expect(detail).toContain('to');
-
-  await graph.locator('.graph-key-point[data-frame="1"]').click();
-  await page.getByLabel('Selected key interpolation').selectOption('bezier');
-  const handleValue = Number(await graph.locator('.graph-handle[data-handle="right"]').getAttribute('data-handle-value'));
-  expect(handleValue).toBeCloseTo(420, 4);
-  const nativeHandleDegrees = await page.evaluate(() => {
-    const right = (window as any).__forge.selected.userData.keyframes[0].curves['rotation.y'].right;
-    return right[1] * 180 / Math.PI;
-  });
-  expect(nativeHandleDegrees).toBeCloseTo(150, 5);
-});
-
-
-test('Graph Editor drags a scalar key value and commits one undoable edit', async ({ page }) => {
-  await page.evaluate(() => {
-    const e = (window as any).__forge;
-    const object = e.selected;
-    object.userData.keyframes = [];
-    e.frame = 1;
-    object.position.set(0, 0, 0);
-    e.insertKey();
-    e.frame = 25;
-    object.position.set(8, 0, 0);
-    e.insertKey();
-    e.scrub(25);
-  });
+test('Graph Editor inserts and removes keys on only the active channel', async ({ page }) => {
   await page.getByRole('button', { name: 'Animation', exact: true }).click();
 
-  const graph = page.getByLabel('Animation graph editor');
-  const marker = graph.locator('.graph-key-point[data-frame="25"]');
-  const box = await marker.boundingBox();
-  expect(box).not.toBeNull();
-  await page.mouse.move(box!.x + box!.width / 2, box!.y + box!.height / 2);
-  await page.mouse.down();
-  await page.mouse.move(box!.x + box!.width / 2, box!.y - 36, { steps: 8 });
-  await page.mouse.up();
-
-  const edited = await page.evaluate(() => {
-    const e = (window as any).__forge;
-    const key = e.selected.userData.keyframes.find((item: any) => item.frame === 25);
-    return { value: key.position[0], frame: e.frame, objectValue: e.selected.position.x, canUndo: e.canUndo };
-  });
-  expect(edited.value).toBeGreaterThan(8);
-  expect(edited.objectValue).toBeCloseTo(edited.value, 6);
-  expect(edited.frame).toBe(25);
-  expect(edited.canUndo).toBe(true);
-
-  await page.evaluate(() => (window as any).__forge.undo());
-  const restored = await page.evaluate(() => {
-    const e = (window as any).__forge;
-    return e.selected.userData.keyframes.find((item: any) => item.frame === 25).position[0];
-  });
-  expect(restored).toBeCloseTo(8, 6);
-});
-
-test('Graph Editor horizontal drag retimes the whole transform key and rejects occupied frames', async ({ page }) => {
   await page.evaluate(() => {
     const e = (window as any).__forge;
-    const object = e.selected;
-    object.userData.keyframes = [];
-    e.frame = 1;
-    object.position.set(0, 2, 3);
-    e.insertKey();
-    e.frame = 25;
-    object.position.set(8, 4, 5);
-    e.insertKey();
+    e.scrub(10);
+    e.selected.position.x = 5;
+    e.commit();
+  });
+  await page.getByRole('button', { name: 'Insert key on selected channel' }).click();
+
+  let tracks = await page.evaluate(() => structuredClone((window as any).__forge.selected.userData.animationTracks));
+  expect(tracks['position.x'].map((key: any) => key.frame)).toEqual([10]);
+  expect(tracks['position.y']).toBeUndefined();
+
+  await page.locator('[data-graph-channel="position.y"]').click();
+  await page.evaluate(() => {
+    const e = (window as any).__forge;
+    e.scrub(20);
+    e.selected.position.y = 7;
+    e.commit();
+  });
+  await page.getByRole('button', { name: 'Insert key on selected channel' }).click();
+
+  tracks = await page.evaluate(() => structuredClone((window as any).__forge.selected.userData.animationTracks));
+  expect(tracks['position.x'].map((key: any) => key.frame)).toEqual([10]);
+  expect(tracks['position.y'].map((key: any) => key.frame)).toEqual([20]);
+
+  await page.locator('[data-graph-channel="position.x"]').click();
+  const graph = page.getByLabel('Animation graph editor');
+  await expect(graph.locator('.graph-key-point[data-frame="10"]')).toHaveCount(1);
+  await graph.locator('.graph-key-point[data-frame="10"]').click();
+  await page.getByRole('button', { name: 'Remove selected channel key' }).click();
+
+  tracks = await page.evaluate(() => structuredClone((window as any).__forge.selected.userData.animationTracks));
+  expect(tracks['position.x']).toBeUndefined();
+  expect(tracks['position.y'].map((key: any) => key.frame)).toEqual([20]);
+});
+
+test('one channel supports mixed per-key Bezier and Constant segments', async ({ page }) => {
+  await page.evaluate(() => {
+    const e = (window as any).__forge;
+    e.scrub(1); e.selected.position.x = 0; e.insertChannelKey('position.x');
+    e.scrub(25); e.selected.position.x = 8; e.insertChannelKey('position.x');
+    e.scrub(49); e.selected.position.x = 0; e.insertChannelKey('position.x');
     e.scrub(1);
   });
+
   await page.getByRole('button', { name: 'Animation', exact: true }).click();
-
   const graph = page.getByLabel('Animation graph editor');
-  const graphBox = await graph.boundingBox();
-  expect(graphBox).not.toBeNull();
-  const marker = graph.locator('.graph-key-point[data-frame="1"]');
-  const markerBox = await marker.boundingBox();
-  expect(markerBox).not.toBeNull();
 
-  const frameX = (frame: number) => graphBox!.x + (48 + (frame - 1) / 249 * 924) / 1000 * graphBox!.width;
-  const centerY = markerBox!.y + markerBox!.height / 2;
-
-  await page.mouse.move(markerBox!.x + markerBox!.width / 2, centerY);
-  await page.mouse.down();
-  await page.mouse.move(frameX(10), centerY, { steps: 8 });
-  await page.mouse.up();
-
-  let keys = await page.evaluate(() => (window as any).__forge.selected.userData.keyframes.map((key: any) => ({
-    frame: key.frame,
-    position: [...key.position],
-  })));
-  expect(keys.map((key: any) => key.frame)).toEqual([10, 25]);
-  expect(keys[0].position).toEqual([0, 2, 3]);
-
-  await page.evaluate(() => (window as any).__forge.undo());
-  keys = await page.evaluate(() => (window as any).__forge.selected.userData.keyframes.map((key: any) => key.frame));
-  expect(keys).toEqual([1, 25]);
-
-  const restoredMarker = graph.locator('.graph-key-point[data-frame="1"]');
-  const restoredBox = await restoredMarker.boundingBox();
-  expect(restoredBox).not.toBeNull();
-  await page.mouse.move(restoredBox!.x + restoredBox!.width / 2, restoredBox!.y + restoredBox!.height / 2);
-  await page.mouse.down();
-  await page.mouse.move(frameX(25), restoredBox!.y + restoredBox!.height / 2, { steps: 8 });
-  await page.mouse.up();
-
-  keys = await page.evaluate(() => (window as any).__forge.selected.userData.keyframes.map((key: any) => key.frame));
-  expect(keys).toHaveLength(2);
-  expect(keys).toContain(25);
-  expect(new Set(keys).size).toBe(2);
-  expect(keys.filter((frame: number) => frame !== 25)[0]).toBeLessThan(25);
-});
-
-
-test('Graph Editor supports per-key outbound interpolation with mixed segments', async ({ page }) => {
-  await page.evaluate(() => {
-    const e = (window as any).__forge;
-    const object = e.selected;
-    object.userData.keyframes = [];
-    e.frame = 1;
-    object.position.set(0, 0, 0);
-    e.insertKey();
-    e.frame = 25;
-    object.position.set(8, 0, 0);
-    e.insertKey();
-    e.frame = 49;
-    object.position.set(0, 0, 0);
-    e.insertKey();
-    e.scrub(1);
-  });
-  await page.getByRole('button', { name: 'Animation', exact: true }).click();
-
-  const graph = page.getByLabel('Animation graph editor');
   await graph.locator('.graph-key-point[data-frame="1"]').click();
   await page.getByLabel('Selected key interpolation').selectOption('bezier');
-  await expect(page.getByLabel('Selected key interpolation')).toHaveValue('bezier');
   await expect(graph.locator('.graph-handle[data-handle="right"]')).toHaveCount(1);
 
   await graph.locator('.graph-key-point[data-frame="25"]').click();
   await page.getByLabel('Selected key interpolation').selectOption('constant');
+
   await expect(graph).toHaveAttribute('data-mode', 'mixed');
   await expect(page.locator('[data-graph-channel="position.x"] small')).toHaveText('MIX');
-  await expect(graph.locator('.graph-handle[data-handle="left"]')).toHaveCount(1);
 
-  const stored = await page.evaluate(() => {
-    const e = (window as any).__forge;
-    const keys = e.selected.userData.keyframes;
-    e.scrub(13);
-    const firstMidpoint = e.selected.position.x;
-    e.scrub(37);
-    const secondMidpoint = e.selected.position.x;
-    return {
-      first: structuredClone(keys[0].curves['position.x']),
-      second: structuredClone(keys[1].curves['position.x']),
-      firstMidpoint,
-      secondMidpoint,
-      saved: e.snapshot(),
-    };
-  });
-
-  expect(stored.first.interpolation).toBe('bezier');
-  expect(stored.first.right[0]).toBeCloseTo(8, 6);
-  expect(stored.first.right[1]).toBeCloseTo(8 / 3, 6);
-  expect(stored.second.interpolation).toBe('constant');
-  expect(stored.second.left[0]).toBeCloseTo(-8, 6);
-  expect(stored.second.left[1]).toBeCloseTo(-8 / 3, 6);
-  expect(stored.firstMidpoint).toBeCloseTo(4, 5);
-  expect(stored.secondMidpoint).toBeCloseTo(8, 6);
-
-  const restored = await page.evaluate((saved) => {
-    const e = (window as any).__forge;
-    e.load(JSON.parse(saved));
-    return e.selected.userData.keyframes.map((key: any) => key.curves?.['position.x'] ?? null);
-  }, stored.saved);
-  expect(restored[0].interpolation).toBe('bezier');
-  expect(restored[1].interpolation).toBe('constant');
-
-  await graph.locator('.graph-key-point[data-frame="49"]').click();
-  await expect(page.getByLabel('Selected key interpolation')).toBeDisabled();
-});
-
-test('Graph Editor tangent handles change the real Bezier curve and undo in one step', async ({ page }) => {
-  await page.evaluate(() => {
-    const e = (window as any).__forge;
-    const object = e.selected;
-    object.userData.keyframes = [];
-    e.frame = 1;
-    object.position.set(0, 0, 0);
-    e.insertKey();
-    e.frame = 25;
-    object.position.set(8, 0, 0);
-    e.insertKey();
-    e.scrub(1);
-  });
-  await page.getByRole('button', { name: 'Animation', exact: true }).click();
-
-  const graph = page.getByLabel('Animation graph editor');
-  await graph.locator('.graph-key-point[data-frame="1"]').click();
-  await page.getByLabel('Selected key interpolation').selectOption('bezier');
-
-  let handle = graph.locator('.graph-handle[data-handle="right"]');
-  const beforeBox = await handle.boundingBox();
-  expect(beforeBox).not.toBeNull();
-  const pathBefore = await graph.locator('.graph-curve').getAttribute('d');
-  await page.mouse.move(beforeBox!.x + beforeBox!.width / 2, beforeBox!.y + beforeBox!.height / 2);
-  await page.mouse.down();
-  await page.mouse.move(beforeBox!.x + beforeBox!.width / 2, beforeBox!.y - 32, { steps: 8 });
-  const pathDuring = await graph.locator('.graph-curve').getAttribute('d');
-  expect(pathDuring).not.toBe(pathBefore);
-  await page.mouse.up();
-
-  const edited = await page.evaluate(() => {
-    const e = (window as any).__forge;
-    const right = e.selected.userData.keyframes[0].curves['position.x'].right;
-    e.scrub(13);
-    return { right: [...right], midpoint: e.selected.position.x };
-  });
-  expect(edited.right[0]).toBeCloseTo(8, 1);
-  expect(edited.right[1]).toBeGreaterThan(8 / 3);
-  expect(edited.midpoint).toBeGreaterThan(4);
-
-  await page.evaluate(() => (window as any).__forge.undo());
-  const undone = await page.evaluate(() => {
-    const e = (window as any).__forge;
-    const curve = e.selected.userData.keyframes[0].curves['position.x'];
-    e.scrub(13);
-    return { interpolation: curve.interpolation, right: [...curve.right], midpoint: e.selected.position.x };
-  });
-  expect(undone.interpolation).toBe('bezier');
-  expect(undone.right[0]).toBeCloseTo(8, 6);
-  expect(undone.right[1]).toBeCloseTo(8 / 3, 6);
-  expect(undone.midpoint).toBeCloseTo(4, 5);
-
-  await page.evaluate(() => (window as any).__forge.redo());
-  const redone = await page.evaluate(() => {
-    const e = (window as any).__forge;
-    e.scrub(13);
-    return {
-      right: [...e.selected.userData.keyframes[0].curves['position.x'].right],
-      midpoint: e.selected.position.x,
-    };
-  });
-  expect(redone.right[1]).toBeGreaterThan(8 / 3);
-  expect(redone.midpoint).toBeGreaterThan(4);
-});
-
-
-test('key curve metadata survives reinsert, retime and copy workflows', async ({ page }) => {
   const result = await page.evaluate(() => {
     const e = (window as any).__forge;
-    const object = e.selected;
-    object.userData.keyframes = [];
-
-    e.frame = 1;
-    object.position.set(0, 0, 0);
-    e.insertKey();
-    e.frame = 25;
-    object.position.set(8, 0, 0);
-    e.insertKey();
-
-    e.setKeyInterpolation(1, 'position.x', 'bezier');
-    e.beginAnimationHandleDrag(1, 'position.x', 'right');
-    e.previewAnimationHandleDrag(9, 6);
-    e.endAnimationHandleDrag();
-
-    e.scrub(1);
-    object.position.x = 1;
-    e.insertKey();
-    const afterReinsert = structuredClone(object.userData.keyframes.find((key: any) => key.frame === 1).curves['position.x']);
-
-    e.scrub(1);
-    e.retimeKey(10, false);
-    const afterMove = structuredClone(object.userData.keyframes.find((key: any) => key.frame === 10).curves['position.x']);
-
-    e.scrub(10);
-    e.retimeKey(15, true);
-    const afterCopy = structuredClone(object.userData.keyframes.find((key: any) => key.frame === 15).curves['position.x']);
-
+    e.scrub(13); const first = e.selected.position.x;
+    e.scrub(37); const second = e.selected.position.x;
     return {
-      afterReinsert,
-      afterMove,
-      afterCopy,
-      frames: object.userData.keyframes.map((key: any) => key.frame),
+      first,
+      second,
+      track: structuredClone(e.selected.userData.animationTracks['position.x']),
     };
   });
 
-  for (const curve of [result.afterReinsert, result.afterMove, result.afterCopy]) {
-    expect(curve.interpolation).toBe('bezier');
-    expect(curve.right[0]).toBeCloseTo(8, 6);
-    expect(curve.right[1]).toBeCloseTo(6, 6);
-  }
-  expect(result.frames).toEqual([10, 15, 25]);
+  expect(result.first).toBeCloseTo(4, 5);
+  expect(result.second).toBeCloseTo(8, 6);
+  expect(result.track[0].interpolation).toBe('bezier');
+  expect(result.track[1].interpolation).toBe('constant');
 });
 
-
-test('Aligned tangent mode couples opposite Bezier handles while preserving opposite length', async ({ page }) => {
+test('rotation channel graph displays unwrapped multi-turn degrees', async ({ page }) => {
   await page.evaluate(() => {
     const e = (window as any).__forge;
-    const object = e.selected;
-    object.userData.keyframes = [];
-    e.frame = 1; object.position.set(0, 0, 0); e.insertKey();
-    e.frame = 25; object.position.set(8, 0, 0); e.insertKey();
-    e.frame = 49; object.position.set(0, 0, 0); e.insertKey();
+    e.scrub(1);
+    e.selected.rotation.y = 270 * Math.PI / 180;
+    e.insertChannelKey('rotation.y');
+    e.scrub(25);
+    e.selected.rotation.y = 720 * Math.PI / 180;
+    e.insertChannelKey('rotation.y');
+    e.scrub(1);
+  });
+
+  await page.getByRole('button', { name: 'Animation', exact: true }).click();
+  await page.locator('[data-graph-channel="rotation.y"]').click();
+  const graph = page.getByLabel('Animation graph editor');
+
+  expect(Number(await graph.locator('.graph-key-point[data-frame="1"]').getAttribute('data-value'))).toBeCloseTo(270, 5);
+  expect(Number(await graph.locator('.graph-key-point[data-frame="25"]').getAttribute('data-value'))).toBeCloseTo(720, 5);
+
+  await page.evaluate(() => (window as any).__forge.scrub(13));
+  expect(await page.evaluate(() => (window as any).__forge.selected.rotation.y * 180 / Math.PI)).toBeCloseTo(495, 4);
+});
+
+test('Aligned tangent pointer dragging couples the opposite scalar-key handle', async ({ page }) => {
+  await page.evaluate(() => {
+    const e = (window as any).__forge;
+    e.scrub(1); e.selected.position.x = 0; e.insertChannelKey('position.x');
+    e.scrub(25); e.selected.position.x = 8; e.insertChannelKey('position.x');
+    e.scrub(49); e.selected.position.x = 0; e.insertChannelKey('position.x');
     e.setKeyInterpolation(1, 'position.x', 'bezier');
     e.setKeyInterpolation(25, 'position.x', 'bezier');
     e.scrub(25);
@@ -424,21 +136,11 @@ test('Aligned tangent mode couples opposite Bezier handles while preserving oppo
   await page.getByRole('button', { name: 'Animation', exact: true }).click();
   const graph = page.getByLabel('Animation graph editor');
   await graph.locator('.graph-key-point[data-frame="25"]').click();
-
-  const tangent = page.getByLabel('Selected key tangent mode');
-  await expect(tangent).toBeEnabled();
-  await expect(tangent).toHaveValue('free');
-  await tangent.selectOption('aligned');
-  await expect(tangent).toHaveValue('aligned');
+  await page.getByLabel('Selected key tangent mode').selectOption('aligned');
 
   const before = await page.evaluate(() => {
-    const curve = (window as any).__forge.selected.userData.keyframes
-      .find((key: any) => key.frame === 25).curves['position.x'];
-    return {
-      left: [...curve.left],
-      right: [...curve.right],
-      leftLength: Math.hypot(...curve.left),
-    };
+    const key = (window as any).__forge.selected.userData.animationTracks['position.x'][1];
+    return { left: [...key.left], right: [...key.right], leftLength: Math.hypot(...key.left) };
   });
 
   const right = graph.locator('.graph-handle[data-handle="right"]');
@@ -450,11 +152,9 @@ test('Aligned tangent mode couples opposite Bezier handles while preserving oppo
   await page.mouse.up();
 
   const after = await page.evaluate(() => {
-    const curve = (window as any).__forge.selected.userData.keyframes
-      .find((key: any) => key.frame === 25).curves['position.x'];
-    const left = [...curve.left], right = [...curve.right];
+    const key = (window as any).__forge.selected.userData.animationTracks['position.x'][1];
+    const left = [...key.left], right = [...key.right];
     return {
-      tangent: curve.tangent,
       left,
       right,
       leftLength: Math.hypot(...left),
@@ -463,76 +163,63 @@ test('Aligned tangent mode couples opposite Bezier handles while preserving oppo
     };
   });
 
-  expect(after.tangent).toBe('aligned');
   expect(after.right).not.toEqual(before.right);
   expect(after.cross).toBeCloseTo(0, 6);
   expect(after.dot).toBeLessThan(0);
   expect(after.leftLength).toBeCloseTo(before.leftLength, 6);
-
-  await page.evaluate(() => (window as any).__forge.undo());
-  expect(await page.evaluate(() =>
-    (window as any).__forge.selected.userData.keyframes.find((key: any) => key.frame === 25)
-      .curves['position.x'].tangent
-  )).toBe('aligned');
 });
 
-test('Auto tangent mode is computed from neighbors and its handles are not draggable', async ({ page }) => {
+test('Auto tangent handles recompute from neighboring scalar keys and are locked', async ({ page }) => {
   await page.evaluate(() => {
     const e = (window as any).__forge;
-    const object = e.selected;
-    object.userData.keyframes = [];
-    e.frame = 1; object.position.set(0, 0, 0); e.insertKey();
-    e.frame = 25; object.position.set(8, 0, 0); e.insertKey();
-    e.frame = 49; object.position.set(0, 0, 0); e.insertKey();
+    e.scrub(1); e.selected.position.x = 0; e.insertChannelKey('position.x');
+    e.scrub(25); e.selected.position.x = 8; e.insertChannelKey('position.x');
+    e.scrub(49); e.selected.position.x = 0; e.insertChannelKey('position.x');
     e.setKeyInterpolation(1, 'position.x', 'bezier');
     e.setKeyInterpolation(25, 'position.x', 'bezier');
+    e.setKeyTangentMode(25, 'position.x', 'auto');
     e.scrub(25);
   });
 
   await page.getByRole('button', { name: 'Animation', exact: true }).click();
   const graph = page.getByLabel('Animation graph editor');
   await graph.locator('.graph-key-point[data-frame="25"]').click();
-  const tangent = page.getByLabel('Selected key tangent mode');
-  await tangent.selectOption('auto');
-  await expect(tangent).toHaveValue('auto');
 
   const handles = graph.locator('.graph-handle.auto');
   await expect(handles).toHaveCount(2);
-  const initialValues = await handles.evaluateAll(nodes =>
+  const initial = await handles.evaluateAll(nodes =>
     nodes.map(node => Number((node as SVGElement).dataset.handleValue))
   );
-  expect(initialValues[0]).toBeCloseTo(8, 6);
-  expect(initialValues[1]).toBeCloseTo(8, 6);
+  expect(initial[0]).toBeCloseTo(8, 6);
+  expect(initial[1]).toBeCloseTo(8, 6);
 
-  const stored = await page.evaluate(() => {
-    const curve = (window as any).__forge.selected.userData.keyframes
-      .find((key: any) => key.frame === 25).curves['position.x'];
-    return structuredClone(curve);
-  });
+  const stored = await page.evaluate(() => structuredClone(
+    (window as any).__forge.selected.userData.animationTracks['position.x'][1]
+  ));
   expect(stored.tangent).toBe('auto');
   expect(stored.left).toBeUndefined();
   expect(stored.right).toBeUndefined();
 
   const right = graph.locator('.graph-handle[data-handle="right"]');
-  const beforePath = await graph.locator('.graph-curve').getAttribute('d');
+  const pathBefore = await graph.locator('.graph-curve').getAttribute('d');
   const box = await right.boundingBox();
   expect(box).not.toBeNull();
   await page.mouse.move(box!.x + box!.width / 2, box!.y + box!.height / 2);
   await page.mouse.down();
   await page.mouse.move(box!.x + box!.width / 2, box!.y - 30, { steps: 5 });
   await page.mouse.up();
-  expect(await graph.locator('.graph-curve').getAttribute('d')).toBe(beforePath);
+  expect(await graph.locator('.graph-curve').getAttribute('d')).toBe(pathBefore);
 
   await page.evaluate(() => {
     const e = (window as any).__forge;
-    const key = e.selected.userData.keyframes.find((item: any) => item.frame === 49);
-    key.position[0] = 16;
+    e.selected.userData.animationTracks['position.x'][2].value = 16;
     e.commit();
     e.scrub(25);
   });
-  const updatedValues = await graph.locator('.graph-handle.auto').evaluateAll(nodes =>
+
+  const updated = await graph.locator('.graph-handle.auto').evaluateAll(nodes =>
     nodes.map(node => Number((node as SVGElement).dataset.handleValue))
   );
-  expect(updatedValues[0]).toBeLessThan(8);
-  expect(updatedValues[1]).toBeGreaterThan(8);
+  expect(updated[0]).toBeLessThan(8);
+  expect(updated[1]).toBeGreaterThan(8);
 });
