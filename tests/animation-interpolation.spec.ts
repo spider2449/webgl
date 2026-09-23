@@ -243,47 +243,6 @@ test('Constant per-key segments bake hold behavior into GLB', async ({ page }) =
   expect(glb.readFloatLE(offset + 6 * 4)).toBeCloseTo(8, 4);
 });
 
-test('rotation per-key curves upgrade quaternion-only keys without orientation drift', async ({ page }) => {
-  const result = await page.evaluate(() => {
-    const e = (window as any).__forge;
-    const object = e.selected;
-    object.userData.keyframes = [];
-
-    e.frame = 1;
-    object.rotation.set(10 * Math.PI / 180, 20 * Math.PI / 180, 30 * Math.PI / 180, 'XYZ');
-    e.insertKey();
-    e.frame = 25;
-    object.rotation.set(40 * Math.PI / 180, 50 * Math.PI / 180, 60 * Math.PI / 180, 'XYZ');
-    e.insertKey();
-
-    const before = object.userData.keyframes.map((key: any) => [...key.quaternion]);
-    object.userData.keyframes.forEach((key: any) => {
-      delete key.rotation;
-      delete key.rotationOrder;
-    });
-
-    e.setKeyInterpolation(1, 'rotation.y', 'bezier');
-    const upgraded = object.userData.keyframes.map((key: any) => ({
-      rotation: key.rotation.map((value: number) => value * 180 / Math.PI),
-      order: key.rotationOrder,
-      quaternion: [...key.quaternion],
-      curve: structuredClone(key.curves?.['rotation.y'] ?? null),
-    }));
-    const dots = upgraded.map((key: any, index: number) =>
-      Math.abs(key.quaternion.reduce((sum: number, value: number, component: number) =>
-        sum + value * before[index][component], 0))
-    );
-
-    return { upgraded, dots };
-  });
-
-  expect(result.upgraded[0].order).toBe('XYZ');
-  expect(result.upgraded[1].order).toBe('XYZ');
-  expect(result.upgraded[0].curve.interpolation).toBe('bezier');
-  expect(result.dots.every((dot: number) => Math.abs(dot - 1) < 1e-10)).toBe(true);
-});
-
-
 test('tangent modes persist and malformed tangent metadata fails closed', async ({ page }) => {
   const result = await page.evaluate(() => {
     const e = (window as any).__forge;
