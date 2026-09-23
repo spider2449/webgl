@@ -128,17 +128,24 @@ Linked duplication is intentionally bounded: skinned meshes and meshes with an a
 
 ## Animation interpolation
 
-Open the **Animation** workspace to author and edit transform animation. The
-timeline header owns playback, the current frame, and **Insert/Remove transform
-key**. The **Graph Editor is the sole animation editing UI**; the Object panel
-does not duplicate animation controls.
+Open the **Animation** workspace to author and edit transform animation. Forge
+stores nine independent scalar tracks: **Location X/Y/Z**, **Rotation X/Y/Z**
+and **Scale X/Y/Z**. Each track owns its own key frames, values, interpolation
+and Bezier tangents.
 
-The graph's channel rail exposes all nine scalar transform channels:
-**Location X/Y/Z**, **Rotation X/Y/Z**, and **Scale X/Y/Z**. Click a channel to
-make it active, then click a key to select it.
+The timeline header keeps the fast transform workflow: **Insert transform key**
+authors all nine scalar channels at the current frame, while **Remove current
+key** removes any channel keys at that frame. Timeline markers and previous/next
+navigation use the union of key frames across all channels.
 
-Every segment is **Linear by default**. A selected key controls the segment from
-that key to the next key and can be set to exactly one of:
+The **Graph Editor is the sole detailed animation editing UI**. Select a channel
+from the rail, then use **Insert channel key** or **Remove selected channel key**
+to author that scalar independently. Vertical key dragging edits only that
+scalar value. Horizontal dragging retimes only the active channel key, and
+**Alt-drag** copies only that channel key. Other channels keep their own timing.
+
+Every segment is **Linear by default**. A key controls its outbound segment and
+can use:
 
 - **Linear** — interpolate scalar values linearly.
 - **Constant** — hold the source value until the next key.
@@ -149,45 +156,34 @@ override, no Smooth fallback, and no Inherit mode. Different segments on the
 same channel may use different modes; the channel rail shows **MIX** when they
 differ.
 
-Bezier creates a right handle on the source key and a left handle on the next
-key. Each key/channel has a tangent mode: **Free** keeps both handles
-independent; **Aligned** keeps them opposite and collinear while preserving the
-other handle's length; **Auto** derives a monotone slope from neighboring keys
-and updates automatically as key timing or values change. Auto handles are
-visible but not directly draggable. Handle time remains bounded to the adjacent
-segment so frame→value stays single-valued. Rotation curves display degrees
-while preserving unwrapped Euler radians internally; quaternion orientation
-stays synchronized.
+Bezier keys support **Free**, **Aligned**, and **Auto** tangent modes. Free
+handles are independent. Aligned keeps both sides opposite and collinear while
+preserving the opposite handle length when bounds allow. Auto derives a
+monotone slope from neighboring scalar keys and updates automatically as key
+times or values change; Auto handles are visible but not draggable. Rotation
+tracks store unwrapped radians and the Graph Editor displays degrees, so values
+such as 270°, 540°, or 720° remain continuous.
 
-Transform fields in the Object panel use Blender-style animation state colors:
-**yellow** when the current frame is keyed, **green** when the property is
-animated but keyed on another frame, and **orange** when the live value has been
-changed away from the evaluated animation value and still needs a key. Unanimated
-fields keep the normal neutral styling.
+Transform fields in the Object panel use Blender-style animation state colors
+per scalar channel: **yellow** when that channel has a key on the current frame,
+**green** when that channel is animated but keyed elsewhere, **orange** when the
+live value differs from the evaluated track and still needs a key, and neutral
+when the channel has no animation.
 
-Graph key interaction is direct:
+Key and tangent drags create one undoable history entry. Escape or pointer
+cancellation restores the original track data. Forge project loading rejects
+the removed transform-wide `keyframes`, `animationInterpolation`, and
+`animationChannelInterpolation` fields rather than maintaining a second
+animation model.
 
-- drag vertically to edit the active scalar value,
-- drag horizontally to retime the whole transform key,
-- **Alt-drag** horizontally to copy the whole transform key,
-- drag onto an occupied frame and Forge keeps the last valid frame instead of
-  overwriting an existing key.
-
-Forge currently stores Position, Rotation, and Scale together at one shared key
-time, so horizontal move/copy operates on the complete transform key rather than
-an independent scalar-key time. Key and tangent drags each create one undoable
-history entry; Escape or pointer cancellation restores the original data.
-
-Project loading rejects the removed `animationInterpolation` and
-`animationChannelInterpolation` fields so the animation model cannot silently
-fall back to the superseded hierarchy.
-
-glTF transform samplers cannot directly represent mixed per-axis/per-segment
-Bezier tangents. Pure Linear animation exports as LINEAR key tracks. Objects
-containing Constant or Bezier segments are baked to LINEAR samples; Bezier uses
-32 samples per segment and Constant adds a near-boundary hold sample. This
-export path is an approximation. Independent per-channel key times, arbitrary
-F-curves, weighted tangent types, and batch curve operations remain future work.
+glTF transform channels still operate on whole position/rotation/scale targets.
+Forge therefore exports each transform group on the union of its three scalar
+track times. Pure Linear data stays LINEAR. Constant and Bezier segments are
+baked to LINEAR samples; Bezier uses 32 samples per segment and Constant adds a
+near-boundary hold sample. Multi-turn rotation adds bounded angular samples
+before quaternion export. This is an interchange approximation; arbitrary
+F-curves, weighted tangent types, curve modifiers, and batch curve operations
+remain future work.
 
 ## Kimodo rigging
 
