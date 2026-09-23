@@ -238,8 +238,10 @@ export class AnimationGraphView {
 
     const tracks = object?.userData.animationTracks as AnimationTrackMap | undefined;
     const keys = trackKeys(tracks, channel);
-    const keyFrames = new Set(keys.map(key => key.frame));
-    this.selectedFrames = new Set([...this.selectedFrames].filter(frame => keyFrames.has(frame)));
+    if (!this.drag) {
+      const keyFrames = new Set(keys.map(key => key.frame));
+      this.selectedFrames = new Set([...this.selectedFrames].filter(frame => keyFrames.has(frame)));
+    }
 
     const signature = JSON.stringify({
       uuid: object?.uuid ?? null,
