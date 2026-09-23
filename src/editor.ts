@@ -329,7 +329,6 @@ export class Editor extends EventTarget {
   seed() {
     const cube = this.add('cube', false);
     cube.name = 'Cube';
-    cube.rotation.y = Math.PI / 9;
     this.select(cube);
     this.commit();
   }
