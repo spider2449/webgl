@@ -142,12 +142,18 @@ frame. **Shift-click** summary markers to build a Timeline selection, or
 **Shift-drag empty Timeline space** to add every summary marker inside the
 horizontal box. Plain Timeline dragging remains frame scrubbing. Drag any
 selected marker to move the selected summary frames by one shared whole-frame
-delta. The operation is atomic across every participating scalar channel, creates
-one undo entry, and is rejected without partial changes if any moved channel
-would collide with an unselected key or leave frames 1–250. Escape or pointer
-cancellation restores the pre-drag Timeline selection and never cancels the
-active object selection. Timeline selection remains a summary-frame interaction
-and does not create a second animation key model.
+delta, or **Alt-drag** to duplicate the full selected summary-frame set while
+leaving the sources in place. Use **Delete/Backspace** or the Timeline remove
+button to remove selected summary frames across all participating scalar
+channels. For two or more selected summary frames, the Timeline **Time Scale**
+control scales frame spacing around the midpoint of the selected range. Move,
+copy, delete and time-scale batches each create one undo entry and validate the
+whole participating scalar-channel set before changing tracks. Copy/move/scale
+are rejected without partial changes when a same-channel collision would occur;
+move/scale also enforce frames 1–250 and time scaling rejects rounded frame
+collapse. Escape or pointer cancellation restores the pre-drag Timeline state
+and never cancels the active object selection. Timeline selection remains a
+summary-frame interaction and does not create a second animation key model.
 
 The **Graph Editor is the sole detailed animation editing UI**. Select a channel
 from the rail, then use **Insert channel key** to author that scalar
