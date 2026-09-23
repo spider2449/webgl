@@ -1026,8 +1026,15 @@ function capture() {
 }
 on('capture', capture); on('capture-quick', capture);
 document.addEventListener('keydown', e => {
-  if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement || e.target instanceof HTMLSelectElement || document.querySelector('dialog[open]')) return;
   const key = e.key.toLowerCase();
+  if (key === 'escape' && (timelineKeyDrag || timelineBoxDrag)) {
+    e.preventDefault();
+    closeMenus();
+    if (timelineKeyDrag) cancelTimelineKeyDrag();
+    else cancelTimelineBoxDrag();
+    return;
+  }
+  if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement || e.target instanceof HTMLSelectElement || document.querySelector('dialog[open]')) return;
   if (e.ctrlKey || e.metaKey) {
     if (['s','o','z','y','n'].includes(key)) e.preventDefault();
     if (key === 's') save(); else if (key === 'o') $('#project-input').click(); else if (key === 'z') e.shiftKey ? editor.redo() : editor.undo(); else if (key === 'y') editor.redo(); else if (key === 'n') $<HTMLDialogElement>('#new-dialog').showModal();
@@ -1046,13 +1053,7 @@ document.addEventListener('keydown', e => {
   if (key === '/') { e.preventDefault(); $('#object-search').focus(); }
   if (key === 'escape') {
     closeMenus();
-    if (timelineKeyDrag) {
-      e.preventDefault();
-      cancelTimelineKeyDrag();
-    } else if (timelineBoxDrag) {
-      e.preventDefault();
-      cancelTimelineBoxDrag();
-    } else if (timelineSelectedFrames.size) {
+    if (timelineSelectedFrames.size) {
       e.preventDefault();
       timelineSelectedFrames.clear();
       timelineState = '';
