@@ -60,6 +60,7 @@
 .graph-key-point.selected{fill:#f2c988;stroke:#fff0d2;stroke-width:2}
 .graph-key-point.dragging{cursor:grabbing;fill:#f0c88f;stroke:#fff3d6;stroke-width:2}
 .graph-key-point.ghost{opacity:.62;fill:#f3d6a9;stroke:#fff0d2;stroke-dasharray:2 2;pointer-events:none}
+.graph-selection-box{fill:#8aa6cc22;stroke:#9eb8db;stroke-width:1;stroke-dasharray:4 3;vector-effect:non-scaling-stroke;pointer-events:none}
 .graph-handle-line{stroke:#8b7960;stroke-width:1;stroke-dasharray:2 2;vector-effect:non-scaling-stroke;pointer-events:none}
 .graph-handle{fill:#1b1d22;stroke:#e0b780;stroke-width:1.5;vector-effect:non-scaling-stroke;cursor:crosshair;pointer-events:all}
 .graph-handle:hover,.graph-handle.dragging{fill:#e0b780;stroke:#fff0d2;stroke-width:2}

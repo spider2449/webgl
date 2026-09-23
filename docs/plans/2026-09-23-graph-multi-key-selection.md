@@ -42,7 +42,7 @@ The Graph header reports the selected count when more than one key is selected.
 
 ## Non-goals
 
-- box/lasso selection,
+- lasso selection,
 - cross-channel selection,
 - cross-object selection,
 - scaling key timing around a pivot,
@@ -54,6 +54,7 @@ The Graph header reports the selected count when more than one key is selected.
 Playwright coverage verifies:
 
 - Shift-click selection toggling,
+- empty-space box selection and Shift-box additive selection,
 - multi-selection disables single-key interpolation/tangent controls,
 - batch remove and one-step undo,
 - batch move preserves relative timing/value offsets,

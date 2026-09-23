@@ -430,3 +430,121 @@ test('plain Graph key selection does not create an undo entry', async ({ page })
   await expect(graph).toHaveAttribute('data-selected-frames', '20');
   await expect(page.locator('#current-frame')).toHaveValue('20');
 });
+
+
+test('empty-graph box drag replaces the active-channel key selection without history', async ({ page }) => {
+  await page.evaluate(() => {
+    const e = (window as any).__forge;
+    delete e.selected.userData.animationTracks;
+    e.scrub(20); e.selected.position.x = 0; e.insertChannelKey('position.x');
+    e.scrub(40); e.selected.position.x = 0; e.insertChannelKey('position.x');
+    e.scrub(60); e.selected.position.x = 0; e.insertChannelKey('position.x');
+    e.scrub(20);
+  });
+
+  await page.getByRole('button', { name: 'Animation', exact: true }).click();
+  const graph = page.getByLabel('Animation graph editor');
+  await graph.locator('.graph-key-point[data-frame="60"]').click();
+
+  const before = await page.evaluate(() => ({
+    history: JSON.stringify((window as any).__forge.history),
+    index: (window as any).__forge.historyIndex,
+  }));
+
+  const a = await graph.locator('.graph-key-point[data-frame="20"]').boundingBox();
+  const b = await graph.locator('.graph-key-point[data-frame="40"]').boundingBox();
+  expect(a).not.toBeNull();
+  expect(b).not.toBeNull();
+
+  await page.mouse.move(a!.x - 8, a!.y - 8);
+  await page.mouse.down();
+  await page.mouse.move(b!.x + b!.width + 8, b!.y + b!.height + 8, { steps: 8 });
+
+  await expect(graph.locator('.graph-selection-box')).toHaveAttribute('visibility', 'visible');
+  await expect(graph).toHaveAttribute('data-selected-frames', '20,40');
+
+  await page.mouse.up();
+  await expect(graph.locator('.graph-selection-box')).toHaveAttribute('visibility', 'hidden');
+  await expect(graph).toHaveAttribute('data-selected-frames', '20,40');
+
+  const after = await page.evaluate(() => ({
+    history: JSON.stringify((window as any).__forge.history),
+    index: (window as any).__forge.historyIndex,
+  }));
+  expect(after).toEqual(before);
+});
+
+test('Shift-box drag adds keys to the existing Graph selection', async ({ page }) => {
+  await page.evaluate(() => {
+    const e = (window as any).__forge;
+    delete e.selected.userData.animationTracks;
+    e.scrub(20); e.selected.position.x = 0; e.insertChannelKey('position.x');
+    e.scrub(40); e.selected.position.x = 0; e.insertChannelKey('position.x');
+    e.scrub(60); e.selected.position.x = 0; e.insertChannelKey('position.x');
+    e.scrub(20);
+  });
+
+  await page.getByRole('button', { name: 'Animation', exact: true }).click();
+  const graph = page.getByLabel('Animation graph editor');
+  await graph.locator('.graph-key-point[data-frame="60"]').click();
+
+  const a = await graph.locator('.graph-key-point[data-frame="20"]').boundingBox();
+  const b = await graph.locator('.graph-key-point[data-frame="40"]').boundingBox();
+  expect(a).not.toBeNull();
+  expect(b).not.toBeNull();
+
+  await page.keyboard.down('Shift');
+  await page.mouse.move(a!.x - 8, a!.y - 8);
+  await page.mouse.down();
+  await page.mouse.move(b!.x + b!.width + 8, b!.y + b!.height + 8, { steps: 8 });
+  await page.mouse.up();
+  await page.keyboard.up('Shift');
+
+  await expect(graph).toHaveAttribute('data-selected-frames', '20,40,60');
+  await expect(graph.locator('.graph-key-point.selected')).toHaveCount(3);
+  await expect(page.getByLabel('Selected key interpolation')).toBeDisabled();
+  await expect(page.getByLabel('Selected key tangent mode')).toBeDisabled();
+});
+
+test('Escape cancels Graph box selection and restores the pre-drag selection', async ({ page }) => {
+  await page.evaluate(() => {
+    const e = (window as any).__forge;
+    delete e.selected.userData.animationTracks;
+    e.scrub(20); e.selected.position.x = 0; e.insertChannelKey('position.x');
+    e.scrub(40); e.selected.position.x = 0; e.insertChannelKey('position.x');
+    e.scrub(60); e.selected.position.x = 0; e.insertChannelKey('position.x');
+    e.scrub(20);
+  });
+
+  await page.getByRole('button', { name: 'Animation', exact: true }).click();
+  const graph = page.getByLabel('Animation graph editor');
+  await graph.locator('.graph-key-point[data-frame="60"]').click();
+
+  const before = await page.evaluate(() => ({
+    history: JSON.stringify((window as any).__forge.history),
+    index: (window as any).__forge.historyIndex,
+  }));
+
+  const a = await graph.locator('.graph-key-point[data-frame="20"]').boundingBox();
+  const b = await graph.locator('.graph-key-point[data-frame="40"]').boundingBox();
+  expect(a).not.toBeNull();
+  expect(b).not.toBeNull();
+
+  await page.mouse.move(a!.x - 8, a!.y - 8);
+  await page.mouse.down();
+  await page.mouse.move(b!.x + b!.width + 8, b!.y + b!.height + 8, { steps: 8 });
+  await expect(graph).toHaveAttribute('data-selected-frames', '20,40');
+
+  await page.keyboard.press('Escape');
+  await page.mouse.up();
+
+  await expect(graph).toHaveAttribute('data-selected-frames', '60');
+  await expect(graph.locator('.graph-selection-box')).toHaveAttribute('visibility', 'hidden');
+  await expect(graph.locator('.graph-key-point[data-frame="60"]')).toHaveClass(/selected/);
+
+  const after = await page.evaluate(() => ({
+    history: JSON.stringify((window as any).__forge.history),
+    index: (window as any).__forge.historyIndex,
+  }));
+  expect(after).toEqual(before);
+});
