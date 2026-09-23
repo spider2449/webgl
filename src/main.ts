@@ -691,15 +691,19 @@ function timelineFrameAt(clientX: number) {
   return THREE.MathUtils.clamp(Math.round(1 + (clientX - rect.left) / rect.width * 249), 1, 250);
 }
 
+function restoreTimelineMarker(marker: HTMLButtonElement, frame: number) {
+  marker.style.left = `${(frame - 1) / 249 * 100}%`;
+  marker.dataset.frame = String(frame);
+  marker.setAttribute('aria-label', `Animation key at frame ${frame}`);
+  marker.title = `Drag animation key at frame ${frame}`;
+}
+
 function cancelTimelineKeyDrag() {
   const drag = timelineKeyDrag;
   if (!drag) return false;
   timelineKeyDrag = null;
   drag.marker.classList.remove('dragging');
-  drag.marker.style.left = `${(drag.sourceFrame - 1) / 249 * 100}%`;
-  drag.marker.dataset.frame = String(drag.sourceFrame);
-  drag.marker.setAttribute('aria-label', `Animation key at frame ${drag.sourceFrame}`);
-  drag.marker.title = `Drag animation key at frame ${drag.sourceFrame}`;
+  restoreTimelineMarker(drag.marker, drag.sourceFrame);
   if (drag.marker.hasPointerCapture(drag.pointerId)) drag.marker.releasePointerCapture(drag.pointerId);
   editor.scrub(drag.sourceFrame);
   return true;
@@ -749,15 +753,13 @@ function finishTimelineKeyDrag(event: PointerEvent) {
   if (drag.marker.hasPointerCapture(event.pointerId)) drag.marker.releasePointerCapture(event.pointerId);
 
   if (event.type === 'pointercancel') {
-    drag.marker.style.left = `${(drag.sourceFrame - 1) / 249 * 100}%`;
-    drag.marker.dataset.frame = String(drag.sourceFrame);
+    restoreTimelineMarker(drag.marker, drag.sourceFrame);
     editor.scrub(drag.sourceFrame);
     return;
   }
 
   if (drag.targetFrame === drag.sourceFrame) {
-    drag.marker.style.left = `${(drag.sourceFrame - 1) / 249 * 100}%`;
-    drag.marker.dataset.frame = String(drag.sourceFrame);
+    restoreTimelineMarker(drag.marker, drag.sourceFrame);
     editor.scrub(drag.sourceFrame);
     return;
   }
@@ -776,8 +778,7 @@ function finishTimelineKeyDrag(event: PointerEvent) {
     toast(`Animation key moved from frame ${drag.sourceFrame} to ${drag.targetFrame}.`);
     updateTimeline();
   } catch (error) {
-    drag.marker.style.left = `${(drag.sourceFrame - 1) / 249 * 100}%`;
-    drag.marker.dataset.frame = String(drag.sourceFrame);
+    restoreTimelineMarker(drag.marker, drag.sourceFrame);
     editor.scrub(drag.sourceFrame);
     toast((error as Error).message);
     updateTimeline();
