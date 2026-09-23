@@ -37,7 +37,7 @@ $('#app').innerHTML = `
         <div class="viewport-caption"><span class="caption-mark"></span><span id="mode-hint">Build something extraordinary.</span></div>
         <div class="viewport-badge">${icon('activity')}<span id="draw-status">ON DEMAND</span></div>
       </div>
-      <section class="timeline" aria-label="Animation timeline"><div class="timeline-header"><span class="panel-title">${icon('diamond')} Timeline</span><span class="timeline-selection" id="timeline-object">Cube</span><div class="playback">${button('first-frame','chevron-first','First frame')}${button('previous-key','skip-back','Previous keyframe')}${button('play','play','Play / pause (Space)')}${button('next-key','skip-forward','Next keyframe')}${button('last-frame','chevron-last','Last frame')}</div><div class="frame-settings"><input id="current-frame" aria-label="Current frame" type="number" min="1" max="250" value="1"><span>/ 250</span><span class="fps">24 fps</span>${button('insert-key','diamond','Insert transform keyframe (I)')}${button('remove-key','x','Remove current keyframe')}</div></div><div class="animation-graph"><div class="animation-graph-header"><span id="animation-graph-title">Graph Editor</span><span id="animation-graph-detail">Insert channel keys to display a curve.</span>${button('insert-channel-key','diamond','Insert key on selected channel')}${button('remove-channel-key','x','Remove selected channel key')}<label class="graph-segment-control">Segment<select id="graph-key-interpolation" aria-label="Selected key interpolation"><option value="mixed" disabled>Mixed</option><option value="linear">Linear</option><option value="constant">Constant</option><option value="bezier">Bezier</option></select></label><label class="graph-tangent-control">Tangent<select id="graph-key-tangent" aria-label="Selected key tangent mode"><option value="mixed" disabled>Mixed</option><option value="free">Free</option><option value="aligned">Aligned</option><option value="auto">Auto</option></select></label><label class="graph-time-scale-control">Time<input id="graph-time-scale" aria-label="Selected key time scale" type="number" min="0.01" step="0.1" value="1"></label><button id="apply-graph-time-scale" class="text-button graph-time-scale-button" type="button">Scale</button><span class="graph-editor-badge" title="Box-select keys · Shift adds · Drag selected keys to move · Alt-drag to copy · Segment/Tangent/Time apply to selection">KEY CURVES</span></div><div class="animation-graph-body"><nav class="graph-channels" aria-label="Graph channels">${(['position','rotation','scale'] as const).map(property => `<div class="graph-channel-group"><span>${property === 'position' ? 'Location' : property[0].toUpperCase()+property.slice(1)}</span>${animationChannels.filter(channel => channel.startsWith(property + '.')).map(channel => `<button type="button" data-graph-channel="${channel}" aria-label="Graph channel ${animationChannelLabel(channel)}"><span>${channel.at(-1)!.toUpperCase()}</span><small>LIN</small></button>`).join('')}</div>`).join('')}</nav><svg id="animation-graph" aria-label="Animation graph editor" role="img" viewBox="0 0 1000 180" preserveAspectRatio="none"></svg></div></div><div class="timeline-track" id="timeline-track"><div class="timeline-ruler">${[1,25,50,75,100,125,150,175,200,225,250].map(n => `<span style="left:${(n-1)/249*100}%">${n}</span>`).join('')}</div><div id="keyframe-markers"></div><div class="playhead" id="playhead"><span>1</span></div><input type="range" id="scrubber" aria-label="Timeline frame" min="1" max="250" value="1"></div></section>
+      <section class="timeline" aria-label="Animation timeline"><div class="timeline-header"><span class="panel-title">${icon('diamond')} Timeline</span><span class="timeline-selection" id="timeline-object">Cube</span><div class="playback">${button('first-frame','chevron-first','First frame')}${button('previous-key','skip-back','Previous keyframe')}${button('play','play','Play / pause (Space)')}${button('next-key','skip-forward','Next keyframe')}${button('last-frame','chevron-last','Last frame')}</div><div class="frame-settings"><input id="current-frame" aria-label="Current frame" type="number" min="1" max="250" value="1"><span>/ 250</span><span class="fps">24 fps</span>${button('insert-key','diamond','Insert transform keyframe (I)')}${button('remove-key','x','Remove current keyframe')}</div></div><div class="animation-graph"><div class="animation-graph-header"><span id="animation-graph-title">Graph Editor</span><span id="animation-graph-detail">Insert channel keys to display a curve.</span>${button('insert-channel-key','diamond','Insert key on selected channel')}${button('remove-channel-key','x','Remove selected channel key')}<label class="graph-segment-control">Segment<select id="graph-key-interpolation" aria-label="Selected key interpolation"><option value="mixed" disabled>Mixed</option><option value="linear">Linear</option><option value="constant">Constant</option><option value="bezier">Bezier</option></select></label><label class="graph-tangent-control">Tangent<select id="graph-key-tangent" aria-label="Selected key tangent mode"><option value="mixed" disabled>Mixed</option><option value="free">Free</option><option value="aligned">Aligned</option><option value="auto">Auto</option></select></label><label class="graph-time-scale-control">Time<input id="graph-time-scale" aria-label="Selected key time scale" type="number" min="0.01" step="0.1" value="1"></label><button id="apply-graph-time-scale" class="text-button graph-time-scale-button" type="button">Scale</button><span class="graph-editor-badge" title="Box-select keys · Shift adds · Drag selected keys to move · Alt-drag to copy · Segment/Tangent/Time apply to selection">KEY CURVES</span></div><div class="animation-graph-body"><nav class="graph-channels" aria-label="Graph channels">${(['position','rotation','scale'] as const).map(property => `<div class="graph-channel-group"><span>${property === 'position' ? 'Location' : property[0].toUpperCase()+property.slice(1)}</span>${animationChannels.filter(channel => channel.startsWith(property + '.')).map(channel => `<button type="button" data-graph-channel="${channel}" aria-label="Graph channel ${animationChannelLabel(channel)}"><span>${channel.at(-1)!.toUpperCase()}</span><small>LIN</small></button>`).join('')}</div>`).join('')}</nav><svg id="animation-graph" aria-label="Animation graph editor" role="img" viewBox="0 0 1000 180" preserveAspectRatio="none"></svg></div></div><div class="timeline-track" id="timeline-track"><div class="timeline-ruler">${[1,25,50,75,100,125,150,175,200,225,250].map(n => `<span style="left:${(n-1)/249*100}%">${n}</span>`).join('')}</div><div id="timeline-selection-box" aria-hidden="true"></div><div id="keyframe-markers"></div><div class="playhead" id="playhead"><span>1</span></div><input type="range" id="scrubber" aria-label="Timeline frame" min="1" max="250" value="1"></div></section>
     </section>
     <aside class="sidebar">
       <section class="outliner"><div class="panel-heading"><span class="panel-title">${icon('layers')} Scene Collection</span><span class="count" id="object-count">1</span>${button('add-outliner','plus','Add mesh')}</div><div class="search-field">${icon('search')}<input id="object-search" placeholder="Search objects…" aria-label="Search objects"><kbd>/</kbd></div><div class="collection-row">${icon('chevron-down')}${icon('folder-open')}<span>Scene Collection</span>${button('add-collection','plus','Create collection')}</div><div id="object-list" class="object-list"></div><div class="outliner-footer"><span id="selection-count">1 object selected</span>${button('delete-outliner','trash-2','Delete selected object')}<input id="collection-name" aria-label="New collection name" value="Collection" maxlength="100"><select id="collection-target" aria-label="Target collection"><option value="">Move selected to…</option></select>${button('move-to-collection','folder-open','Move selected to collection')}${button('unlink-collection','log-out','Unlink from collection')}${button('delete-collection','trash-2','Delete empty collection')}</div></section>
@@ -695,12 +695,70 @@ type TimelineKeyDrag = {
   markers: Array<{ marker: HTMLButtonElement; frame: number }>;
 };
 let timelineKeyDrag: TimelineKeyDrag | null = null;
+
+type TimelineBoxDrag = {
+  pointerId: number;
+  startX: number;
+  currentX: number;
+  baseSelection: Set<number>;
+  moved: boolean;
+};
+let timelineBoxDrag: TimelineBoxDrag | null = null;
+const timelineTrack = $('#timeline-track');
+const timelineSelectionBox = $('#timeline-selection-box');
 const timelineMarkers = $('#keyframe-markers');
 
 function timelineFrameAt(clientX: number) {
-  const rect = $('#timeline-track').getBoundingClientRect();
+  const rect = timelineTrack.getBoundingClientRect();
   if (rect.width <= 0) return 1;
   return THREE.MathUtils.clamp(Math.round(1 + (clientX - rect.left) / rect.width * 249), 1, 250);
+}
+
+function timelineTrackX(clientX: number) {
+  const rect = timelineTrack.getBoundingClientRect();
+  return THREE.MathUtils.clamp(clientX - rect.left, 0, rect.width);
+}
+
+function setTimelineSelectionBox(startX: number, currentX: number) {
+  const left = Math.min(startX, currentX);
+  const right = Math.max(startX, currentX);
+  timelineSelectionBox.style.left = `${left}px`;
+  timelineSelectionBox.style.width = `${right - left}px`;
+  timelineSelectionBox.classList.toggle('active', right - left >= 3);
+}
+
+function timelineFramesInBox(startX: number, currentX: number) {
+  const rect = timelineTrack.getBoundingClientRect();
+  if (rect.width <= 0) return [] as number[];
+  const left = Math.min(startX, currentX);
+  const right = Math.max(startX, currentX);
+  const tracks = editor.selected?.userData.animationTracks as AnimationTrackMap | undefined;
+  return allAnimationFrames(tracks).filter(frame => {
+    const x = (frame - 1) / 249 * rect.width;
+    return x >= left && x <= right;
+  });
+}
+
+function previewTimelineBoxSelection() {
+  const drag = timelineBoxDrag;
+  if (!drag) return;
+  const next = new Set(drag.baseSelection);
+  if (drag.moved) for (const frame of timelineFramesInBox(drag.startX, drag.currentX)) next.add(frame);
+  timelineSelectedFrames = next;
+  setTimelineMarkerSelection();
+}
+
+function cancelTimelineBoxDrag() {
+  const drag = timelineBoxDrag;
+  if (!drag) return false;
+  timelineBoxDrag = null;
+  timelineSelectedFrames = new Set(drag.baseSelection);
+  timelineSelectionBox.classList.remove('active');
+  timelineSelectionBox.style.width = '0px';
+  if (timelineTrack.hasPointerCapture(drag.pointerId)) timelineTrack.releasePointerCapture(drag.pointerId);
+  timelineState = '';
+  updateTimeline();
+  return true;
 }
 
 function restoreTimelineMarker(marker: HTMLButtonElement, frame: number) {
@@ -729,6 +787,59 @@ function cancelTimelineKeyDrag() {
   setTimelineMarkerSelection();
   return true;
 }
+
+timelineTrack.addEventListener('pointerdown', event => {
+  if (!event.shiftKey || event.button !== 0 || editor.editMode || editor.playing) return;
+  if ((event.target as Element).closest('.key-marker')) return;
+
+  event.preventDefault();
+  event.stopPropagation();
+
+  const startX = timelineTrackX(event.clientX);
+  timelineBoxDrag = {
+    pointerId: event.pointerId,
+    startX,
+    currentX: startX,
+    baseSelection: new Set(timelineSelectedFrames),
+    moved: false,
+  };
+  timelineTrack.setPointerCapture(event.pointerId);
+  setTimelineSelectionBox(startX, startX);
+}, { capture: true });
+
+timelineTrack.addEventListener('pointermove', event => {
+  const drag = timelineBoxDrag;
+  if (!drag || event.pointerId !== drag.pointerId) return;
+  event.preventDefault();
+
+  drag.currentX = timelineTrackX(event.clientX);
+  drag.moved = drag.moved || Math.abs(drag.currentX - drag.startX) >= 3;
+  setTimelineSelectionBox(drag.startX, drag.currentX);
+  previewTimelineBoxSelection();
+});
+
+function finishTimelineBoxDrag(event: PointerEvent) {
+  const drag = timelineBoxDrag;
+  if (!drag || event.pointerId !== drag.pointerId) return;
+  timelineBoxDrag = null;
+
+  if (timelineTrack.hasPointerCapture(event.pointerId)) timelineTrack.releasePointerCapture(event.pointerId);
+  timelineSelectionBox.classList.remove('active');
+  timelineSelectionBox.style.width = '0px';
+
+  if (event.type === 'pointercancel' || !drag.moved) {
+    timelineSelectedFrames = new Set(drag.baseSelection);
+  } else {
+    const next = new Set(drag.baseSelection);
+    for (const frame of timelineFramesInBox(drag.startX, drag.currentX)) next.add(frame);
+    timelineSelectedFrames = next;
+  }
+
+  timelineState = '';
+  updateTimeline();
+}
+timelineTrack.addEventListener('pointerup', finishTimelineBoxDrag);
+timelineTrack.addEventListener('pointercancel', finishTimelineBoxDrag);
 
 timelineMarkers.addEventListener('pointerdown', event => {
   const marker = (event.target as Element).closest<HTMLButtonElement>('.key-marker');
@@ -938,6 +1049,9 @@ document.addEventListener('keydown', e => {
     if (timelineKeyDrag) {
       e.preventDefault();
       cancelTimelineKeyDrag();
+    } else if (timelineBoxDrag) {
+      e.preventDefault();
+      cancelTimelineBoxDrag();
     } else if (timelineSelectedFrames.size) {
       e.preventDefault();
       timelineSelectedFrames.clear();
@@ -954,6 +1068,6 @@ document.addEventListener('keydown', e => {
   }
 });
 document.addEventListener('keyup', e => { if (e.key === 'Alt') editor.orbit.mouseButtons.LEFT = null as unknown as THREE.MOUSE; });
-window.addEventListener('blur', () => { editor.orbit.mouseButtons.LEFT = null as unknown as THREE.MOUSE; cancelTimelineKeyDrag(); if (editor.playing) editor.togglePlayback(); });
+window.addEventListener('blur', () => { editor.orbit.mouseButtons.LEFT = null as unknown as THREE.MOUSE; cancelTimelineKeyDrag(); cancelTimelineBoxDrag(); if (editor.playing) editor.togglePlayback(); });
 document.addEventListener('visibilitychange', () => { if (document.hidden && editor.playing) editor.togglePlayback(); });
 if (import.meta.env.DEV) Object.assign(window, { __forge: editor, __rig: rigSystem });
