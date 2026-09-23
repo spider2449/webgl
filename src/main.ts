@@ -356,9 +356,15 @@ function renderOutliner() {
 let timelineState = '';
 let markerState = '';
 let timelineSelectedFrames = new Set<number>();
+let timelineSelectionObject = '';
 let wasPlaying = false;
 function updateTimeline() {
   const frame = Math.round(editor.frame);
+  const selectionObject = editor.selected?.uuid ?? '';
+  if (timelineSelectionObject !== selectionObject) {
+    timelineSelectedFrames.clear();
+    timelineSelectionObject = selectionObject;
+  }
   const tracks = editor.selected?.userData.animationTracks as AnimationTrackMap | undefined;
   const markerFrames = allAnimationFrames(tracks);
   const markerFrameSet = new Set(markerFrames);
