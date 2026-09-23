@@ -138,13 +138,16 @@ authors all nine scalar channels at the current frame, while **Remove current
 key** removes any channel keys at that frame. Timeline markers and previous/next
 navigation use the union of key frames across all channels. Drag a timeline
 marker horizontally to retime every scalar-channel key authored at that summary
-frame. **Shift-click** summary markers to build a Timeline selection, then drag
-any selected marker to move the selected summary frames by one shared whole-frame
+frame. **Shift-click** summary markers to build a Timeline selection, or
+**Shift-drag empty Timeline space** to add every summary marker inside the
+horizontal box. Plain Timeline dragging remains frame scrubbing. Drag any
+selected marker to move the selected summary frames by one shared whole-frame
 delta. The operation is atomic across every participating scalar channel, creates
 one undo entry, and is rejected without partial changes if any moved channel
 would collide with an unselected key or leave frames 1–250. Escape or pointer
-cancellation restores every selected source frame. Timeline selection remains a
-summary-frame interaction and does not create a second animation key model.
+cancellation restores the pre-drag Timeline selection and never cancels the
+active object selection. Timeline selection remains a summary-frame interaction
+and does not create a second animation key model.
 
 The **Graph Editor is the sole detailed animation editing UI**. Select a channel
 from the rail, then use **Insert channel key** to author that scalar
