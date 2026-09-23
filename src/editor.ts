@@ -94,7 +94,7 @@ export class Editor extends EventTarget {
   private rotationDragObject: THREE.Object3D | null = null;
   private rotationDragReference = new THREE.Vector3();
   private rotationDragMatrix = new THREE.Matrix4();
-  private animationKeyDrag: { object: THREE.Object3D; sourceFrames: number[]; anchorFrame: number; channel: ScalarAnimationChannel; copy: boolean; originalTrack: ScalarKey[]; pendingCopy?: { frameDelta: number; valueDelta: number } } | null = null;
+  private animationKeyDrag: { object: THREE.Object3D; sourceFrames: number[]; anchorFrame: number; channel: ScalarAnimationChannel; copy: boolean; changed: boolean; originalTrack: ScalarKey[]; pendingCopy?: { frameDelta: number; valueDelta: number } } | null = null;
   private animationHandleDrag: { object: THREE.Object3D; frame: number; channel: ScalarAnimationChannel; side: 'left' | 'right'; originalTrack: ScalarKey[] } | null = null;
   transformOrientation: TransformOrientation = 'world';
   private transformTool: 'select' | 'translate' | 'rotate' | 'scale' = 'translate';
@@ -1431,6 +1431,7 @@ export class Editor extends EventTarget {
       anchorFrame,
       channel,
       copy,
+      changed: false,
       originalTrack: keys.map(cloneScalarKey),
     };
     return true;
@@ -1460,6 +1461,7 @@ export class Editor extends EventTarget {
     if (targetFrames.some(frame => occupied.has(frame))) return false;
 
     if (drag.copy) {
+      drag.changed = true;
       drag.pendingCopy = { frameDelta, valueDelta };
       this.frame = targetFrame;
       this.evaluateAnimation();
@@ -1469,6 +1471,7 @@ export class Editor extends EventTarget {
       return true;
     }
 
+    drag.changed = true;
     const next = drag.originalTrack.map(key => {
       if (!sourceSet.has(key.frame)) return cloneScalarKey(key);
       const edited = cloneScalarKey(key);
@@ -1496,6 +1499,8 @@ export class Editor extends EventTarget {
       this.scrub(drag.anchorFrame);
       return true;
     }
+
+    if (!drag.changed) return false;
 
     if (drag.copy) {
       const pending = drag.pendingCopy;
