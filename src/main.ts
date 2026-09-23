@@ -433,7 +433,7 @@ function updateTimeline() {
   $('#draw-status').textContent = editor.playing ? 'PLAYING · 24 FPS' : 'ON DEMAND';
   if (markerState !== markers) {
     $('#keyframe-markers').innerHTML = markerFrames
-      .map(keyFrame => `<span class="key-marker" title="Animation key at frame ${keyFrame}" style="left:${(keyFrame-1)/249*100}%"></span>`)
+      .map(keyFrame => `<button type="button" class="key-marker" data-frame="${keyFrame}" aria-label="Animation key at frame ${keyFrame}" title="Animation key at frame ${keyFrame}" style="left:${(keyFrame-1)/249*100}%"></button>`)
       .join('');
     markerState = markers;
   }
@@ -674,6 +674,120 @@ on('apply-graph-time-scale', () => {
 
 on('insert-key', insertKey);
 on('remove-key', () => editor.removeKey());
+
+type TimelineKeyDrag = {
+  marker: HTMLButtonElement;
+  pointerId: number;
+  sourceFrame: number;
+  targetFrame: number;
+  activeChannelHadSource: boolean;
+};
+let timelineKeyDrag: TimelineKeyDrag | null = null;
+const timelineMarkers = $('#keyframe-markers');
+
+function timelineFrameAt(clientX: number) {
+  const rect = $('#timeline-track').getBoundingClientRect();
+  if (rect.width <= 0) return 1;
+  return THREE.MathUtils.clamp(Math.round(1 + (clientX - rect.left) / rect.width * 249), 1, 250);
+}
+
+function restoreTimelineMarker(marker: HTMLButtonElement, frame: number) {
+  marker.style.left = `${(frame - 1) / 249 * 100}%`;
+  marker.dataset.frame = String(frame);
+  marker.setAttribute('aria-label', `Animation key at frame ${frame}`);
+  marker.title = `Animation key at frame ${frame}`;
+}
+
+function cancelTimelineKeyDrag() {
+  const drag = timelineKeyDrag;
+  if (!drag) return false;
+  timelineKeyDrag = null;
+  drag.marker.classList.remove('dragging');
+  restoreTimelineMarker(drag.marker, drag.sourceFrame);
+  if (drag.marker.hasPointerCapture(drag.pointerId)) drag.marker.releasePointerCapture(drag.pointerId);
+  editor.scrub(drag.sourceFrame);
+  return true;
+}
+
+timelineMarkers.addEventListener('pointerdown', event => {
+  const marker = (event.target as Element).closest<HTMLButtonElement>('.key-marker');
+  if (!marker || event.button !== 0 || editor.editMode || editor.playing) return;
+  const sourceFrame = Number(marker.dataset.frame);
+  if (!Number.isInteger(sourceFrame)) return;
+
+  event.preventDefault();
+  event.stopPropagation();
+  timelineKeyDrag = {
+    marker,
+    pointerId: event.pointerId,
+    sourceFrame,
+    targetFrame: sourceFrame,
+    activeChannelHadSource: trackKeys(
+      editor.selected?.userData.animationTracks as AnimationTrackMap | undefined,
+      graphChannel,
+    ).some(key => key.frame === sourceFrame),
+  };
+  marker.classList.add('dragging');
+  marker.setPointerCapture(event.pointerId);
+  editor.scrub(sourceFrame);
+});
+
+timelineMarkers.addEventListener('pointermove', event => {
+  const drag = timelineKeyDrag;
+  if (!drag || event.pointerId !== drag.pointerId) return;
+  event.preventDefault();
+  const targetFrame = timelineFrameAt(event.clientX);
+  drag.targetFrame = targetFrame;
+  drag.marker.style.left = `${(targetFrame - 1) / 249 * 100}%`;
+  drag.marker.dataset.frame = String(targetFrame);
+  drag.marker.setAttribute('aria-label', `Animation key preview at frame ${targetFrame}`);
+  drag.marker.title = `Move animation key to frame ${targetFrame}`;
+  editor.scrub(targetFrame);
+});
+
+function finishTimelineKeyDrag(event: PointerEvent) {
+  const drag = timelineKeyDrag;
+  if (!drag || event.pointerId !== drag.pointerId) return;
+  timelineKeyDrag = null;
+  drag.marker.classList.remove('dragging');
+  if (drag.marker.hasPointerCapture(event.pointerId)) drag.marker.releasePointerCapture(event.pointerId);
+
+  if (event.type === 'pointercancel') {
+    restoreTimelineMarker(drag.marker, drag.sourceFrame);
+    editor.scrub(drag.sourceFrame);
+    return;
+  }
+
+  if (drag.targetFrame === drag.sourceFrame) {
+    restoreTimelineMarker(drag.marker, drag.sourceFrame);
+    editor.scrub(drag.sourceFrame);
+    return;
+  }
+
+  try {
+    const movedChannels = editor.moveTimelineKey(drag.sourceFrame, drag.targetFrame);
+    if (!movedChannels) {
+      restoreTimelineMarker(drag.marker, drag.sourceFrame);
+      editor.scrub(drag.sourceFrame);
+      return;
+    }
+    if (drag.activeChannelHadSource && movedChannels.includes(graphChannel)) {
+      animationGraph.selectKeyFrames(animationGraph.selectedKeyFrames.map(frame =>
+        frame === drag.sourceFrame ? drag.targetFrame : frame
+      ));
+    }
+    toast(`Animation key moved from frame ${drag.sourceFrame} to ${drag.targetFrame}.`);
+    updateTimeline();
+  } catch (error) {
+    restoreTimelineMarker(drag.marker, drag.sourceFrame);
+    editor.scrub(drag.sourceFrame);
+    toast((error as Error).message);
+    updateTimeline();
+  }
+}
+timelineMarkers.addEventListener('pointerup', finishTimelineKeyDrag);
+timelineMarkers.addEventListener('pointercancel', finishTimelineKeyDrag);
+
 $<HTMLInputElement>('#scrubber').oninput = e => { if (editor.playing) editor.togglePlayback(); editor.scrub(Number((e.target as HTMLInputElement).value)); };
 $<HTMLInputElement>('#current-frame').onchange = e => { const frame = Number((e.target as HTMLInputElement).value); if (Number.isFinite(frame)) editor.scrub(frame); };
 for (const id of ['help','help-menu']) on(id, () => $<HTMLDialogElement>('#help-dialog').showModal());
@@ -762,9 +876,9 @@ document.addEventListener('keydown', e => {
   if (key === ' ') { e.preventDefault(); editor.togglePlayback(); }
   if (key === '1') $('#axis-z').click(); if (key === '3') $('#axis-x').click(); if (key === '7') $('#axis-y').click(); if (key === '5') editor.toggleProjection();
   if (key === '/') { e.preventDefault(); $('#object-search').focus(); }
-  if (key === 'escape') { closeMenus(); if (editor.modelingBusy) editor.cancelModeling(); else if (editor.snapTargetPending) editor.cancelVertexSnap(); else if (editor.transform.dragging) editor.transform.reset(); else editor.select(null); }
+  if (key === 'escape') { closeMenus(); if (timelineKeyDrag) cancelTimelineKeyDrag(); else if (editor.modelingBusy) editor.cancelModeling(); else if (editor.snapTargetPending) editor.cancelVertexSnap(); else if (editor.transform.dragging) editor.transform.reset(); else editor.select(null); }
 });
 document.addEventListener('keyup', e => { if (e.key === 'Alt') editor.orbit.mouseButtons.LEFT = null as unknown as THREE.MOUSE; });
-window.addEventListener('blur', () => { editor.orbit.mouseButtons.LEFT = null as unknown as THREE.MOUSE; if (editor.playing) editor.togglePlayback(); });
+window.addEventListener('blur', () => { editor.orbit.mouseButtons.LEFT = null as unknown as THREE.MOUSE; cancelTimelineKeyDrag(); if (editor.playing) editor.togglePlayback(); });
 document.addEventListener('visibilitychange', () => { if (document.hidden && editor.playing) editor.togglePlayback(); });
 if (import.meta.env.DEV) Object.assign(window, { __forge: editor, __rig: rigSystem });

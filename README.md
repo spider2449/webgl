@@ -136,7 +136,11 @@ and Bezier tangents.
 The timeline header keeps the fast transform workflow: **Insert transform key**
 authors all nine scalar channels at the current frame, while **Remove current
 key** removes any channel keys at that frame. Timeline markers and previous/next
-navigation use the union of key frames across all channels.
+navigation use the union of key frames across all channels. Drag a timeline
+marker horizontally to retime every scalar-channel key authored at that summary
+frame. The move is atomic across those channels, creates one undo entry, and is
+rejected without partial changes if any moved channel already has a key at the
+target frame. Escape or pointer cancellation restores the source frame.
 
 The **Graph Editor is the sole detailed animation editing UI**. Select a channel
 from the rail, then use **Insert channel key** to author that scalar
@@ -183,9 +187,10 @@ per scalar channel: **yellow** when that channel has a key on the current frame,
 live value differs from the evaluated track and still needs a key, and neutral
 when the channel has no animation.
 
-Key and tangent drags, batch interpolation assignment, batch tangent-mode
-assignment, and selected-key time scaling each create one undoable history entry.
-Escape or pointer cancellation restores the original track data. Forge project loading rejects
+Graph key and tangent drags, timeline summary-key drags, batch interpolation
+assignment, batch tangent-mode assignment, and selected-key time scaling each
+create one undoable history entry. Escape or pointer cancellation restores the
+original track data. Forge project loading rejects
 the removed transform-wide `keyframes`, `animationInterpolation`, and
 `animationChannelInterpolation` fields rather than maintaining a second
 animation model.
