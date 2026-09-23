@@ -19,35 +19,30 @@ export type TransformOrientation = 'world' | 'local' | 'gimbal';
 export type ScalarAnimationChannel = 'position.x' | 'position.y' | 'position.z' | 'rotation.x' | 'rotation.y' | 'rotation.z' | 'scale.x' | 'scale.y' | 'scale.z';
 export type KeyInterpolation = 'constant' | 'linear' | 'bezier';
 export type KeyTangentMode = 'free' | 'aligned' | 'auto';
-export type KeyCurve = { interpolation?: KeyInterpolation; tangent?: KeyTangentMode; left?: [number, number]; right?: [number, number] };
-export type Keyframe = {
+export type ScalarKey = {
   frame: number;
-  position: number[];
-  quaternion: number[];
-  scale: number[];
-  rotation?: number[];
-  rotationOrder?: EulerOrder;
-  curves?: Partial<Record<ScalarAnimationChannel, KeyCurve>>;
+  value: number;
+  interpolation?: KeyInterpolation;
+  tangent?: KeyTangentMode;
+  left?: [number, number];
+  right?: [number, number];
 };
+export type AnimationTrackMap = Partial<Record<ScalarAnimationChannel, ScalarKey[]>>;
 export type Project = { format: 'forge-studio'; version: 1; name: string; scene: ReturnType<THREE.Group['toJSON']> };
 const MAX_HISTORY_BYTES = 24 * 1024 * 1024;
-const cloneKeyCurves = (curves: Keyframe['curves']): Keyframe['curves'] => curves ? Object.fromEntries(
-  Object.entries(curves).map(([channel, curve]) => [channel, {
-    ...(curve!.interpolation ? { interpolation: curve!.interpolation } : {}),
-    ...(curve!.tangent ? { tangent: curve!.tangent } : {}),
-    ...(curve!.left ? { left: [...curve!.left] as [number, number] } : {}),
-    ...(curve!.right ? { right: [...curve!.right] as [number, number] } : {}),
-  }]),
-) as Keyframe['curves'] : undefined;
-const cloneAnimationKey = (key: Keyframe): Keyframe => ({
+const cloneScalarKey = (key: ScalarKey): ScalarKey => ({
   frame: key.frame,
-  position: [...key.position],
-  quaternion: [...key.quaternion],
-  scale: [...key.scale],
-  ...(key.rotation ? { rotation: [...key.rotation] } : {}),
-  ...(key.rotationOrder ? { rotationOrder: key.rotationOrder } : {}),
-  ...(key.curves ? { curves: cloneKeyCurves(key.curves) } : {}),
+  value: key.value,
+  ...(key.interpolation ? { interpolation: key.interpolation } : {}),
+  ...(key.tangent ? { tangent: key.tangent } : {}),
+  ...(key.left ? { left: [...key.left] as [number, number] } : {}),
+  ...(key.right ? { right: [...key.right] as [number, number] } : {}),
 });
+const cloneAnimationTracks = (tracks: AnimationTrackMap | undefined): AnimationTrackMap =>
+  tracks ? Object.fromEntries(Object.entries(tracks).map(([channel, keys]) => [
+    channel,
+    (keys ?? []).map(cloneScalarKey),
+  ])) as AnimationTrackMap : {};
 
 export class Editor extends EventTarget {
   readonly renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false, preserveDrawingBuffer: false });
