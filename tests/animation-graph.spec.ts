@@ -400,3 +400,33 @@ test('Alt-drag multi-selection shows ghosts and commits all copies only on relea
     (window as any).__forge.selected.userData.animationTracks['position.x'].map((key: any) => key.frame)
   )).toEqual([1, 20, 40]);
 });
+
+
+test('plain Graph key selection does not create an undo entry', async ({ page }) => {
+  await page.evaluate(() => {
+    const e = (window as any).__forge;
+    delete e.selected.userData.animationTracks;
+    e.scrub(1); e.selected.position.x = 0; e.insertChannelKey('position.x');
+    e.scrub(20); e.selected.position.x = 8; e.insertChannelKey('position.x');
+    e.scrub(1);
+  });
+
+  await page.getByRole('button', { name: 'Animation', exact: true }).click();
+  const graph = page.getByLabel('Animation graph editor');
+
+  const before = await page.evaluate(() => ({
+    history: JSON.stringify((window as any).__forge.history),
+    index: (window as any).__forge.historyIndex,
+  }));
+
+  await graph.locator('.graph-key-point[data-frame="20"]').click();
+
+  const after = await page.evaluate(() => ({
+    history: JSON.stringify((window as any).__forge.history),
+    index: (window as any).__forge.historyIndex,
+  }));
+
+  expect(after).toEqual(before);
+  await expect(graph).toHaveAttribute('data-selected-frames', '20');
+  await expect(page.locator('#current-frame')).toHaveValue('20');
+});
