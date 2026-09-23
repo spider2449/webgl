@@ -1027,14 +1027,24 @@ function capture() {
 on('capture', capture); on('capture-quick', capture);
 document.addEventListener('keydown', e => {
   const key = e.key.toLowerCase();
-  if (key === 'escape' && (timelineKeyDrag || timelineBoxDrag)) {
-    e.preventDefault();
-    closeMenus();
-    if (timelineKeyDrag) cancelTimelineKeyDrag();
-    else cancelTimelineBoxDrag();
-    return;
+  const dialogOpen = Boolean(document.querySelector('dialog[open]'));
+  if (key === 'escape' && !dialogOpen) {
+    if (timelineKeyDrag || timelineBoxDrag) {
+      e.preventDefault();
+      closeMenus();
+      if (timelineKeyDrag) cancelTimelineKeyDrag();
+      else cancelTimelineBoxDrag();
+      return;
+    }
+    if (timelineSelectedFrames.size && e.target === $<HTMLInputElement>('#scrubber')) {
+      e.preventDefault();
+      timelineSelectedFrames.clear();
+      timelineState = '';
+      updateTimeline();
+      return;
+    }
   }
-  if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement || e.target instanceof HTMLSelectElement || document.querySelector('dialog[open]')) return;
+  if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement || e.target instanceof HTMLSelectElement || dialogOpen) return;
   if (e.ctrlKey || e.metaKey) {
     if (['s','o','z','y','n'].includes(key)) e.preventDefault();
     if (key === 's') save(); else if (key === 'o') $('#project-input').click(); else if (key === 'z') e.shiftKey ? editor.redo() : editor.undo(); else if (key === 'y') editor.redo(); else if (key === 'n') $<HTMLDialogElement>('#new-dialog').showModal();
