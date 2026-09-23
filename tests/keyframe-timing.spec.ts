@@ -260,9 +260,9 @@ test('Alt-drag copy cancellation leaves no copied channel key', async ({ page })
     (window as any).__forge.selected.userData.animationTracks['position.x'].map((key: any) => key.frame)
   )).toEqual([1, 25]);
 
+  await page.keyboard.up('Alt');
   await page.keyboard.press('Escape');
   await page.mouse.up();
-  await page.keyboard.up('Alt');
 
   expect(await page.evaluate(() =>
     (window as any).__forge.selected.userData.animationTracks['position.x'].map((key: any) => key.frame)
