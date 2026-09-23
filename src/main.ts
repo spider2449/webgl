@@ -100,14 +100,14 @@ const animationGraph = new AnimationGraphView(
       editor.scrub(frame);
       updateTimeline();
     },
-    begin: (frame, channel, copy) => {
+    begin: (frames, anchorFrame, channel, copy) => {
       if (editor.playing) { toast('Pause playback before editing graph keys.'); return false; }
-      return editor.beginAnimationKeyDrag(frame, channel, copy);
+      return editor.beginAnimationKeyDrag(frames, anchorFrame, channel, copy);
     },
     preview: (frame, channel, value) => editor.previewAnimationKeyDrag(frame, channel, value),
     end: cancel => {
       editor.endAnimationKeyDrag(cancel);
-      toast(cancel ? 'Graph key edit cancelled.' : 'Graph key updated.');
+      toast(cancel ? 'Graph key edit cancelled.' : 'Graph key selection updated.');
       updateTimeline();
     },
     beginHandle: (frame, channel, side) => {
@@ -379,6 +379,7 @@ function updateTimeline() {
   });
 
   const keyInterpolation = $<HTMLSelectElement>('#graph-key-interpolation');
+  const selectedGraphFrames = animationGraph.selectedKeyFrames;
   const selectedGraphFrame = animationGraph.selectedKeyFrame;
   const selectedGraphIndex = selectedGraphFrame === null ? -1 : activeKeys.findIndex(key => key.frame === selectedGraphFrame);
   const selectedGraphKey = selectedGraphIndex >= 0 ? activeKeys[selectedGraphIndex] : null;
@@ -392,7 +393,11 @@ function updateTimeline() {
   keyTangent.disabled = !selectedGraphKey || (!incomingBezier && !outgoingBezier) || editor.editMode || editor.playing;
 
   $<HTMLButtonElement>('#insert-channel-key').disabled = !editor.selected || editor.editMode || editor.playing;
-  $<HTMLButtonElement>('#remove-channel-key').disabled = !selectedGraphKey || editor.editMode || editor.playing;
+  const removeChannelKey = $<HTMLButtonElement>('#remove-channel-key');
+  removeChannelKey.disabled = !selectedGraphFrames.length || editor.editMode || editor.playing;
+  removeChannelKey.title = selectedGraphFrames.length > 1
+    ? `Remove ${selectedGraphFrames.length} selected channel keys`
+    : 'Remove selected channel key';
 
   const state = `${frame}|${editor.playing}|${markers}`;
   if (timelineState === state) return;
@@ -617,10 +622,10 @@ on('insert-channel-key', () => {
   }
 });
 on('remove-channel-key', () => {
-  const frame = animationGraph.selectedKeyFrame;
-  if (frame !== null && editor.removeChannelKey(graphChannel, frame)) {
+  const frames = animationGraph.selectedKeyFrames;
+  if (frames.length && editor.removeChannelKeys(graphChannel, frames)) {
     animationGraph.selectKeyFrame(null);
-    toast(`${animationChannelLabel(graphChannel)} key removed from frame ${frame}.`);
+    toast(`${frames.length} ${animationChannelLabel(graphChannel)} key${frames.length === 1 ? '' : 's'} removed.`);
     updateTimeline();
   }
 });
