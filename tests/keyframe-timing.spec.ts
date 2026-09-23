@@ -191,3 +191,40 @@ test('Graph Editor moves and Alt-drags only the active channel while GLB uses un
 
   await graph.screenshot({ path: 'test-results/keyframe-timing.png' });
 });
+
+
+test('timeline markers and previous-next navigation use the union of channel key frames', async ({ page }) => {
+  await page.evaluate(() => {
+    const e = (window as any).__forge;
+    delete e.selected.userData.animationTracks;
+
+    e.scrub(5);
+    e.selected.position.x = 1;
+    e.insertChannelKey('position.x');
+
+    e.scrub(10);
+    e.selected.position.y = 2;
+    e.insertChannelKey('position.y');
+
+    e.scrub(20);
+    e.selected.position.x = 3;
+    e.insertChannelKey('position.x');
+
+    e.scrub(1);
+  });
+
+  const markers = page.locator('#keyframe-markers .key-marker');
+  await expect(markers).toHaveCount(3);
+  await expect(markers.nth(0)).toHaveAttribute('title', 'Animation key at frame 5');
+  await expect(markers.nth(1)).toHaveAttribute('title', 'Animation key at frame 10');
+  await expect(markers.nth(2)).toHaveAttribute('title', 'Animation key at frame 20');
+
+  await page.locator('#next-key').click();
+  await expect(page.locator('#current-frame')).toHaveValue('5');
+  await page.locator('#next-key').click();
+  await expect(page.locator('#current-frame')).toHaveValue('10');
+  await page.locator('#next-key').click();
+  await expect(page.locator('#current-frame')).toHaveValue('20');
+  await page.locator('#previous-key').click();
+  await expect(page.locator('#current-frame')).toHaveValue('10');
+});
