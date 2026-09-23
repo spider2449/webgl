@@ -139,10 +139,14 @@ key** removes any channel keys at that frame. Timeline markers and previous/next
 navigation use the union of key frames across all channels.
 
 The **Graph Editor is the sole detailed animation editing UI**. Select a channel
-from the rail, then use **Insert channel key** or **Remove selected channel key**
-to author that scalar independently. Vertical key dragging edits only that
-scalar value. Horizontal dragging retimes only the active channel key, and
-**Alt-drag** copies only that channel key. Other channels keep their own timing.
+from the rail, then use **Insert channel key** to author that scalar
+independently. Click a key for single selection or **Shift-click** to toggle
+multiple keys on the active channel. Dragging any selected key moves the whole
+selection by one shared frame/value delta; **Alt-drag** shows copy ghosts and
+commits all copied keys only on pointer release. **Remove selected channel key**
+deletes the full selected set in one undoable action. Batch operations are
+all-or-nothing if any target frame collides with an unselected key. Other
+channels keep their own timing.
 
 Every segment is **Linear by default**. A key controls its outbound segment and
 can use:
@@ -182,8 +186,8 @@ track times. Pure Linear data stays LINEAR. Constant and Bezier segments are
 baked to LINEAR samples; Bezier uses 32 samples per segment and Constant adds a
 near-boundary hold sample. Multi-turn rotation adds bounded angular samples
 before quaternion export. This is an interchange approximation; arbitrary
-F-curves, weighted tangent types, curve modifiers, and batch curve operations
-remain future work.
+F-curves, weighted tangent types, curve modifiers, box selection, and
+cross-channel key selection remain future work.
 
 ## Kimodo rigging
 
