@@ -441,13 +441,13 @@ function updateTimeline() {
   $('#playhead span').textContent = String(frame);
   if (wasPlaying !== editor.playing) { $('#play').innerHTML = icon(editor.playing ? 'pause' : 'play'); refreshIcons(); wasPlaying = editor.playing; }
   $('#draw-status').textContent = editor.playing ? 'PLAYING · 24 FPS' : 'ON DEMAND';
-  const markerRenderState = `${markers}|${selectedMarkers}`;
-  if (markerState !== markerRenderState) {
+  if (markerState !== markers) {
     $('#keyframe-markers').innerHTML = markerFrames
-      .map(keyFrame => `<button type="button" class="key-marker${timelineSelectedFrames.has(keyFrame) ? ' selected' : ''}" data-frame="${keyFrame}" aria-label="Animation key at frame ${keyFrame}" title="Animation key at frame ${keyFrame}" style="left:${(keyFrame-1)/249*100}%"></button>`)
+      .map(keyFrame => `<button type="button" class="key-marker" data-frame="${keyFrame}" aria-label="Animation key at frame ${keyFrame}" title="Animation key at frame ${keyFrame}" style="left:${(keyFrame-1)/249*100}%"></button>`)
       .join('');
-    markerState = markerRenderState;
+    markerState = markers;
   }
+  setTimelineMarkerSelection();
 }
 editor.addEventListener('change', updateUI);
 editor.addEventListener('transform', updateTransforms);
