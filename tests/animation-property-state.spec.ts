@@ -58,3 +58,37 @@ test('Transform fields show Blender-like keyframe state colors per channel', asy
 
   await positionX.screenshot({ path: 'test-results/transform-key-state.png' });
 });
+
+
+test('Transform keyframe colors follow independent channel key existence', async ({ page }) => {
+  const positionX = page.locator('.axis-input:has(input[data-transform="position"][data-axis="x"])');
+  const positionY = page.locator('.axis-input:has(input[data-transform="position"][data-axis="y"])');
+  const positionZ = page.locator('.axis-input:has(input[data-transform="position"][data-axis="z"])');
+
+  await page.evaluate(() => {
+    const e = (window as any).__forge;
+    delete e.selected.userData.animationTracks;
+    e.scrub(10);
+    e.selected.position.x = 5;
+    e.insertChannelKey('position.x');
+  });
+
+  await expect(positionX).toHaveAttribute('data-key-state', 'keyed-current');
+  await expect(positionY).toHaveAttribute('data-key-state', 'none');
+  await expect(positionZ).toHaveAttribute('data-key-state', 'none');
+
+  await page.evaluate(() => (window as any).__forge.scrub(12));
+  await expect(positionX).toHaveAttribute('data-key-state', 'animated');
+  await expect(positionY).toHaveAttribute('data-key-state', 'none');
+  await expect(positionZ).toHaveAttribute('data-key-state', 'none');
+
+  await page.evaluate(() => {
+    const e = (window as any).__forge;
+    e.selected.position.y = 7;
+    e.insertChannelKey('position.y');
+  });
+
+  await expect(positionX).toHaveAttribute('data-key-state', 'animated');
+  await expect(positionY).toHaveAttribute('data-key-state', 'keyed-current');
+  await expect(positionZ).toHaveAttribute('data-key-state', 'none');
+});
