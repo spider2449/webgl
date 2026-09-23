@@ -1280,7 +1280,16 @@ export class Editor extends EventTarget {
         const rightLength = Math.hypot(right[0], right[1]);
         const leftLength = Math.hypot(left[0], left[1]);
         if (rightLength > 1e-12 && leftLength > 1e-12) {
-          curve.left = [-right[0] / rightLength * leftLength, -right[1] / rightLength * leftLength];
+          let aligned: [number, number] = [
+            -right[0] / rightLength * leftLength,
+            -right[1] / rightLength * leftLength,
+          ];
+          const maxLeftDx = key.frame - prepared[index - 1].frame;
+          if (Math.abs(aligned[0]) > maxLeftDx && Math.abs(aligned[0]) > 1e-12) {
+            const scale = maxLeftDx / Math.abs(aligned[0]);
+            aligned = [aligned[0] * scale, aligned[1] * scale];
+          }
+          curve.left = aligned;
         }
       }
     }
