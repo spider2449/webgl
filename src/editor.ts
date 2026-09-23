@@ -94,7 +94,7 @@ export class Editor extends EventTarget {
   private rotationDragObject: THREE.Object3D | null = null;
   private rotationDragReference = new THREE.Vector3();
   private rotationDragMatrix = new THREE.Matrix4();
-  private animationKeyDrag: { object: THREE.Object3D; sourceFrame: number; channel: ScalarAnimationChannel; copy: boolean; originalTrack: ScalarKey[]; pendingCopy?: { frame: number; value: number } } | null = null;
+  private animationKeyDrag: { object: THREE.Object3D; sourceFrames: number[]; anchorFrame: number; channel: ScalarAnimationChannel; copy: boolean; originalTrack: ScalarKey[]; pendingCopy?: { frameDelta: number; valueDelta: number } } | null = null;
   private animationHandleDrag: { object: THREE.Object3D; frame: number; channel: ScalarAnimationChannel; side: 'left' | 'right'; originalTrack: ScalarKey[] } | null = null;
   transformOrientation: TransformOrientation = 'world';
   private transformTool: 'select' | 'translate' | 'rotate' | 'scale' = 'translate';
@@ -1420,13 +1420,15 @@ export class Editor extends EventTarget {
     return true;
   }
 
-  beginAnimationKeyDrag(sourceFrame: number, channel: ScalarAnimationChannel, copy = false) {
-    if (!Number.isFinite(sourceFrame) || !validAnimationChannel(channel) || !this.selected || this.editMode || this.playing || this.animationKeyDrag || this.animationHandleDrag) return false;
+  beginAnimationKeyDrag(sourceFrames: number[], anchorFrame: number, channel: ScalarAnimationChannel, copy = false) {
+    const uniqueFrames = [...new Set(sourceFrames)].sort((a, b) => a - b);
+    if (!uniqueFrames.length || !Number.isFinite(anchorFrame) || !validAnimationChannel(channel) || !this.selected || this.editMode || this.playing || this.animationKeyDrag || this.animationHandleDrag) return false;
     const keys = trackKeys(this.selected.userData.animationTracks as AnimationTrackMap | undefined, channel);
-    if (!keys.some(key => key.frame === sourceFrame)) return false;
+    if (!uniqueFrames.includes(anchorFrame) || uniqueFrames.some(frame => !keys.some(key => key.frame === frame))) return false;
     this.animationKeyDrag = {
       object: this.selected,
-      sourceFrame,
+      sourceFrames: uniqueFrames,
+      anchorFrame,
       channel,
       copy,
       originalTrack: keys.map(cloneScalarKey),
@@ -1438,17 +1440,27 @@ export class Editor extends EventTarget {
     const drag = this.animationKeyDrag;
     if (!drag || channel !== drag.channel || this.selected !== drag.object || this.editMode || this.playing) return false;
     if (!Number.isInteger(targetFrame) || targetFrame < 1 || targetFrame > 250 || !Number.isFinite(displayValue)) return false;
-    if (drag.copy ? drag.originalTrack.some(key => key.frame === targetFrame) :
-      drag.originalTrack.some(key => key.frame === targetFrame && key.frame !== drag.sourceFrame)) return false;
 
-    const source = drag.originalTrack.find(key => key.frame === drag.sourceFrame);
-    if (!source) return false;
-    const edited = cloneScalarKey(source);
-    edited.frame = targetFrame;
-    edited.value = channel.startsWith('rotation.') ? THREE.MathUtils.degToRad(displayValue) : displayValue;
+    const anchor = drag.originalTrack.find(key => key.frame === drag.anchorFrame);
+    if (!anchor) return false;
+    const targetValue = channel.startsWith('rotation.') ? THREE.MathUtils.degToRad(displayValue) : displayValue;
+    const frameDelta = targetFrame - drag.anchorFrame;
+    const valueDelta = targetValue - anchor.value;
+    const sourceSet = new Set(drag.sourceFrames);
+    const targetFrames = drag.sourceFrames.map(frame => frame + frameDelta);
+
+    if (targetFrames.some(frame => frame < 1 || frame > 250)) return false;
+    if (new Set(targetFrames).size !== targetFrames.length) return false;
+
+    const occupied = new Set(
+      drag.originalTrack
+        .filter(key => drag.copy || !sourceSet.has(key.frame))
+        .map(key => key.frame),
+    );
+    if (targetFrames.some(frame => occupied.has(frame))) return false;
 
     if (drag.copy) {
-      drag.pendingCopy = { frame: targetFrame, value: edited.value };
+      drag.pendingCopy = { frameDelta, valueDelta };
       this.frame = targetFrame;
       this.evaluateAnimation();
       this.emit('frame');
@@ -1457,9 +1469,13 @@ export class Editor extends EventTarget {
       return true;
     }
 
-    const next = drag.originalTrack.map(key =>
-      key.frame === drag.sourceFrame ? edited : cloneScalarKey(key)
-    );
+    const next = drag.originalTrack.map(key => {
+      if (!sourceSet.has(key.frame)) return cloneScalarKey(key);
+      const edited = cloneScalarKey(key);
+      edited.frame += frameDelta;
+      edited.value += valueDelta;
+      return edited;
+    });
     this.setAnimationTrack(drag.object, channel, next);
     this.frame = targetFrame;
     this.evaluateAnimation();
@@ -1477,29 +1493,48 @@ export class Editor extends EventTarget {
 
     if (cancel) {
       if (!drag.copy) this.setAnimationTrack(drag.object, drag.channel, drag.originalTrack);
-      this.scrub(drag.sourceFrame);
+      this.scrub(drag.anchorFrame);
       return true;
     }
 
     if (drag.copy) {
       const pending = drag.pendingCopy;
       if (!pending) {
-        this.scrub(drag.sourceFrame);
+        this.scrub(drag.anchorFrame);
         return false;
       }
-      const source = drag.originalTrack.find(key => key.frame === drag.sourceFrame);
-      if (!source) return false;
-      const copied = cloneScalarKey(source);
-      copied.frame = pending.frame;
-      copied.value = pending.value;
-      this.setAnimationTrack(drag.object, drag.channel, [...drag.originalTrack.map(cloneScalarKey), copied]);
-      this.frame = pending.frame;
+      const sourceSet = new Set(drag.sourceFrames);
+      const copies = drag.originalTrack
+        .filter(key => sourceSet.has(key.frame))
+        .map(key => {
+          const copied = cloneScalarKey(key);
+          copied.frame += pending.frameDelta;
+          copied.value += pending.valueDelta;
+          return copied;
+        });
+      this.setAnimationTrack(drag.object, drag.channel, [
+        ...drag.originalTrack.map(cloneScalarKey),
+        ...copies,
+      ]);
+      this.frame = drag.anchorFrame + pending.frameDelta;
       this.evaluateAnimation();
       this.emit('animation');
       this.emit('transform');
       this.invalidate();
     }
 
+    this.commit();
+    return true;
+  }
+
+  removeChannelKeys(channel: ScalarAnimationChannel, frames: number[]) {
+    if (!validAnimationChannel(channel) || !this.selected || this.editMode || this.playing) return false;
+    const frameSet = new Set(frames.filter(frame => Number.isInteger(frame) && frame >= 1 && frame <= 250));
+    if (!frameSet.size) return false;
+    const keys = trackKeys(this.selected.userData.animationTracks as AnimationTrackMap | undefined, channel);
+    if (![...frameSet].every(frame => keys.some(key => key.frame === frame))) return false;
+    this.setAnimationTrack(this.selected, channel, keys.filter(key => !frameSet.has(key.frame)));
+    this.evaluateAnimation();
     this.commit();
     return true;
   }
