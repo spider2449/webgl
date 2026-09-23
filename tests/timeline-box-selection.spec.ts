@@ -117,3 +117,27 @@ test('Shift-click without box movement leaves the existing Timeline selection un
   await expect(page.locator('.key-marker.selected')).toHaveCount(1);
   await expect(page.getByRole('button', { name: 'Animation key at frame 20' })).toHaveClass(/selected/);
 });
+
+
+test('Escape clears completed Timeline box selection with scrubber focused and keeps the object selected', async ({ page }) => {
+  await page.evaluate(() => {
+    const e = (window as any).__forge;
+    delete e.selected.userData.animationTracks;
+    e.scrub(20); e.selected.position.x = 1; e.insertChannelKey('position.x');
+    e.scrub(40); e.selected.position.y = 2; e.insertChannelKey('position.y');
+    e.scrub(1);
+  });
+
+  await shiftBoxTimeline(page, 15, 45);
+  await expect(page.locator('.key-marker.selected')).toHaveCount(2);
+
+  const selectedUuid = await page.evaluate(() => (window as any).__forge.selected?.uuid ?? null);
+  expect(selectedUuid).not.toBeNull();
+
+  await page.locator('#scrubber').focus();
+  await expect(page.locator('#scrubber')).toBeFocused();
+  await page.keyboard.press('Escape');
+
+  await expect(page.locator('.key-marker.selected')).toHaveCount(0);
+  expect(await page.evaluate(() => (window as any).__forge.selected?.uuid ?? null)).toBe(selectedUuid);
+});
