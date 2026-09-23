@@ -263,11 +263,12 @@ function sampledFramesForGroup(
     for (let index = 0; index < sorted.length - 1; index++) {
       const a = sorted[index];
       const b = sorted[index + 1];
+      const fallback = [object.rotation.x, object.rotation.y, object.rotation.z];
       const valuesA = channels.map((channel, axis) =>
-        sampleAnimationChannel(tracks, a, channel, object.rotation.getComponent(axis))
+        sampleAnimationChannel(tracks, a, channel, fallback[axis])
       );
       const valuesB = channels.map((channel, axis) =>
-        sampleAnimationChannel(tracks, b, channel, object.rotation.getComponent(axis))
+        sampleAnimationChannel(tracks, b, channel, fallback[axis])
       );
       const angularSpan = Math.max(...valuesA.map((value, axis) => Math.abs(valuesB[axis] - value)));
       const steps = angularSpan >= Math.PI - 1e-9
@@ -293,9 +294,10 @@ export function animationTracks(object: THREE.Object3D): THREE.KeyframeTrack[] {
     const times = frames.map(frame => (frame - 1) / 24);
 
     if (property === 'rotation') {
+      const fallback = [object.rotation.x, object.rotation.y, object.rotation.z];
       const values = frames.flatMap(frame => {
         const rotation = channels.map((channel, axis) =>
-          sampleAnimationChannel(tracks, frame, channel, object.rotation.getComponent(axis))
+          sampleAnimationChannel(tracks, frame, channel, fallback[axis])
         );
         return new THREE.Quaternion()
           .setFromEuler(new THREE.Euler(rotation[0], rotation[1], rotation[2], object.rotation.order))
