@@ -52,12 +52,13 @@ src/
 - No animation/modeling/rig behavior changes.
 - No data-model migrations.
 - No test-directory reorganization in this increment.
+- Test logic remains unchanged; direct imports into moved source modules are updated to their new paths.
 - No generic `utils/`, `services/`, or `managers/` buckets.
 
 ## Validation
 
 - TypeScript/Vite build passes.
-- Full Playwright suite passes unchanged.
+- Full Playwright suite passes with unchanged assertions/behavior; only direct source import paths may change.
 - Worker entrypoints continue to resolve from their moved domain directories.
 - Git diff contains only renames/moves, import path updates, and this plan document.
 
