@@ -142,7 +142,7 @@ function svgElement<K extends keyof SVGElementTagNameMap>(
 
 export type AnimationGraphEditCallbacks = {
   select: (frame: number, channel: ScalarAnimationChannel) => void;
-  begin: (frame: number, channel: ScalarAnimationChannel, copy: boolean) => boolean;
+  begin: (frames: number[], anchorFrame: number, channel: ScalarAnimationChannel, copy: boolean) => boolean;
   preview: (frame: number, channel: ScalarAnimationChannel, value: number) => boolean;
   end: (cancel: boolean) => void;
   beginHandle: (frame: number, channel: ScalarAnimationChannel, side: 'left' | 'right') => boolean;
@@ -153,14 +153,18 @@ export type AnimationGraphEditCallbacks = {
 type KeyDragState = {
   kind: 'key';
   pointerId: number;
-  sourceFrame: number;
-  startValue: number;
+  sourceFrames: number[];
+  anchorFrame: number;
+  anchorValue: number;
   startClientX: number;
   startClientY: number;
   valueMin: number;
   valueMax: number;
-  marker: SVGRectElement;
+  markers: { sourceFrame: number; sourceValue: number; marker: SVGRectElement }[];
+  ghostMarkers: SVGRectElement[];
   copy: boolean;
+  lastFrameDelta: number | null;
+  lastValueDelta: number;
 };
 
 type HandleDragState = {
@@ -182,8 +186,9 @@ export class AnimationGraphView {
   private readonly curveLayer = svgElement('g', { class: 'graph-static' });
   private readonly playhead = svgElement('line', { class: 'graph-playhead', x1: 0, x2: 0, y1: 18, y2: 162 });
   private drag: GraphDragState | null = null;
-  private selectedFrame: number | null = null;
+  private selectedFrames = new Set<number>();
   private objectId: string | null = null;
+  private channel: ScalarAnimationChannel | null = null;
 
   constructor(
     private readonly svg: SVGSVGElement,
@@ -205,10 +210,16 @@ export class AnimationGraphView {
     }, { capture: true });
   }
 
-  get selectedKeyFrame() { return this.selectedFrame; }
+  get selectedKeyFrame() {
+    return this.selectedFrames.size === 1 ? [...this.selectedFrames][0] : null;
+  }
+
+  get selectedKeyFrames() {
+    return [...this.selectedFrames].sort((a, b) => a - b);
+  }
 
   selectKeyFrame(frame: number | null) {
-    this.selectedFrame = frame;
+    this.selectedFrames = frame === null ? new Set() : new Set([frame]);
     this.signature = '';
   }
 
@@ -218,20 +229,22 @@ export class AnimationGraphView {
     frame: number,
   ) {
     const nextObjectId = object?.uuid ?? null;
-    if (nextObjectId !== this.objectId) {
+    if (nextObjectId !== this.objectId || channel !== this.channel) {
       this.objectId = nextObjectId;
-      this.selectedFrame = null;
+      this.channel = channel;
+      this.selectedFrames.clear();
       this.signature = '';
     }
 
     const tracks = object?.userData.animationTracks as AnimationTrackMap | undefined;
     const keys = trackKeys(tracks, channel);
-    if (this.selectedFrame !== null && !keys.some(key => key.frame === this.selectedFrame)) this.selectedFrame = null;
+    const keyFrames = new Set(keys.map(key => key.frame));
+    this.selectedFrames = new Set([...this.selectedFrames].filter(frame => keyFrames.has(frame)));
 
     const signature = JSON.stringify({
       uuid: object?.uuid ?? null,
       channel,
-      selectedFrame: this.selectedFrame,
+      selectedFrames: this.selectedKeyFrames,
       keys,
     });
 
@@ -257,7 +270,8 @@ export class AnimationGraphView {
     this.svg.dataset.channel = data?.channel ?? '';
     this.svg.dataset.mode = data?.mode ?? '';
     this.svg.dataset.keyCount = String(data?.keys.length ?? 0);
-    this.svg.dataset.selectedFrame = this.selectedFrame === null ? '' : String(this.selectedFrame);
+    this.svg.dataset.selectedFrame = this.selectedKeyFrame === null ? '' : String(this.selectedKeyFrame);
+    this.svg.dataset.selectedFrames = this.selectedKeyFrames.join(',');
 
     if (!data) {
       this.title.textContent = 'Graph Editor';
@@ -268,7 +282,8 @@ export class AnimationGraphView {
 
     const modeLabel = data.mode === 'mixed' ? 'Mixed' : data.mode[0].toUpperCase() + data.mode.slice(1);
     this.title.textContent = animationChannelLabel(data.channel);
-    this.detail.textContent = `${modeLabel} · Keys F${this.formatFrame(data.frameMin)}–${this.formatFrame(data.frameMax)} · ${this.format(data.actualMin)} to ${this.format(data.actualMax)}`;
+    const selectionLabel = this.selectedFrames.size > 1 ? ` · ${this.selectedFrames.size} selected` : '';
+    this.detail.textContent = `${modeLabel} · Keys F${this.formatFrame(data.frameMin)}–F${this.formatFrame(data.frameMax)} · ${this.format(data.actualMin)} to ${this.format(data.actualMax)}${selectionLabel}`;
     const x = (frame: number) => this.frameX(frame);
     const y = (value: number) => this.valueY(data, value);
 
@@ -287,7 +302,7 @@ export class AnimationGraphView {
 
     for (const key of data.keys) {
       const marker = svgElement('rect', {
-        class: `graph-key-point${key.frame === this.selectedFrame ? ' selected' : ''}`,
+        class: `graph-key-point${this.selectedFrames.has(key.frame) ? ' selected' : ''}`,
         x: x(key.frame) - 4,
         y: y(key.value) - 4,
         width: 8,
@@ -332,8 +347,9 @@ export class AnimationGraphView {
   }
 
   private renderHandles(data: AnimationGraphData, x: (frame: number) => number, y: (value: number) => number) {
-    if (this.selectedFrame === null) return;
-    const index = data.sourceKeys.findIndex(key => key.frame === this.selectedFrame);
+    const selectedFrame = this.selectedKeyFrame;
+    if (selectedFrame === null) return;
+    const index = data.sourceKeys.findIndex(key => key.frame === selectedFrame);
     if (index < 0) return;
     const key = data.sourceKeys[index];
     const keyValue = animationChannelValue(key, data.channel);
@@ -432,27 +448,62 @@ export class AnimationGraphView {
     const value = Number(target.dataset.value);
     const channel = target.dataset.channel as ScalarAnimationChannel | undefined;
     if (!Number.isFinite(frame) || !Number.isFinite(value) || !channel) return;
-    this.selectedFrame = frame;
+
+    if (event.shiftKey) {
+      if (this.selectedFrames.has(frame)) this.selectedFrames.delete(frame);
+      else this.selectedFrames.add(frame);
+      this.signature = '';
+      this.edits.select(frame, channel);
+      event.preventDefault();
+      return;
+    }
+
+    if (!this.selectedFrames.has(frame)) this.selectedFrames = new Set([frame]);
     this.signature = '';
+    const sourceFrames = this.selectedKeyFrames;
     const copy = event.altKey;
-    if (!this.edits.begin(frame, channel, copy)) {
+    if (!this.edits.begin(sourceFrames, frame, channel, copy)) {
       this.edits.select(frame, channel);
       return;
+    }
+
+    const selectedMarkers = [...this.curveLayer.querySelectorAll<SVGRectElement>('.graph-key-point')]
+      .filter(marker => this.selectedFrames.has(Number(marker.dataset.frame)))
+      .map(marker => ({
+        sourceFrame: Number(marker.dataset.frame),
+        sourceValue: Number(marker.dataset.value),
+        marker,
+      }));
+
+    const ghostMarkers: SVGRectElement[] = [];
+    if (copy) {
+      for (const item of selectedMarkers) {
+        const ghost = item.marker.cloneNode(true) as SVGRectElement;
+        ghost.classList.add('ghost', 'dragging');
+        ghost.classList.remove('selected');
+        this.curveLayer.append(ghost);
+        ghostMarkers.push(ghost);
+      }
+    } else {
+      selectedMarkers.forEach(item => item.marker.classList.add('dragging', 'selected'));
     }
 
     this.drag = {
       kind: 'key',
       pointerId: event.pointerId,
-      sourceFrame: frame,
-      startValue: value,
+      sourceFrames,
+      anchorFrame: frame,
+      anchorValue: value,
       startClientX: event.clientX,
       startClientY: event.clientY,
       valueMin: this.data.valueMin,
       valueMax: this.data.valueMax,
-      marker: target,
+      markers: selectedMarkers,
+      ghostMarkers,
       copy,
+      lastFrameDelta: null,
+      lastValueDelta: 0,
     };
-    target.classList.add('dragging', 'selected');
     this.svg.setPointerCapture(event.pointerId);
     this.edits.select(frame, channel);
     event.preventDefault();
@@ -490,20 +541,31 @@ export class AnimationGraphView {
 
     const deltaViewX = (event.clientX - drag.startClientX) / rect.width * 1000;
     const deltaViewY = (event.clientY - drag.startClientY) / rect.height * 180;
-    const targetFrame = THREE.MathUtils.clamp(Math.round(drag.sourceFrame + deltaViewX / 924 * 249), 1, 250);
+    const targetFrame = THREE.MathUtils.clamp(Math.round(drag.anchorFrame + deltaViewX / 924 * 249), 1, 250);
     const span = drag.valueMax - drag.valueMin;
-    const rawValue = drag.startValue - deltaViewY / 144 * span;
+    const rawValue = drag.anchorValue - deltaViewY / 144 * span;
     const precision = data.channel.startsWith('rotation.') ? 0.1 : 0.001;
     const targetValue = Math.round(rawValue / precision) * precision;
     if (!this.edits.preview(targetFrame, data.channel, targetValue)) return;
 
-    this.selectedFrame = targetFrame;
-    drag.marker.dataset.frame = String(targetFrame);
-    drag.marker.dataset.value = String(targetValue);
-    drag.marker.setAttribute('x', String(this.frameX(targetFrame) - 4));
-    const y = this.valueY(data, targetValue);
-    drag.marker.setAttribute('y', String(THREE.MathUtils.clamp(y - 4, 4, 168)));
-    this.detail.textContent = `${drag.copy ? 'Copying' : 'Editing'} · F${targetFrame} · ${this.format(targetValue)}`;
+    const frameDelta = targetFrame - drag.anchorFrame;
+    const valueDelta = targetValue - drag.anchorValue;
+    drag.lastFrameDelta = frameDelta;
+    drag.lastValueDelta = valueDelta;
+    const visualMarkers = drag.copy ? drag.ghostMarkers : drag.markers.map(item => item.marker);
+
+    drag.markers.forEach((item, index) => {
+      const marker = visualMarkers[index];
+      const nextFrame = item.sourceFrame + frameDelta;
+      const nextValue = item.sourceValue + valueDelta;
+      marker.dataset.frame = String(nextFrame);
+      marker.dataset.value = String(nextValue);
+      marker.setAttribute('x', String(this.frameX(nextFrame) - 4));
+      const y = this.valueY(data, nextValue);
+      marker.setAttribute('y', String(THREE.MathUtils.clamp(y - 4, 4, 168)));
+    });
+
+    this.detail.textContent = `${drag.copy ? 'Copying' : 'Editing'} · ${drag.sourceFrames.length} key${drag.sourceFrames.length === 1 ? '' : 's'} · ΔF ${frameDelta >= 0 ? '+' : ''}${frameDelta}`;
     event.preventDefault();
   };
 
@@ -521,15 +583,21 @@ export class AnimationGraphView {
   private finishDrag(cancel: boolean) {
     const drag = this.drag;
     if (!drag) return;
-    drag.marker.classList.remove('dragging');
+    if (drag.kind === 'handle') drag.marker.classList.remove('dragging');
+    else {
+      drag.markers.forEach(item => item.marker.classList.remove('dragging'));
+      drag.ghostMarkers.forEach(marker => marker.remove());
+      if (!cancel && drag.lastFrameDelta !== null) {
+        this.selectedFrames = new Set(drag.sourceFrames.map(frame => frame + drag.lastFrameDelta!));
+      } else {
+        this.selectedFrames = new Set(drag.sourceFrames);
+      }
+    }
     if (this.svg.hasPointerCapture(drag.pointerId)) this.svg.releasePointerCapture(drag.pointerId);
     this.drag = null;
     this.signature = '';
     if (drag.kind === 'handle') this.edits.endHandle(cancel);
-    else {
-      if (cancel) this.selectedFrame = drag.sourceFrame;
-      this.edits.end(cancel);
-    }
+    else this.edits.end(cancel);
   }
 
   private formatFrame(frame: number) {
