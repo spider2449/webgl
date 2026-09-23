@@ -94,7 +94,7 @@ export class Editor extends EventTarget {
   private rotationDragObject: THREE.Object3D | null = null;
   private rotationDragReference = new THREE.Vector3();
   private rotationDragMatrix = new THREE.Matrix4();
-  private animationKeyDrag: { object: THREE.Object3D; sourceFrame: number; channel: ScalarAnimationChannel; copy: boolean; originalTrack: ScalarKey[] } | null = null;
+  private animationKeyDrag: { object: THREE.Object3D; sourceFrame: number; channel: ScalarAnimationChannel; copy: boolean; originalTrack: ScalarKey[]; pendingCopy?: { frame: number; value: number } } | null = null;
   private animationHandleDrag: { object: THREE.Object3D; frame: number; channel: ScalarAnimationChannel; side: 'left' | 'right'; originalTrack: ScalarKey[] } | null = null;
   transformOrientation: TransformOrientation = 'world';
   private transformTool: 'select' | 'translate' | 'rotate' | 'scale' = 'translate';
@@ -1447,9 +1447,19 @@ export class Editor extends EventTarget {
     edited.frame = targetFrame;
     edited.value = channel.startsWith('rotation.') ? THREE.MathUtils.degToRad(displayValue) : displayValue;
 
-    const next = drag.copy
-      ? [...drag.originalTrack.map(cloneScalarKey), edited]
-      : drag.originalTrack.map(key => key.frame === drag.sourceFrame ? edited : cloneScalarKey(key));
+    if (drag.copy) {
+      drag.pendingCopy = { frame: targetFrame, value: edited.value };
+      this.frame = targetFrame;
+      this.evaluateAnimation();
+      this.emit('frame');
+      this.emit('transform');
+      this.invalidate();
+      return true;
+    }
+
+    const next = drag.originalTrack.map(key =>
+      key.frame === drag.sourceFrame ? edited : cloneScalarKey(key)
+    );
     this.setAnimationTrack(drag.object, channel, next);
     this.frame = targetFrame;
     this.evaluateAnimation();
@@ -1464,11 +1474,32 @@ export class Editor extends EventTarget {
     const drag = this.animationKeyDrag;
     if (!drag) return false;
     this.animationKeyDrag = null;
+
     if (cancel) {
-      this.setAnimationTrack(drag.object, drag.channel, drag.originalTrack);
+      if (!drag.copy) this.setAnimationTrack(drag.object, drag.channel, drag.originalTrack);
       this.scrub(drag.sourceFrame);
       return true;
     }
+
+    if (drag.copy) {
+      const pending = drag.pendingCopy;
+      if (!pending) {
+        this.scrub(drag.sourceFrame);
+        return false;
+      }
+      const source = drag.originalTrack.find(key => key.frame === drag.sourceFrame);
+      if (!source) return false;
+      const copied = cloneScalarKey(source);
+      copied.frame = pending.frame;
+      copied.value = pending.value;
+      this.setAnimationTrack(drag.object, drag.channel, [...drag.originalTrack.map(cloneScalarKey), copied]);
+      this.frame = pending.frame;
+      this.evaluateAnimation();
+      this.emit('animation');
+      this.emit('transform');
+      this.invalidate();
+    }
+
     this.commit();
     return true;
   }
