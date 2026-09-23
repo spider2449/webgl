@@ -142,7 +142,7 @@ test('Timeline Time Scale retimes selected summary frames across channels in one
   const scale = page.getByLabel('Selected Timeline key time scale');
   await expect(scale).toBeEnabled();
   await scale.fill('2');
-  await page.getByRole('button', { name: 'Scale', exact: true }).first().click();
+  await page.locator('#apply-timeline-time-scale').click();
 
   const tracks = await page.evaluate(() =>
     structuredClone((window as any).__forge.selected.userData.animationTracks)
@@ -179,7 +179,7 @@ test('Timeline Time Scale rejects a collision on one channel without partially r
   await shiftSelectTimelineMarker(page, 60);
   const scale = page.getByLabel('Selected Timeline key time scale');
   await scale.fill('2');
-  await page.getByRole('button', { name: 'Scale', exact: true }).first().click();
+  await page.locator('#apply-timeline-time-scale').click();
 
   const tracks = await page.evaluate(() =>
     structuredClone((window as any).__forge.selected.userData.animationTracks)
