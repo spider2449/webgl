@@ -1449,6 +1449,7 @@ export class Editor extends EventTarget {
     const valueDelta = targetValue - anchor.value;
     const sourceSet = new Set(drag.sourceFrames);
     const targetFrames = drag.sourceFrames.map(frame => frame + frameDelta);
+    const changed = frameDelta !== 0 || Math.abs(valueDelta) > 1e-12;
 
     if (targetFrames.some(frame => frame < 1 || frame > 250)) return false;
     if (new Set(targetFrames).size !== targetFrames.length) return false;
@@ -1471,6 +1472,7 @@ export class Editor extends EventTarget {
       return true;
     }
 
+    if (!changed) return true;
     drag.changed = true;
     const next = drag.originalTrack.map(key => {
       if (!sourceSet.has(key.frame)) return cloneScalarKey(key);
