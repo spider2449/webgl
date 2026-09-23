@@ -159,6 +159,12 @@ segment so frame→value stays single-valued. Rotation curves display degrees
 while preserving unwrapped Euler radians internally; quaternion orientation
 stays synchronized.
 
+Transform fields in the Object panel use Blender-style animation state colors:
+**yellow** when the current frame is keyed, **green** when the property is
+animated but keyed on another frame, and **orange** when the live value has been
+changed away from the evaluated animation value and still needs a key. Unanimated
+fields keep the normal neutral styling.
+
 Graph key interaction is direct:
 
 - drag vertically to edit the active scalar value,
