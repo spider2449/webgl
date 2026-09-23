@@ -264,8 +264,13 @@ test('Alt-drag copy cancellation leaves no copied channel key', async ({ page })
   await page.keyboard.press('Escape');
   await page.mouse.up();
 
-  expect(await page.evaluate(() =>
-    (window as any).__forge.selected.userData.animationTracks['position.x'].map((key: any) => key.frame)
-  )).toEqual([1, 25]);
+  const cancelled = await page.evaluate(() => {
+    const e = (window as any).__forge;
+    return {
+      selected: e.selected?.name ?? null,
+      frames: e.selected?.userData.animationTracks['position.x'].map((key: any) => key.frame) ?? null,
+    };
+  });
+  expect(cancelled).toEqual({ selected: 'Cube', frames: [1, 25] });
   await expect(page.locator('#current-frame')).toHaveValue('25');
 });
