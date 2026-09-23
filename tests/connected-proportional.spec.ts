@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
-import { buildTopology } from '../src/topology';
-import { proportionalWeights } from '../src/proportional';
+import { buildTopology } from '../src/modeling/topology';
+import { proportionalWeights } from '../src/modeling/proportional';
 
 test('connected falloff follows edge paths, welds seams and isolates islands', () => {
   const positions = [0,0,0, 2,0,0, 2,1,0, 0,1,0, 0,0,0, 0,0,0.1, 1,0,0.1, 0,1,0.1];
