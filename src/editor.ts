@@ -1284,7 +1284,12 @@ export class Editor extends EventTarget {
             -right[0] / rightLength * leftLength,
             -right[1] / rightLength * leftLength,
           ];
-          const maxLeftDx = key.frame - prepared[index - 1].frame;
+          const previous = prepared[index - 1];
+          const previousRight = effectiveBezierHandle(prepared, index - 1, channel, 'right');
+          const minimumLeftFrame = previousRight
+            ? THREE.MathUtils.clamp(previous.frame + previousRight[0], previous.frame, key.frame)
+            : previous.frame;
+          const maxLeftDx = key.frame - minimumLeftFrame;
           if (Math.abs(aligned[0]) > maxLeftDx && Math.abs(aligned[0]) > 1e-12) {
             const scale = maxLeftDx / Math.abs(aligned[0]);
             aligned = [aligned[0] * scale, aligned[1] * scale];
@@ -1370,9 +1375,22 @@ export class Editor extends EventTarget {
           -dragged[0] / draggedLength * oppositeLength,
           -dragged[1] / draggedLength * oppositeLength,
         ];
-        const maxDx = oppositeSide === 'left'
-          ? key.frame - keys[index - 1].frame
-          : keys[index + 1].frame - key.frame;
+        let maxDx: number;
+        if (oppositeSide === 'left') {
+          const previous = keys[index - 1];
+          const previousRight = effectiveBezierHandle(keys, index - 1, drag.channel, 'right');
+          const minimum = previousRight
+            ? THREE.MathUtils.clamp(previous.frame + previousRight[0], previous.frame, key.frame)
+            : previous.frame;
+          maxDx = key.frame - minimum;
+        } else {
+          const next = keys[index + 1];
+          const nextLeft = effectiveBezierHandle(keys, index + 1, drag.channel, 'left');
+          const maximum = nextLeft
+            ? THREE.MathUtils.clamp(next.frame + nextLeft[0], key.frame, next.frame)
+            : next.frame;
+          maxDx = maximum - key.frame;
+        }
         if (Math.abs(aligned[0]) > maxDx && Math.abs(aligned[0]) > 1e-12) {
           const scale = maxDx / Math.abs(aligned[0]);
           aligned = [aligned[0] * scale, aligned[1] * scale];
