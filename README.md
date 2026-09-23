@@ -150,10 +150,14 @@ same channel may use different modes; the channel rail shows **MIX** when they
 differ.
 
 Bezier creates a right handle on the source key and a left handle on the next
-key. Drag either tangent directly in the graph. Handle time is bounded to the
-adjacent segment so frame→value remains single-valued. Rotation curves display
-degrees while preserving unwrapped Euler radians internally; quaternion
-orientation stays synchronized.
+key. Each key/channel has a tangent mode: **Free** keeps both handles
+independent; **Aligned** keeps them opposite and collinear while preserving the
+other handle's length; **Auto** derives a monotone slope from neighboring keys
+and updates automatically as key timing or values change. Auto handles are
+visible but not directly draggable. Handle time remains bounded to the adjacent
+segment so frame→value stays single-valued. Rotation curves display degrees
+while preserving unwrapped Euler radians internally; quaternion orientation
+stays synchronized.
 
 Graph key interaction is direct:
 
@@ -177,7 +181,7 @@ Bezier tangents. Pure Linear animation exports as LINEAR key tracks. Objects
 containing Constant or Bezier segments are baked to LINEAR samples; Bezier uses
 32 samples per segment and Constant adds a near-boundary hold sample. This
 export path is an approximation. Independent per-channel key times, arbitrary
-F-curves, tangent coupling modes, and batch curve operations remain future work.
+F-curves, weighted tangent types, and batch curve operations remain future work.
 
 ## Kimodo rigging
 
