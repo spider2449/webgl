@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { animationChannelNativeValue, effectiveBezierHandle, sampleAnimation, validAnimationChannel, validKeyCurves, validKeyInterpolation, validKeyTangentMode } from './animation';
+import { animationChannels, effectiveBezierHandle, sampleAnimationChannel, trackKeys, validAnimationChannel, validAnimationTracks, validKeyInterpolation, validKeyTangentMode } from './animation';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { TransformControls } from 'three/addons/controls/TransformControls.js';
 import { GimbalControls } from './gimbal-controls';
@@ -19,35 +19,30 @@ export type TransformOrientation = 'world' | 'local' | 'gimbal';
 export type ScalarAnimationChannel = 'position.x' | 'position.y' | 'position.z' | 'rotation.x' | 'rotation.y' | 'rotation.z' | 'scale.x' | 'scale.y' | 'scale.z';
 export type KeyInterpolation = 'constant' | 'linear' | 'bezier';
 export type KeyTangentMode = 'free' | 'aligned' | 'auto';
-export type KeyCurve = { interpolation?: KeyInterpolation; tangent?: KeyTangentMode; left?: [number, number]; right?: [number, number] };
-export type Keyframe = {
+export type ScalarKey = {
   frame: number;
-  position: number[];
-  quaternion: number[];
-  scale: number[];
-  rotation?: number[];
-  rotationOrder?: EulerOrder;
-  curves?: Partial<Record<ScalarAnimationChannel, KeyCurve>>;
+  value: number;
+  interpolation?: KeyInterpolation;
+  tangent?: KeyTangentMode;
+  left?: [number, number];
+  right?: [number, number];
 };
+export type AnimationTrackMap = Partial<Record<ScalarAnimationChannel, ScalarKey[]>>;
 export type Project = { format: 'forge-studio'; version: 1; name: string; scene: ReturnType<THREE.Group['toJSON']> };
 const MAX_HISTORY_BYTES = 24 * 1024 * 1024;
-const cloneKeyCurves = (curves: Keyframe['curves']): Keyframe['curves'] => curves ? Object.fromEntries(
-  Object.entries(curves).map(([channel, curve]) => [channel, {
-    ...(curve!.interpolation ? { interpolation: curve!.interpolation } : {}),
-    ...(curve!.tangent ? { tangent: curve!.tangent } : {}),
-    ...(curve!.left ? { left: [...curve!.left] as [number, number] } : {}),
-    ...(curve!.right ? { right: [...curve!.right] as [number, number] } : {}),
-  }]),
-) as Keyframe['curves'] : undefined;
-const cloneAnimationKey = (key: Keyframe): Keyframe => ({
+const cloneScalarKey = (key: ScalarKey): ScalarKey => ({
   frame: key.frame,
-  position: [...key.position],
-  quaternion: [...key.quaternion],
-  scale: [...key.scale],
-  ...(key.rotation ? { rotation: [...key.rotation] } : {}),
-  ...(key.rotationOrder ? { rotationOrder: key.rotationOrder } : {}),
-  ...(key.curves ? { curves: cloneKeyCurves(key.curves) } : {}),
+  value: key.value,
+  ...(key.interpolation ? { interpolation: key.interpolation } : {}),
+  ...(key.tangent ? { tangent: key.tangent } : {}),
+  ...(key.left ? { left: [...key.left] as [number, number] } : {}),
+  ...(key.right ? { right: [...key.right] as [number, number] } : {}),
 });
+const cloneAnimationTracks = (tracks: AnimationTrackMap | undefined): AnimationTrackMap =>
+  tracks ? Object.fromEntries(Object.entries(tracks).map(([channel, keys]) => [
+    channel,
+    (keys ?? []).map(cloneScalarKey),
+  ])) as AnimationTrackMap : {};
 
 export class Editor extends EventTarget {
   readonly renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false, preserveDrawingBuffer: false });
@@ -99,8 +94,8 @@ export class Editor extends EventTarget {
   private rotationDragObject: THREE.Object3D | null = null;
   private rotationDragReference = new THREE.Vector3();
   private rotationDragMatrix = new THREE.Matrix4();
-  private animationKeyDrag: { object: THREE.Object3D; sourceFrame: number; copy: boolean; originalKeys: Keyframe[] } | null = null;
-  private animationHandleDrag: { object: THREE.Object3D; frame: number; channel: ScalarAnimationChannel; side: 'left' | 'right'; originalKeys: Keyframe[] } | null = null;
+  private animationKeyDrag: { object: THREE.Object3D; sourceFrame: number; channel: ScalarAnimationChannel; copy: boolean; originalTrack: ScalarKey[]; pendingCopy?: { frame: number; value: number } } | null = null;
+  private animationHandleDrag: { object: THREE.Object3D; frame: number; channel: ScalarAnimationChannel; side: 'left' | 'right'; originalTrack: ScalarKey[] } | null = null;
   transformOrientation: TransformOrientation = 'world';
   private transformTool: 'select' | 'translate' | 'rotate' | 'scale' = 'translate';
   private viewStyle = 'material';
@@ -1168,24 +1163,10 @@ export class Editor extends EventTarget {
         if (!(o instanceof THREE.Mesh) || o instanceof THREE.SkinnedMesh) throw new Error('Only ordinary meshes support modifiers.');
         validateModifierStack(o.userData.modifierStack);
       }
-      if ('animationInterpolation' in o.userData || 'animationChannelInterpolation' in o.userData) {
-        throw new Error('Legacy animation interpolation metadata is unsupported.');
+      if ('animationInterpolation' in o.userData || 'animationChannelInterpolation' in o.userData || 'keyframes' in o.userData) {
+        throw new Error('Legacy animation metadata is unsupported.');
       }
-      if (o.userData.keyframes) {
-        if (!Array.isArray(o.userData.keyframes) || o.userData.keyframes.some((k: Keyframe) =>
-          !Number.isFinite(k.frame) ||
-          ![k.position, k.quaternion, k.scale].every((v, i) => Array.isArray(v) && v.length === (i === 1 ? 4 : 3) && v.every(Number.isFinite)) ||
-          (k.rotation !== undefined && (!Array.isArray(k.rotation) || k.rotation.length !== 3 || !k.rotation.every(Number.isFinite))) ||
-          (k.rotationOrder !== undefined && !['XYZ','YZX','ZXY','XZY','YXZ','ZYX'].includes(k.rotationOrder)) ||
-          !validKeyCurves(k.curves)
-        )) throw new Error('Invalid animation keyframes.');
-        const keys = o.userData.keyframes as Keyframe[];
-        const hasRotationCurveMetadata = keys.some(key => Object.keys(key.curves ?? {}).some(channel => channel.startsWith('rotation.')));
-        if (hasRotationCurveMetadata) {
-          if (keys.some(key => !key.rotation)) throw new Error('Rotation curves require Euler key metadata.');
-          if (new Set(keys.map(key => key.rotationOrder ?? 'XYZ')).size > 1) throw new Error('Rotation curves require one Euler order.');
-        }
-      }
+      if (!validAnimationTracks(o.userData.animationTracks)) throw new Error('Invalid animation tracks.');
     }); } catch (error) { this.disposeObject(root); throw error; }
     if (vertices > 2_000_000) { this.disposeObject(root); throw new Error('Scene exceeds the 2 million vertex limit.'); }
     this.playing = false;
@@ -1198,17 +1179,44 @@ export class Editor extends EventTarget {
     if (commit) this.commit();
   }
   newProject() { this.playing = false; this.select(null); this.disposeObject(this.content); this.content.clear(); this.name = 'Untitled scene'; this.frame = 1; this.seed(); }
-  private prepareCurveKeys(keys: Keyframe[], channel: ScalarAnimationChannel) {
-    let prepared = keys.map(cloneAnimationKey);
-    if (!channel.startsWith('rotation.')) return prepared;
-    if (new Set(prepared.map(key => key.rotationOrder ?? 'XYZ')).size > 1) throw new Error('Rotation curves require one Euler order.');
-    prepared = prepared.map(key => {
-      if (key.rotation) return key;
-      const order = key.rotationOrder ?? 'XYZ';
-      const euler = new THREE.Euler().setFromQuaternion(new THREE.Quaternion().fromArray(key.quaternion), order);
-      return { ...key, rotation: [euler.x, euler.y, euler.z], rotationOrder: order };
-    });
-    return prepared;
+  private channelNativeValue(object: THREE.Object3D, channel: ScalarAnimationChannel) {
+    const [property, axis] = channel.split('.') as ['position' | 'rotation' | 'scale', 'x' | 'y' | 'z'];
+    return object[property][axis];
+  }
+
+  private setAnimationTrack(object: THREE.Object3D, channel: ScalarAnimationChannel, keys: ScalarKey[]) {
+    const tracks = cloneAnimationTracks(object.userData.animationTracks as AnimationTrackMap | undefined);
+    if (keys.length) tracks[channel] = keys.map(cloneScalarKey).sort((a, b) => a.frame - b.frame);
+    else delete tracks[channel];
+    if (Object.values(tracks).some(track => track?.length)) object.userData.animationTracks = tracks;
+    else delete object.userData.animationTracks;
+  }
+
+  private upsertChannelKey(object: THREE.Object3D, channel: ScalarAnimationChannel, frame: number, value: number) {
+    const keys = trackKeys(object.userData.animationTracks as AnimationTrackMap | undefined, channel).map(cloneScalarKey);
+    const existing = keys.find(key => key.frame === frame);
+    const next: ScalarKey = existing ? { ...cloneScalarKey(existing), value } : { frame, value };
+    const filtered = keys.filter(key => key.frame !== frame);
+    filtered.push(next);
+    this.setAnimationTrack(object, channel, filtered);
+  }
+
+  insertChannelKey(channel: ScalarAnimationChannel) {
+    if (!validAnimationChannel(channel) || !this.selected || this.editMode || this.playing) return false;
+    const frame = Math.round(this.frame);
+    this.upsertChannelKey(this.selected, channel, frame, this.channelNativeValue(this.selected, channel));
+    this.commit();
+    return true;
+  }
+
+  removeChannelKey(channel: ScalarAnimationChannel, frame = Math.round(this.frame)) {
+    if (!validAnimationChannel(channel) || !this.selected || this.editMode || this.playing) return false;
+    const keys = trackKeys(this.selected.userData.animationTracks as AnimationTrackMap | undefined, channel);
+    if (!keys.some(key => key.frame === frame)) return false;
+    this.setAnimationTrack(this.selected, channel, keys.filter(key => key.frame !== frame));
+    this.evaluateAnimation();
+    this.commit();
+    return true;
   }
 
   setKeyInterpolation(frame: number, channel: ScalarAnimationChannel, mode: KeyInterpolation) {
@@ -1216,35 +1224,22 @@ export class Editor extends EventTarget {
       throw new Error('Invalid key interpolation.');
     }
     if (!this.selected || this.editMode || this.playing || this.animationKeyDrag || this.animationHandleDrag) return false;
-    const sourceKeys: Keyframe[] = this.selected.userData.keyframes ?? [];
-    const prepared = this.prepareCurveKeys(sourceKeys, channel);
-    const index = prepared.findIndex(key => key.frame === frame);
-    if (index < 0) throw new Error('Choose an authored key first.');
-    if (index === prepared.length - 1) throw new Error('The last key has no outbound segment.');
+    const keys = trackKeys(this.selected.userData.animationTracks as AnimationTrackMap | undefined, channel).map(cloneScalarKey);
+    const index = keys.findIndex(key => key.frame === frame);
+    if (index < 0) throw new Error('Choose an authored channel key first.');
+    if (index === keys.length - 1) throw new Error('The last channel key has no outbound segment.');
 
-    const key = prepared[index];
-    const curves: NonNullable<Keyframe['curves']> = cloneKeyCurves(key.curves) ?? {};
-    const curve: KeyCurve = { ...(curves[channel] ?? {}) };
-    curve.interpolation = mode;
-
+    const key = keys[index];
+    key.interpolation = mode;
     if (mode === 'bezier') {
-      const next = prepared[index + 1];
+      const next = keys[index + 1];
       const span = next.frame - key.frame;
-      const delta = animationChannelNativeValue(next, channel) - animationChannelNativeValue(key, channel);
-      if ((curve.tangent ?? 'free') !== 'auto' && !curve.right) curve.right = [span / 3, delta / 3];
-
-      const nextCurves: NonNullable<Keyframe['curves']> = cloneKeyCurves(next.curves) ?? {};
-      const nextCurve: KeyCurve = { ...(nextCurves[channel] ?? {}) };
-      if ((nextCurve.tangent ?? 'free') !== 'auto' && !nextCurve.left) nextCurve.left = [-span / 3, -delta / 3];
-      nextCurves[channel] = nextCurve;
-      next.curves = nextCurves;
+      const delta = next.value - key.value;
+      if ((key.tangent ?? 'free') !== 'auto' && !key.right) key.right = [span / 3, delta / 3];
+      if ((next.tangent ?? 'free') !== 'auto' && !next.left) next.left = [-span / 3, -delta / 3];
     }
 
-    if (curve.interpolation || curve.left || curve.right) curves[channel] = curve;
-    else delete curves[channel];
-    key.curves = Object.keys(curves).length ? curves : undefined;
-
-    this.selected.userData.keyframes = prepared;
+    this.setAnimationTrack(this.selected, channel, keys);
     this.evaluateAnimation();
     this.commit();
     return true;
@@ -1255,27 +1250,25 @@ export class Editor extends EventTarget {
       throw new Error('Invalid key tangent mode.');
     }
     if (!this.selected || this.editMode || this.playing || this.animationKeyDrag || this.animationHandleDrag) return false;
-    const sourceKeys: Keyframe[] = this.selected.userData.keyframes ?? [];
-    const prepared = this.prepareCurveKeys(sourceKeys, channel);
-    const index = prepared.findIndex(key => key.frame === frame);
-    if (index < 0) throw new Error('Choose an authored key first.');
+    const keys = trackKeys(this.selected.userData.animationTracks as AnimationTrackMap | undefined, channel).map(cloneScalarKey);
+    const index = keys.findIndex(key => key.frame === frame);
+    if (index < 0) throw new Error('Choose an authored channel key first.');
 
-    const incomingBezier = index > 0 && prepared[index - 1].curves?.[channel]?.interpolation === 'bezier';
-    const outgoingBezier = index < prepared.length - 1 && prepared[index].curves?.[channel]?.interpolation === 'bezier';
+    const incomingBezier = index > 0 && (keys[index - 1].interpolation ?? 'linear') === 'bezier';
+    const outgoingBezier = index < keys.length - 1 && (keys[index].interpolation ?? 'linear') === 'bezier';
     if (!incomingBezier && !outgoingBezier) throw new Error('Tangent mode requires a Bezier segment.');
 
-    const left = incomingBezier ? effectiveBezierHandle(prepared, index, channel, 'left') : null;
-    const right = outgoingBezier ? effectiveBezierHandle(prepared, index, channel, 'right') : null;
-    const key = prepared[index];
-    const curves: NonNullable<Keyframe['curves']> = cloneKeyCurves(key.curves) ?? {};
-    const curve: KeyCurve = { ...(curves[channel] ?? {}), tangent: mode };
+    const left = incomingBezier ? effectiveBezierHandle(keys, index, 'left') : null;
+    const right = outgoingBezier ? effectiveBezierHandle(keys, index, 'right') : null;
+    const key = keys[index];
+    key.tangent = mode;
 
     if (mode === 'auto') {
-      delete curve.left;
-      delete curve.right;
+      delete key.left;
+      delete key.right;
     } else {
-      if (left) curve.left = [...left];
-      if (right) curve.right = [...right];
+      if (left) key.left = [...left];
+      if (right) key.right = [...right];
       if (mode === 'aligned' && left && right) {
         const rightLength = Math.hypot(right[0], right[1]);
         const leftLength = Math.hypot(left[0], left[1]);
@@ -1284,8 +1277,8 @@ export class Editor extends EventTarget {
             -right[0] / rightLength * leftLength,
             -right[1] / rightLength * leftLength,
           ];
-          const previous = prepared[index - 1];
-          const previousRight = effectiveBezierHandle(prepared, index - 1, channel, 'right');
+          const previous = keys[index - 1];
+          const previousRight = effectiveBezierHandle(keys, index - 1, 'right');
           const minimumLeftFrame = previousRight
             ? THREE.MathUtils.clamp(previous.frame + previousRight[0], previous.frame, key.frame)
             : previous.frame;
@@ -1294,14 +1287,12 @@ export class Editor extends EventTarget {
             const scale = maxLeftDx / Math.abs(aligned[0]);
             aligned = [aligned[0] * scale, aligned[1] * scale];
           }
-          curve.left = aligned;
+          key.left = aligned;
         }
       }
     }
 
-    curves[channel] = curve;
-    key.curves = curves;
-    this.selected.userData.keyframes = prepared;
+    this.setAnimationTrack(this.selected, channel, keys);
     this.evaluateAnimation();
     this.commit();
     return true;
@@ -1309,19 +1300,19 @@ export class Editor extends EventTarget {
 
   beginAnimationHandleDrag(frame: number, channel: ScalarAnimationChannel, side: 'left' | 'right') {
     if (!Number.isInteger(frame) || !validAnimationChannel(channel) || !this.selected || this.editMode || this.playing || this.animationKeyDrag || this.animationHandleDrag) return false;
-    const keys: Keyframe[] = this.selected.userData.keyframes ?? [];
+    const keys = trackKeys(this.selected.userData.animationTracks as AnimationTrackMap | undefined, channel);
     const index = keys.findIndex(key => key.frame === frame);
     if (index < 0) return false;
     const enabled = side === 'right'
-      ? index < keys.length - 1 && keys[index].curves?.[channel]?.interpolation === 'bezier'
-      : index > 0 && keys[index - 1].curves?.[channel]?.interpolation === 'bezier';
-    if (!enabled || (keys[index].curves?.[channel]?.tangent ?? 'free') === 'auto') return false;
+      ? index < keys.length - 1 && (keys[index].interpolation ?? 'linear') === 'bezier'
+      : index > 0 && (keys[index - 1].interpolation ?? 'linear') === 'bezier';
+    if (!enabled || (keys[index].tangent ?? 'free') === 'auto') return false;
     this.animationHandleDrag = {
       object: this.selected,
       frame,
       channel,
       side,
-      originalKeys: keys.map(cloneAnimationKey),
+      originalTrack: keys.map(cloneScalarKey),
     };
     return true;
   }
@@ -1329,45 +1320,38 @@ export class Editor extends EventTarget {
   previewAnimationHandleDrag(targetFrame: number, displayValue: number) {
     const drag = this.animationHandleDrag;
     if (!drag || this.selected !== drag.object || this.editMode || this.playing || !Number.isFinite(targetFrame) || !Number.isFinite(displayValue)) return false;
-    const keys = drag.originalKeys.map(cloneAnimationKey);
+    const keys = drag.originalTrack.map(cloneScalarKey);
     const index = keys.findIndex(key => key.frame === drag.frame);
     if (index < 0) return false;
     const key = keys[index];
-    const keyValue = animationChannelNativeValue(key, drag.channel);
     const targetValue = drag.channel.startsWith('rotation.') ? THREE.MathUtils.degToRad(displayValue) : displayValue;
 
     let minimumFrame: number;
     let maximumFrame: number;
     if (drag.side === 'right') {
-      if (index >= keys.length - 1 || key.curves?.[drag.channel]?.interpolation !== 'bezier') return false;
+      if (index >= keys.length - 1 || (key.interpolation ?? 'linear') !== 'bezier') return false;
       const next = keys[index + 1];
-      const span = next.frame - key.frame;
-      const delta = animationChannelNativeValue(next, drag.channel) - keyValue;
-      const opposite = next.curves?.[drag.channel]?.left ?? [-span / 3, -delta / 3];
+      const opposite = effectiveBezierHandle(keys, index + 1, 'left')!;
       minimumFrame = key.frame;
       maximumFrame = THREE.MathUtils.clamp(next.frame + opposite[0], key.frame, next.frame);
     } else {
-      if (index === 0 || keys[index - 1].curves?.[drag.channel]?.interpolation !== 'bezier') return false;
+      if (index === 0 || (keys[index - 1].interpolation ?? 'linear') !== 'bezier') return false;
       const previous = keys[index - 1];
-      const span = key.frame - previous.frame;
-      const delta = keyValue - animationChannelNativeValue(previous, drag.channel);
-      const opposite = previous.curves?.[drag.channel]?.right ?? [span / 3, delta / 3];
+      const opposite = effectiveBezierHandle(keys, index - 1, 'right')!;
       minimumFrame = THREE.MathUtils.clamp(previous.frame + opposite[0], previous.frame, key.frame);
       maximumFrame = key.frame;
     }
 
     const clampedFrame = THREE.MathUtils.clamp(targetFrame, minimumFrame, maximumFrame);
-    const curves: NonNullable<Keyframe['curves']> = cloneKeyCurves(key.curves) ?? {};
-    const curve: KeyCurve = { ...(curves[drag.channel] ?? {}) };
-    const dragged: [number, number] = [clampedFrame - key.frame, targetValue - keyValue];
-    curve[drag.side] = dragged;
+    const dragged: [number, number] = [clampedFrame - key.frame, targetValue - key.value];
+    key[drag.side] = dragged;
 
-    if ((curve.tangent ?? 'free') === 'aligned') {
+    if ((key.tangent ?? 'free') === 'aligned') {
       const oppositeSide = drag.side === 'left' ? 'right' : 'left';
       const oppositeRelevant = oppositeSide === 'left'
-        ? index > 0 && keys[index - 1].curves?.[drag.channel]?.interpolation === 'bezier'
-        : index < keys.length - 1 && keys[index].curves?.[drag.channel]?.interpolation === 'bezier';
-      const opposite = oppositeRelevant ? effectiveBezierHandle(keys, index, drag.channel, oppositeSide) : null;
+        ? index > 0 && (keys[index - 1].interpolation ?? 'linear') === 'bezier'
+        : index < keys.length - 1 && (keys[index].interpolation ?? 'linear') === 'bezier';
+      const opposite = oppositeRelevant ? effectiveBezierHandle(keys, index, oppositeSide) : null;
       const draggedLength = Math.hypot(dragged[0], dragged[1]);
       const oppositeLength = opposite ? Math.hypot(opposite[0], opposite[1]) : 0;
       if (opposite && draggedLength > 1e-12 && oppositeLength > 1e-12) {
@@ -1378,14 +1362,14 @@ export class Editor extends EventTarget {
         let maxDx: number;
         if (oppositeSide === 'left') {
           const previous = keys[index - 1];
-          const previousRight = effectiveBezierHandle(keys, index - 1, drag.channel, 'right');
+          const previousRight = effectiveBezierHandle(keys, index - 1, 'right');
           const minimum = previousRight
             ? THREE.MathUtils.clamp(previous.frame + previousRight[0], previous.frame, key.frame)
             : previous.frame;
           maxDx = key.frame - minimum;
         } else {
           const next = keys[index + 1];
-          const nextLeft = effectiveBezierHandle(keys, index + 1, drag.channel, 'left');
+          const nextLeft = effectiveBezierHandle(keys, index + 1, 'left');
           const maximum = nextLeft
             ? THREE.MathUtils.clamp(next.frame + nextLeft[0], key.frame, next.frame)
             : next.frame;
@@ -1395,14 +1379,11 @@ export class Editor extends EventTarget {
           const scale = maxDx / Math.abs(aligned[0]);
           aligned = [aligned[0] * scale, aligned[1] * scale];
         }
-        curve[oppositeSide] = aligned;
+        key[oppositeSide] = aligned;
       }
     }
 
-    curves[drag.channel] = curve;
-    key.curves = curves;
-
-    drag.object.userData.keyframes = keys;
+    this.setAnimationTrack(drag.object, drag.channel, keys);
     this.evaluateAnimation();
     this.emit('animation');
     this.emit('transform');
@@ -1415,7 +1396,7 @@ export class Editor extends EventTarget {
     if (!drag) return false;
     this.animationHandleDrag = null;
     if (cancel) {
-      drag.object.userData.keyframes = drag.originalKeys.map(cloneAnimationKey);
+      this.setAnimationTrack(drag.object, drag.channel, drag.originalTrack);
       this.evaluateAnimation();
       this.emit('animation');
       this.emit('transform');
@@ -1426,88 +1407,64 @@ export class Editor extends EventTarget {
     return true;
   }
 
+  keyObjectTransform(object: THREE.Object3D, frame = Math.round(this.frame)) {
+    for (const channel of animationChannels) {
+      this.upsertChannelKey(object, channel, frame, this.channelNativeValue(object, channel));
+    }
+  }
+
   insertKey() {
-    if (!this.selected || this.editMode) return false;
-    const keys: Keyframe[] = this.selected.userData.keyframes ?? [];
-    const frame = Math.round(this.frame);
-    const existing = keys.find(key => key.frame === frame);
-    const next = keys.filter(k => k.frame !== frame);
-    next.push({
-      frame,
-      position: this.selected.position.toArray(),
-      quaternion: this.selected.quaternion.toArray(),
-      scale: this.selected.scale.toArray(),
-      rotation: [this.selected.rotation.x, this.selected.rotation.y, this.selected.rotation.z],
-      rotationOrder: this.selected.rotation.order,
-      ...(existing?.curves ? { curves: cloneKeyCurves(existing.curves) } : {}),
-    });
-    this.selected.userData.keyframes = next.sort((a, b) => a.frame - b.frame);
+    if (!this.selected || this.editMode || this.playing) return false;
+    this.keyObjectTransform(this.selected);
     this.commit();
     return true;
   }
-  beginAnimationKeyDrag(sourceFrame: number, copy = false) {
-    if (!Number.isFinite(sourceFrame) || !this.selected || this.editMode || this.playing || this.animationKeyDrag || this.animationHandleDrag) return false;
-    const keys: Keyframe[] = this.selected.userData.keyframes ?? [];
+
+  beginAnimationKeyDrag(sourceFrame: number, channel: ScalarAnimationChannel, copy = false) {
+    if (!Number.isFinite(sourceFrame) || !validAnimationChannel(channel) || !this.selected || this.editMode || this.playing || this.animationKeyDrag || this.animationHandleDrag) return false;
+    const keys = trackKeys(this.selected.userData.animationTracks as AnimationTrackMap | undefined, channel);
     if (!keys.some(key => key.frame === sourceFrame)) return false;
     this.animationKeyDrag = {
       object: this.selected,
       sourceFrame,
+      channel,
       copy,
-      originalKeys: keys.map(key => ({
-        frame: key.frame,
-        position: [...key.position],
-        quaternion: [...key.quaternion],
-        scale: [...key.scale],
-        ...(key.rotation ? { rotation: [...key.rotation] } : {}),
-        ...(key.rotationOrder ? { rotationOrder: key.rotationOrder } : {}),
-        ...(key.curves ? { curves: cloneKeyCurves(key.curves) } : {}),
-      })),
+      originalTrack: keys.map(cloneScalarKey),
     };
     return true;
   }
 
-  previewAnimationKeyDrag(targetFrame: number, channel: ScalarAnimationChannel, value: number) {
+  previewAnimationKeyDrag(targetFrame: number, channel: ScalarAnimationChannel, displayValue: number) {
     const drag = this.animationKeyDrag;
-    if (!drag || this.selected !== drag.object || this.editMode || this.playing) return false;
-    if (!Number.isInteger(targetFrame) || targetFrame < 1 || targetFrame > 250 || !Number.isFinite(value)) return false;
-    if (drag.copy ? drag.originalKeys.some(key => key.frame === targetFrame) :
-      drag.originalKeys.some(key => key.frame === targetFrame && key.frame !== drag.sourceFrame)) return false;
-    const [property, axis] = channel.split('.') as ['position' | 'rotation' | 'scale', 'x' | 'y' | 'z'];
-    if (!['position', 'rotation', 'scale'].includes(property) || !['x', 'y', 'z'].includes(axis)) return false;
-    const component = axis === 'x' ? 0 : axis === 'y' ? 1 : 2;
-    const source = drag.originalKeys.find(key => key.frame === drag.sourceFrame);
-    if (!source) return false;
+    if (!drag || channel !== drag.channel || this.selected !== drag.object || this.editMode || this.playing) return false;
+    if (!Number.isInteger(targetFrame) || targetFrame < 1 || targetFrame > 250 || !Number.isFinite(displayValue)) return false;
+    if (drag.copy ? drag.originalTrack.some(key => key.frame === targetFrame) :
+      drag.originalTrack.some(key => key.frame === targetFrame && key.frame !== drag.sourceFrame)) return false;
 
-    const edited = cloneAnimationKey(source);
-    const rotationOrder = edited.rotationOrder ?? 'XYZ';
-    const sourceEuler = edited.rotation ? [...edited.rotation] : (() => {
-      const euler = new THREE.Euler().setFromQuaternion(new THREE.Quaternion().fromArray(edited.quaternion), rotationOrder);
-      return [euler.x, euler.y, euler.z];
-    })();
-    const nextRotation = [...sourceEuler];
-    if (property === 'rotation') nextRotation[component] = THREE.MathUtils.degToRad(value);
+    const source = drag.originalTrack.find(key => key.frame === drag.sourceFrame);
+    if (!source) return false;
+    const edited = cloneScalarKey(source);
     edited.frame = targetFrame;
-    edited.position = property === 'position'
-      ? edited.position.map((item, index) => index === component ? value : item)
-      : [...edited.position];
-    edited.scale = property === 'scale'
-      ? edited.scale.map((item, index) => index === component ? value : item)
-      : [...edited.scale];
-    if (property === 'rotation') {
-      edited.rotation = nextRotation;
-      edited.rotationOrder = rotationOrder;
-      edited.quaternion = new THREE.Quaternion()
-        .setFromEuler(new THREE.Euler(nextRotation[0], nextRotation[1], nextRotation[2], rotationOrder))
-        .toArray();
+    edited.value = channel.startsWith('rotation.') ? THREE.MathUtils.degToRad(displayValue) : displayValue;
+
+    if (drag.copy) {
+      drag.pendingCopy = { frame: targetFrame, value: edited.value };
+      this.frame = targetFrame;
+      this.evaluateAnimation();
+      this.emit('frame');
+      this.emit('transform');
+      this.invalidate();
+      return true;
     }
 
-    const next = drag.copy
-      ? [...drag.originalKeys.map(cloneAnimationKey), edited]
-      : drag.originalKeys.map(key => key.frame === drag.sourceFrame ? edited : cloneAnimationKey(key));
-    drag.object.userData.keyframes = next.sort((a, b) => a.frame - b.frame);
+    const next = drag.originalTrack.map(key =>
+      key.frame === drag.sourceFrame ? edited : cloneScalarKey(key)
+    );
+    this.setAnimationTrack(drag.object, channel, next);
     this.frame = targetFrame;
     this.evaluateAnimation();
     this.emit('frame');
+    this.emit('animation');
     this.emit('transform');
     this.invalidate();
     return true;
@@ -1517,87 +1474,82 @@ export class Editor extends EventTarget {
     const drag = this.animationKeyDrag;
     if (!drag) return false;
     this.animationKeyDrag = null;
+
     if (cancel) {
-      drag.object.userData.keyframes = drag.originalKeys.map(key => ({
-        frame: key.frame,
-        position: [...key.position],
-        quaternion: [...key.quaternion],
-        scale: [...key.scale],
-        ...(key.rotation ? { rotation: [...key.rotation] } : {}),
-        ...(key.rotationOrder ? { rotationOrder: key.rotationOrder } : {}),
-        ...(key.curves ? { curves: cloneKeyCurves(key.curves) } : {}),
-      }));
+      if (!drag.copy) this.setAnimationTrack(drag.object, drag.channel, drag.originalTrack);
       this.scrub(drag.sourceFrame);
       return true;
     }
+
+    if (drag.copy) {
+      const pending = drag.pendingCopy;
+      if (!pending) {
+        this.scrub(drag.sourceFrame);
+        return false;
+      }
+      const source = drag.originalTrack.find(key => key.frame === drag.sourceFrame);
+      if (!source) return false;
+      const copied = cloneScalarKey(source);
+      copied.frame = pending.frame;
+      copied.value = pending.value;
+      this.setAnimationTrack(drag.object, drag.channel, [...drag.originalTrack.map(cloneScalarKey), copied]);
+      this.frame = pending.frame;
+      this.evaluateAnimation();
+      this.emit('animation');
+      this.emit('transform');
+      this.invalidate();
+    }
+
     this.commit();
     return true;
   }
 
-  editKeyChannel(channel: ScalarAnimationChannel, value: number) {
-    if (!Number.isFinite(value)) throw new Error('Enter a finite channel value.');
+  editKeyChannel(channel: ScalarAnimationChannel, displayValue: number) {
+    if (!Number.isFinite(displayValue)) throw new Error('Enter a finite channel value.');
     if (!this.selected || this.editMode || this.playing) throw new Error('Select an object in Object Mode and pause playback first.');
-    const [property, axis] = channel.split('.') as ['position' | 'rotation' | 'scale', 'x' | 'y' | 'z'];
-    if (!['position', 'rotation', 'scale'].includes(property) || !['x', 'y', 'z'].includes(axis)) throw new Error('Choose a supported animation channel.');
-    const keys: Keyframe[] = this.selected.userData.keyframes ?? [];
-    const source = keys.find(key => key.frame === this.frame);
-    if (!source) throw new Error('Move to an existing keyframe first.');
-    const component = axis === 'x' ? 0 : axis === 'y' ? 1 : 2;
-    const rotationOrder = source.rotationOrder ?? 'XYZ';
-    const sourceEuler = source.rotation ? [...source.rotation] : (() => {
-      const euler = new THREE.Euler().setFromQuaternion(new THREE.Quaternion().fromArray(source.quaternion), rotationOrder);
-      return [euler.x, euler.y, euler.z];
-    })();
-    const current = property === 'position' ? source.position[component] :
-      property === 'scale' ? source.scale[component] :
-      THREE.MathUtils.radToDeg(sourceEuler[component]);
-    if (Math.abs(current - value) < 1e-12) return;
-
-    const nextRotation = [...sourceEuler];
-    if (property === 'rotation') nextRotation[component] = THREE.MathUtils.degToRad(value);
-    const nextQuaternion = property === 'rotation'
-      ? new THREE.Quaternion().setFromEuler(new THREE.Euler(nextRotation[0], nextRotation[1], nextRotation[2], rotationOrder)).toArray()
-      : [...source.quaternion];
-
-    this.selected.userData.keyframes = keys.map(key => key === source ? {
-      frame: key.frame,
-      position: property === 'position' ? key.position.map((item, index) => index === component ? value : item) : [...key.position],
-      quaternion: nextQuaternion,
-      scale: property === 'scale' ? key.scale.map((item, index) => index === component ? value : item) : [...key.scale],
-      ...(property === 'rotation' || key.rotation ? { rotation: property === 'rotation' ? nextRotation : [...key.rotation!] } : {}),
-      ...(property === 'rotation' || key.rotationOrder ? { rotationOrder: property === 'rotation' ? rotationOrder : key.rotationOrder! } : {}),
-      ...(key.curves ? { curves: cloneKeyCurves(key.curves) } : {}),
-    } : key);
-    this.scrub(source.frame);
+    const keys = trackKeys(this.selected.userData.animationTracks as AnimationTrackMap | undefined, channel).map(cloneScalarKey);
+    const frame = Math.round(this.frame);
+    const key = keys.find(item => item.frame === frame);
+    if (!key) throw new Error('Move to an existing channel key first.');
+    const value = channel.startsWith('rotation.') ? THREE.MathUtils.degToRad(displayValue) : displayValue;
+    if (Math.abs(key.value - value) < 1e-12) return;
+    key.value = value;
+    this.setAnimationTrack(this.selected, channel, keys);
+    this.scrub(frame);
     this.commit();
   }
-  retimeKey(targetFrame: number, copy = false) {
-    if (!Number.isInteger(targetFrame) || targetFrame < 1 || targetFrame > 250) throw new Error('Choose an integer frame from 1 to 250.');
+
+  retimeChannelKey(channel: ScalarAnimationChannel, targetFrame: number, copy = false) {
+    if (!validAnimationChannel(channel) || !Number.isInteger(targetFrame) || targetFrame < 1 || targetFrame > 250) {
+      throw new Error('Choose a supported channel and integer frame from 1 to 250.');
+    }
     if (!this.selected || this.editMode || this.playing) throw new Error('Select an object in Object Mode and pause playback first.');
-    const keys: Keyframe[] = this.selected.userData.keyframes ?? [];
-    const source = keys.find(key => key.frame === this.frame);
-    if (!source) throw new Error('Move to an existing keyframe first.');
-    if (!copy && targetFrame === source.frame) return;
-    if (keys.some(key => key.frame === targetFrame)) throw new Error('The target frame already has a keyframe.');
-    const next = copy ? [...keys] : keys.filter(key => key !== source);
-    next.push({
-      frame: targetFrame,
-      position: [...source.position],
-      quaternion: [...source.quaternion],
-      scale: [...source.scale],
-      ...(source.rotation ? { rotation: [...source.rotation] } : {}),
-      ...(source.rotationOrder ? { rotationOrder: source.rotationOrder } : {}),
-      ...(source.curves ? { curves: cloneKeyCurves(source.curves) } : {}),
-    });
-    this.selected.userData.keyframes = next.sort((a, b) => a.frame - b.frame);
+    const keys = trackKeys(this.selected.userData.animationTracks as AnimationTrackMap | undefined, channel).map(cloneScalarKey);
+    const sourceFrame = Math.round(this.frame);
+    const source = keys.find(key => key.frame === sourceFrame);
+    if (!source) throw new Error('Move to an existing channel key first.');
+    if (!copy && targetFrame === sourceFrame) return;
+    if (keys.some(key => key.frame === targetFrame)) throw new Error('The target frame already has a key on this channel.');
+    const next = copy ? keys : keys.filter(key => key.frame !== sourceFrame);
+    next.push({ ...cloneScalarKey(source), frame: targetFrame });
+    this.setAnimationTrack(this.selected, channel, next);
     this.scrub(targetFrame);
     this.commit();
   }
+
   removeKey() {
     if (!this.selected) return;
-    this.selected.userData.keyframes = (this.selected.userData.keyframes ?? []).filter((k: Keyframe) => k.frame !== Math.round(this.frame));
+    const frame = Math.round(this.frame);
+    for (const channel of animationChannels) {
+      const keys = trackKeys(this.selected.userData.animationTracks as AnimationTrackMap | undefined, channel);
+      if (keys.some(key => key.frame === frame)) {
+        this.setAnimationTrack(this.selected, channel, keys.filter(key => key.frame !== frame));
+      }
+    }
+    this.evaluateAnimation();
     this.commit();
   }
+
   scrub(frame: number) { this.frame = THREE.MathUtils.clamp(frame, 1, 250); this.evaluateAnimation(); this.emit('frame'); this.emit('transform'); this.invalidate(); }
   togglePlayback() {
     this.setEditMode(false);
@@ -1607,21 +1559,32 @@ export class Editor extends EventTarget {
     this.emit('frame');
     this.invalidate();
   }
+
   evaluateAnimation() {
-    this.content.traverse(o => {
-      const keys = o.userData.keyframes as Keyframe[] | undefined;
-      if (!keys?.length) return;
-      const sample = sampleAnimation(keys, this.frame);
-      o.position.fromArray(sample.position);
-      if (sample.rotation) {
-        o.rotation.set(sample.rotation[0], sample.rotation[1], sample.rotation[2], sample.rotationOrder ?? o.rotation.order);
-      } else {
-        o.quaternion.fromArray(sample.quaternion);
-      }
-      o.scale.fromArray(sample.scale);
+    this.content.traverse(object => {
+      const tracks = object.userData.animationTracks as AnimationTrackMap | undefined;
+      if (!tracks || !Object.values(tracks).some(keys => keys?.length)) return;
+
+      const position = [object.position.x, object.position.y, object.position.z];
+      const rotation = [object.rotation.x, object.rotation.y, object.rotation.z];
+      const scale = [object.scale.x, object.scale.y, object.scale.z];
+
+      (['x','y','z'] as const).forEach((axis, component) => {
+        const positionChannel = `position.${axis}` as ScalarAnimationChannel;
+        const rotationChannel = `rotation.${axis}` as ScalarAnimationChannel;
+        const scaleChannel = `scale.${axis}` as ScalarAnimationChannel;
+        if (trackKeys(tracks, positionChannel).length) position[component] = sampleAnimationChannel(tracks, this.frame, positionChannel, position[component]);
+        if (trackKeys(tracks, rotationChannel).length) rotation[component] = sampleAnimationChannel(tracks, this.frame, rotationChannel, rotation[component]);
+        if (trackKeys(tracks, scaleChannel).length) scale[component] = sampleAnimationChannel(tracks, this.frame, scaleChannel, scale[component]);
+      });
+
+      object.position.set(position[0], position[1], position[2]);
+      object.rotation.set(rotation[0], rotation[1], rotation[2], object.rotation.order);
+      object.scale.set(scale[0], scale[1], scale[2]);
     });
     this.updateSelection();
   }
+
   stats() {
     let vertices = 0, triangles = 0;
     this.content.traverse(o => { if (o instanceof THREE.Mesh) { vertices += o.geometry.getAttribute('position')?.count ?? 0; triangles += (o.geometry.index?.count ?? o.geometry.getAttribute('position')?.count ?? 0) / 3; } });

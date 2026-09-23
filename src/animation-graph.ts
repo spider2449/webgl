@@ -2,9 +2,15 @@ import * as THREE from 'three';
 import {
   bezierControlPoints,
   effectiveSegmentInterpolation,
-  sampleAnimation,
+  sampleScalarTrack,
+  trackKeys,
 } from './animation';
-import type { Keyframe, KeyInterpolation, ScalarAnimationChannel } from './editor';
+import type {
+  AnimationTrackMap,
+  KeyInterpolation,
+  ScalarAnimationChannel,
+  ScalarKey,
+} from './editor';
 
 export type AnimationGraphData = {
   channel: ScalarAnimationChannel;
@@ -17,11 +23,9 @@ export type AnimationGraphData = {
   actualMax: number;
   samples: { frame: number; value: number }[];
   keys: { frame: number; value: number }[];
-  sourceKeys: Keyframe[];
+  sourceKeys: ScalarKey[];
   segmentModes: KeyInterpolation[];
 };
-
-const axes = ['x', 'y', 'z'] as const;
 
 export function animationChannelLabel(channel: ScalarAnimationChannel) {
   const [property, axis] = channel.split('.') as ['position' | 'rotation' | 'scale', 'x' | 'y' | 'z'];
@@ -29,32 +33,25 @@ export function animationChannelLabel(channel: ScalarAnimationChannel) {
   return `${propertyLabel} ${axis.toUpperCase()}`;
 }
 
-export function animationChannelValue(key: Keyframe, channel: ScalarAnimationChannel) {
-  const [property, axis] = channel.split('.') as ['position' | 'rotation' | 'scale', 'x' | 'y' | 'z'];
-  const component = axes.indexOf(axis);
-  if (property === 'position') return key.position[component];
-  if (property === 'scale') return key.scale[component];
-  if (key.rotation) return THREE.MathUtils.radToDeg(key.rotation[component]);
-
-  const order = key.rotationOrder ?? 'XYZ';
-  const euler = new THREE.Euler().setFromQuaternion(new THREE.Quaternion().fromArray(key.quaternion), order);
-  return THREE.MathUtils.radToDeg([euler.x, euler.y, euler.z][component]);
-}
-
 function displayNative(channel: ScalarAnimationChannel, nativeValue: number) {
   return channel.startsWith('rotation.') ? THREE.MathUtils.radToDeg(nativeValue) : nativeValue;
 }
 
-function sampledChannelValue(key: Keyframe, channel: ScalarAnimationChannel) {
-  return animationChannelValue(key, channel);
+export function animationChannelValue(key: ScalarKey, channel: ScalarAnimationChannel) {
+  return displayNative(channel, key.value);
 }
 
 export function buildAnimationGraphData(
-  keys: Keyframe[],
+  keys: ScalarKey[],
   channel: ScalarAnimationChannel,
 ): AnimationGraphData | null {
   if (!keys.length) return null;
-  const sorted = [...keys].sort((a, b) => a.frame - b.frame);
+  const sorted = keys.map(key => ({
+    ...key,
+    ...(key.left ? { left: [...key.left] as [number, number] } : {}),
+    ...(key.right ? { right: [...key.right] as [number, number] } : {}),
+  })).sort((a, b) => a.frame - b.frame);
+
   const keyPoints = sorted.map(key => ({ frame: key.frame, value: animationChannelValue(key, channel) }));
   const frameMin = sorted[0].frame;
   const frameMax = sorted[sorted.length - 1].frame;
@@ -68,35 +65,34 @@ export function buildAnimationGraphData(
       const a = sorted[index];
       const b = sorted[index + 1];
       const span = b.frame - a.frame;
-      const mode = effectiveSegmentInterpolation(a, channel);
+      const mode = effectiveSegmentInterpolation(a);
       segmentModes.push(mode);
-      const steps = mode === 'constant' ? 2 : mode === 'linear' ? 2 : 32;
+      const steps = mode === 'bezier' ? 32 : 2;
       for (let step = 0; step < steps; step++) {
         const frame = a.frame + span * step / steps;
-        const sample = sampleAnimation(sorted, frame);
-        samples.push({ frame, value: sampledChannelValue(sample, channel) });
+        samples.push({ frame, value: displayNative(channel, sampleScalarTrack(sorted, frame)) });
       }
       if (mode === 'constant' && span > 0) {
         const nearEnd = b.frame - Math.min(1e-3, span * 1e-5);
-        const sample = sampleAnimation(sorted, nearEnd);
-        samples.push({ frame: nearEnd, value: sampledChannelValue(sample, channel) });
+        samples.push({ frame: nearEnd, value: displayNative(channel, sampleScalarTrack(sorted, nearEnd)) });
       }
     }
     samples.push({ ...keyPoints[keyPoints.length - 1] });
   }
 
   const uniqueModes = new Set(segmentModes);
-  const mode: AnimationGraphData['mode'] = uniqueModes.size > 1 ? 'mixed' :
-    segmentModes[0] ?? effectiveSegmentInterpolation(sorted[0], channel);
+  const mode: AnimationGraphData['mode'] = uniqueModes.size > 1
+    ? 'mixed'
+    : segmentModes[0] ?? effectiveSegmentInterpolation(sorted[0]);
 
   const handleValues: number[] = [];
   sorted.forEach((key, index) => {
-    if (index > 0 && sorted[index - 1].curves?.[channel]?.interpolation === 'bezier') {
-      const controls = bezierControlPoints(sorted, index - 1, channel);
+    if (index > 0 && effectiveSegmentInterpolation(sorted[index - 1]) === 'bezier') {
+      const controls = bezierControlPoints(sorted, index - 1);
       handleValues.push(displayNative(channel, controls.y2));
     }
-    if (index < sorted.length - 1 && key.curves?.[channel]?.interpolation === 'bezier') {
-      const controls = bezierControlPoints(sorted, index, channel);
+    if (index < sorted.length - 1 && effectiveSegmentInterpolation(key) === 'bezier') {
+      const controls = bezierControlPoints(sorted, index);
       handleValues.push(displayNative(channel, controls.y1));
     }
   });
@@ -117,7 +113,20 @@ export function buildAnimationGraphData(
     valueMax += pad;
   }
 
-  return { channel, mode, frameMin, frameMax, valueMin, valueMax, actualMin, actualMax, samples, keys: keyPoints, sourceKeys: sorted, segmentModes };
+  return {
+    channel,
+    mode,
+    frameMin,
+    frameMax,
+    valueMin,
+    valueMax,
+    actualMin,
+    actualMax,
+    samples,
+    keys: keyPoints,
+    sourceKeys: sorted,
+    segmentModes,
+  };
 }
 
 const NS = 'http://www.w3.org/2000/svg';
@@ -190,9 +199,10 @@ export class AnimationGraphView {
     window.addEventListener('keydown', event => {
       if (event.key === 'Escape' && this.drag) {
         event.preventDefault();
+        event.stopPropagation();
         this.finishDrag(true);
       }
-    });
+    }, { capture: true });
   }
 
   get selectedKeyFrame() { return this.selectedFrame; }
@@ -213,21 +223,16 @@ export class AnimationGraphView {
       this.selectedFrame = null;
       this.signature = '';
     }
-    const keys: Keyframe[] = object?.userData.keyframes ?? [];
+
+    const tracks = object?.userData.animationTracks as AnimationTrackMap | undefined;
+    const keys = trackKeys(tracks, channel);
     if (this.selectedFrame !== null && !keys.some(key => key.frame === this.selectedFrame)) this.selectedFrame = null;
+
     const signature = JSON.stringify({
       uuid: object?.uuid ?? null,
       channel,
       selectedFrame: this.selectedFrame,
-      keys: keys.map(key => ({
-        frame: key.frame,
-        position: key.position,
-        rotation: key.rotation,
-        rotationOrder: key.rotationOrder,
-        quaternion: key.rotation ? undefined : key.quaternion,
-        scale: key.scale,
-        curves: key.curves,
-      })),
+      keys,
     });
 
     if (this.drag) {
@@ -256,7 +261,7 @@ export class AnimationGraphView {
 
     if (!data) {
       this.title.textContent = 'Graph Editor';
-      this.detail.textContent = 'Add transform keys to display a curve.';
+      this.detail.textContent = 'Insert a channel key to display a curve.';
       this.playhead.setAttribute('visibility', 'hidden');
       return;
     }
@@ -276,8 +281,7 @@ export class AnimationGraphView {
       this.curveLayer.append(svgElement('line', { class: 'graph-key-grid', x1: gx, x2: gx, y1: 18, y2: 162 }));
     }
 
-    const pathData = this.curvePath(data);
-    const path = svgElement('path', { class: 'graph-curve', d: pathData });
+    const path = svgElement('path', { class: 'graph-curve', d: this.curvePath(data) });
     path.dataset.sampleCount = String(data.samples.length);
     this.curveLayer.append(path);
 
@@ -333,8 +337,8 @@ export class AnimationGraphView {
     if (index < 0) return;
     const key = data.sourceKeys[index];
     const keyValue = animationChannelValue(key, data.channel);
+    const tangent = key.tangent ?? 'free';
 
-    const tangent = key.curves?.[data.channel]?.tangent ?? 'free';
     const addHandle = (side: 'left' | 'right', handleFrame: number, handleValue: number) => {
       const line = svgElement('line', {
         class: 'graph-handle-line',
@@ -365,15 +369,13 @@ export class AnimationGraphView {
       this.curveLayer.append(line, marker);
     };
 
-    if (index > 0 && data.sourceKeys[index - 1].curves?.[data.channel]?.interpolation === 'bezier') {
-      const previous = data.sourceKeys[index - 1];
-      const controls = bezierControlPoints(data.sourceKeys, index - 1, data.channel);
+    if (index > 0 && effectiveSegmentInterpolation(data.sourceKeys[index - 1]) === 'bezier') {
+      const controls = bezierControlPoints(data.sourceKeys, index - 1);
       addHandle('left', controls.x2, displayNative(data.channel, controls.y2));
     }
 
-    if (index < data.sourceKeys.length - 1 && key.curves?.[data.channel]?.interpolation === 'bezier') {
-      const next = data.sourceKeys[index + 1];
-      const controls = bezierControlPoints(data.sourceKeys, index, data.channel);
+    if (index < data.sourceKeys.length - 1 && effectiveSegmentInterpolation(key) === 'bezier') {
+      const controls = bezierControlPoints(data.sourceKeys, index);
       addHandle('right', controls.x1, displayNative(data.channel, controls.y1));
     }
   }

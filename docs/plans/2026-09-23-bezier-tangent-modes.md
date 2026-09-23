@@ -15,13 +15,13 @@ Extend the Graph Editor's per-key Bezier controls with explicit tangent modes.
 - Switching Auto → Free/Aligned materializes the currently evaluated handles so the curve shape is preserved at the moment of switching.
 - Switching to Auto drops manual offsets so future key edits recompute the handles.
 - Tangent mode changes create one undoable history entry.
-- Preserve tangent mode through Forge save/load, key replacement, retime/copy and ordinary curve editing.
+- Preserve tangent mode through Forge save/load, scalar-key replacement, channel retime/copy and ordinary curve editing.
 
 ## Data model
 
-`KeyCurve` gains sparse `tangent: 'free' | 'aligned' | 'auto'`.
+`ScalarKey` carries sparse `tangent: 'free' | 'aligned' | 'auto'` alongside its interpolation and handle offsets.
 
-Missing tangent metadata means Free. Handle offsets remain stored on the key. Auto ignores and removes manual offsets.
+Missing tangent metadata means Free. Handle offsets remain stored directly on the scalar key. Auto ignores and removes manual offsets.
 
 ## Evaluation
 
@@ -34,7 +34,6 @@ Aligned uses stored handles. When one handle is dragged, the other is placed on 
 - weighted tangents,
 - broken/aligned per-side flags,
 - custom easing presets,
-- independent per-channel key times,
 - arbitrary F-curves.
 
 ## Validation

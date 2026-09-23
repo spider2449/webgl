@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import type { Editor, Keyframe } from './editor';
+import type { Editor } from './editor';
 import { SOMA77 } from './soma77';
 
 export const RIG_SOURCE = 'https://github.com/nv-tlabs/kimodo/tree/1aece8c124d73d255ceff5086d983b844c9f4e94/kimodo/assets/skeletons/somaskel77';
@@ -133,10 +133,7 @@ export class RigSystem {
     const rig = this.activeRig;
     if (!rig) throw new Error('Create a Kimodo rig first.');
     const frame = Math.round(this.editor.frame);
-    for (const bone of rigBones(rig)) {
-      const keys: Keyframe[] = bone.userData.keyframes ?? [];
-      bone.userData.keyframes = [...keys.filter(k => k.frame !== frame), { frame, position: bone.position.toArray(), quaternion: bone.quaternion.toArray(), scale: bone.scale.toArray() }].sort((a,b) => a.frame-b.frame);
-    }
+    for (const bone of rigBones(rig)) this.editor.keyObjectTransform(bone, frame);
     this.editor.commit();
   }
   enableIK(name: string) {

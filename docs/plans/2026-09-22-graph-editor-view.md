@@ -1,106 +1,84 @@
 # Graph Editor key curves and tangents
 
-Add a bounded editable Graph Editor for scalar transform animation channels with
-per-key segment interpolation and cubic Bezier handles.
+Forge's Graph Editor is the sole detailed transform-animation editor.
 
-## Scope
+## Current scope
 
-- Make the Graph Editor the sole animation editing UI.
-- Keep playback, current frame, Insert key and Remove key in the timeline header.
-- Add a left-side channel rail for Location X/Y/Z, Rotation X/Y/Z and Scale X/Y/Z.
-- Use Linear as the only implicit/default segment mode.
-- Let every authored key choose its outbound segment as Linear, Constant or Bezier.
-- Show MIX on a channel when its segments use different modes.
-- Visualize authored key points using the same sampling function as playback.
-- Display unwrapped Euler rotation channels in degrees.
-- Show the current frame as a moving playhead on the same 1–250 horizontal domain as the timeline.
-- Selecting Bezier initializes a straight-line-equivalent right handle on the selected key and left handle on the next key.
-- Drag left/right tangent handles directly in frame/value space.
-- Add per-key/channel Free, Aligned and Auto tangent modes.
-- Free keeps handles independent.
-- Aligned couples both sides into one line while preserving the opposite handle length when possible within time bounds.
-- Auto derives a monotone neighboring-key slope, shows computed handles and disables direct handle dragging.
-- Constrain handle time coordinates to adjacent segments and prevent control-time crossing so frame→value remains single-valued.
-- Drag a key vertically to edit the selected scalar value.
-- Drag a key horizontally to retime the entire transform key to an integer frame.
-- Alt-drag a key horizontally to copy the entire transform key to an empty frame.
-- Never overwrite an occupied frame; the drag remains at its last valid frame.
-- Apply key/tangent drag previews live without creating intermediate history entries.
-- Commit one history entry when the pointer is released.
-- Restore original key/tangent data on Escape or pointer cancellation.
-- Preserve per-key curve metadata through key replacement, scalar edits, retime/copy, undo/redo and Forge project save/load.
-- Reject the removed object/channel interpolation metadata on load.
+- Nine independent scalar tracks: Location X/Y/Z, Rotation X/Y/Z and Scale X/Y/Z.
+- Each scalar track owns its own key frames and values.
+- The timeline's Insert/Remove transform-key controls are convenience operations across all nine tracks.
+- The Graph header can insert or remove a key only on the active scalar channel.
+- Vertical key drag edits the active scalar value.
+- Horizontal key drag retimes only the active channel key.
+- Alt-drag copies only the active channel key.
+- Occupied target frames on that channel are never overwritten.
+- Timeline markers and previous/next navigation use the union of all channel key frames.
+- Rotation tracks store unwrapped radians and display degrees.
 
-## Animation model
+## Curves
 
-Each transform key may contain sparse per-channel curve metadata:
+Every scalar key may store:
 
-- `interpolation`: Linear, Constant or Bezier for the key → next-key segment.
-- `right`: relative `[frameOffset, valueOffset]` for the key's outgoing Bezier control point.
-- `left`: relative `[frameOffset, valueOffset]` for the incoming Bezier control point used by the previous key's Bezier segment.
+- `interpolation`: Linear, Constant or Bezier for the outbound segment.
+- `tangent`: Free, Aligned or Auto.
+- `right`: relative outgoing Bezier control `[frameOffset,valueOffset]`.
+- `left`: relative incoming Bezier control `[frameOffset,valueOffset]`.
 
-If a segment has no interpolation metadata, it is Linear.
+Missing interpolation means Linear. Missing tangent means Free.
 
-There is no object-wide interpolation mode, no channel-wide interpolation
-override, no Smooth mode and no Inherit mode.
-
-Rotation handle value offsets are stored in radians with the key's unwrapped
-Euler values; the Graph Editor displays degrees.
-
-## Data-model boundary
-
-Forge transform keys still store Position, Rotation and Scale together at one
-frame. Horizontal Graph Editor move/copy therefore operates on the entire
-transform key. Independent per-channel key times require a different animation
-data model and are not claimed here.
+Free handles are independent. Aligned couples both sides into one line while
+preserving the opposite handle length when possible within adjacent segment
+bounds. Auto uses a monotone neighboring-key slope, flattens at extrema/sign
+changes, displays computed handles and disables direct dragging.
 
 ## Evaluation and export
 
+Playback, scrubbing, Graph rendering and GLB export use the same scalar-track
+evaluation semantics.
+
 - Linear lerps scalar values.
-- Constant holds the source key until the next key.
-- Bezier evaluates a real cubic curve in `(frame,value)` space: solve cubic X for the current frame, then evaluate cubic Y.
-- Playback, scrubbing and Graph visualization use the same evaluator.
-- Pure Linear animation exports as LINEAR transform tracks.
-- glTF has no native per-axis/per-segment Bezier tangent representation.
-- Segments requiring baking export as LINEAR samples.
-- Bezier segments use 32 samples per segment.
-- Constant segments add a near-boundary hold sample.
-- Mixed scalar/per-key GLB export remains an approximation.
+- Constant holds the source value.
+- Bezier solves cubic X for frame and evaluates cubic Y.
+- Bezier export uses 32 samples per segment.
+- Constant export adds a near-boundary hold sample.
+- Position, Rotation and Scale export on the union of their three scalar track times.
+- Multi-turn Euler rotation receives bounded angular samples before quaternion export.
+- glTF cannot preserve Forge's scalar tangent representation directly, so mixed/non-linear export is an approximation.
+
+## Removed models
+
+Forge does not support the superseded:
+
+- transform-wide `userData.keyframes`,
+- object-wide interpolation mode,
+- channel-wide interpolation override,
+- Smooth or Inherit interpolation layers.
+
+Project loading fails closed if those legacy fields are present.
 
 ## Non-goals
 
-This increment does not add:
-
-- independent per-channel key times,
 - weighted tangent types,
 - arbitrary F-curves,
 - curve modifiers,
 - batch curve operations,
-- replacement of the existing timeline.
-
-Handles are time-bounded. Free, Aligned and Auto coupling are implemented; weighted and custom tangent weighting are not.
+- replacing the existing timeline.
 
 ## Validation
 
 Playwright coverage verifies:
 
-- the legacy Object-panel Animation controls are absent,
-- nine graph-channel controls provide the only scalar-channel selection UI,
-- Linear is the implicit default,
-- different keys/channels can author Linear, Constant and Bezier independently,
-- channel labels report LIN / CST / BEZ / MIX,
-- per-key Bezier and Constant segments evaluate independently,
-- Bezier default handles reproduce the straight linear segment,
-- actual pointer dragging of a tangent changes playback evaluation,
-- tangent drag is one-step undoable/redoable,
-- Aligned dragging updates the opposite handle while preserving collinearity,
-- Auto tangents recompute from neighboring keys and cannot be manually dragged,
-- tangent modes survive Forge project round trips,
-- removed object/channel interpolation fields are rejected,
-- malformed curve modes, handles and unknown curve fields fail closed,
-- per-key Bezier curves bake to LINEAR GLB samples matching the Forge evaluator,
-- key value drag, whole-transform retiming and Alt-drag key copy remain covered,
-- occupied target frames are not overwritten.
+- nine independent channel tracks,
+- channel-only key insertion/removal,
+- channel-only move and Alt-drag copy,
+- other channel timings remain unchanged,
+- union timeline markers/navigation,
+- Linear/Constant/Bezier per segment,
+- Free/Aligned/Auto tangents,
+- multi-turn rotation,
+- per-channel property state colors,
+- save/load and undo/redo,
+- malformed scalar-track metadata fails closed,
+- GLB union timing and curve baking.
 
-This branch is intentionally held for Windows-local build, Playwright and manual
-interaction validation before merge.
+This branch remains unmerged until Windows-local validation is reported.

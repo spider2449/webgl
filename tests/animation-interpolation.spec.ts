@@ -5,23 +5,28 @@ test.beforeEach(async ({ page }) => {
   await page.waitForFunction(() => (window as any).__forge?.selected);
 });
 
-test('animation defaults to Linear and rejects removed legacy interpolation metadata', async ({ page }) => {
+test('transform key insertion authors nine independent scalar tracks and legacy keyframes fail closed', async ({ page }) => {
   const result = await page.evaluate(() => {
     const e = (window as any).__forge;
     const object = e.selected;
-    object.userData.keyframes = [];
+
     e.frame = 1;
     object.position.set(0, 0, 0);
+    object.rotation.set(0, 0, 0);
     object.scale.set(1, 1, 1);
     e.insertKey();
+
     e.frame = 25;
     object.position.set(8, 4, 2);
+    object.rotation.set(0, Math.PI, 0);
     object.scale.set(3, 5, 7);
     e.insertKey();
 
+    const tracks = structuredClone(object.userData.animationTracks);
     e.scrub(7);
     const sampled = {
       position: object.position.toArray(),
+      rotationY: object.rotation.y,
       scale: object.scale.toArray(),
     };
 
@@ -30,107 +35,108 @@ test('animation defaults to Linear and rejects removed legacy interpolation meta
     e.scrub(7);
     const restored = {
       position: e.selected.position.toArray(),
+      rotationY: e.selected.rotation.y,
       scale: e.selected.scale.toArray(),
     };
 
-    const objectLegacy = JSON.parse(saved);
-    objectLegacy.scene.object.children[0].userData.animationInterpolation = 'smooth';
-    let objectLegacyRejected = false;
-    try { e.load(objectLegacy); } catch { objectLegacyRejected = true; }
+    const legacy = JSON.parse(saved);
+    legacy.scene.object.children[0].userData.keyframes = [{
+      frame: 1,
+      position: [0, 0, 0],
+      quaternion: [0, 0, 0, 1],
+      scale: [1, 1, 1],
+    }];
+    let legacyRejected = false;
+    try { e.load(legacy); } catch { legacyRejected = true; }
 
-    const channelLegacy = JSON.parse(saved);
-    channelLegacy.scene.object.children[0].userData.animationChannelInterpolation = { 'position.x': 'constant' };
-    let channelLegacyRejected = false;
-    try { e.load(channelLegacy); } catch { channelLegacyRejected = true; }
+    const malformed = JSON.parse(saved);
+    malformed.scene.object.children[0].userData.animationTracks['position.x'][0].value = null;
+    let malformedRejected = false;
+    try { e.load(malformed); } catch { malformedRejected = true; }
 
     return {
+      tracks,
       sampled,
       restored,
-      objectLegacyRejected,
-      channelLegacyRejected,
-      loadUnchanged: e.snapshot() === saved,
+      legacyRejected,
+      malformedRejected,
+      unchangedAfterReject: e.snapshot() === saved,
     };
   });
 
+  expect(Object.keys(result.tracks)).toHaveLength(9);
+  for (const keys of Object.values(result.tracks) as any[][]) {
+    expect(keys.map(key => key.frame)).toEqual([1, 25]);
+  }
   expect(result.sampled.position[0]).toBeCloseTo(2, 6);
   expect(result.sampled.position[1]).toBeCloseTo(1, 6);
   expect(result.sampled.position[2]).toBeCloseTo(0.5, 6);
+  expect(result.sampled.rotationY).toBeCloseTo(Math.PI / 4, 6);
   expect(result.sampled.scale[0]).toBeCloseTo(1.5, 6);
   expect(result.sampled.scale[1]).toBeCloseTo(2, 6);
   expect(result.sampled.scale[2]).toBeCloseTo(2.5, 6);
   expect(result.restored).toEqual(result.sampled);
-  expect(result.objectLegacyRejected).toBe(true);
-  expect(result.channelLegacyRejected).toBe(true);
-  expect(result.loadUnchanged).toBe(true);
+  expect(result.legacyRejected).toBe(true);
+  expect(result.malformedRejected).toBe(true);
+  expect(result.unchangedAfterReject).toBe(true);
 });
 
-test('different keys and channels evaluate independent Constant Linear and Bezier segments', async ({ page }) => {
+test('scalar channels own independent key times and segment interpolation', async ({ page }) => {
   const result = await page.evaluate(() => {
     const e = (window as any).__forge;
     const object = e.selected;
-    object.userData.keyframes = [];
 
     e.frame = 1;
     object.position.set(0, 0, 0);
-    object.scale.set(1, 1, 1);
     e.insertKey();
 
     e.frame = 25;
     object.position.set(8, 8, 0);
-    object.scale.set(3, 3, 3);
     e.insertKey();
 
     e.frame = 49;
     object.position.set(16, 0, 0);
-    object.scale.set(5, 5, 5);
     e.insertKey();
 
+    e.scrub(25);
+    e.retimeChannelKey('position.x', 37);
     e.setKeyInterpolation(1, 'position.x', 'constant');
     e.setKeyInterpolation(1, 'position.y', 'bezier');
-    e.setKeyInterpolation(25, 'position.x', 'linear');
     e.setKeyInterpolation(25, 'position.y', 'constant');
-    e.setKeyInterpolation(1, 'scale.z', 'bezier');
 
-    e.scrub(13);
-    const first = {
-      x: object.position.x,
-      y: object.position.y,
-      scaleZ: object.scale.z,
-    };
-
-    e.scrub(37);
-    const second = {
-      x: object.position.x,
-      y: object.position.y,
-      scaleZ: object.scale.z,
-    };
+    e.scrub(19);
+    const first = { x: object.position.x, y: object.position.y };
+    e.scrub(31);
+    const second = { x: object.position.x, y: object.position.y };
+    e.scrub(43);
+    const third = { x: object.position.x, y: object.position.y };
 
     const saved = e.snapshot();
     e.load(JSON.parse(saved));
-    const curves = structuredClone(e.selected.userData.keyframes.map((key: any) => key.curves ?? null));
+    const tracks = structuredClone(e.selected.userData.animationTracks);
 
-    return { first, second, curves };
+    return { first, second, third, tracks };
   });
 
+  expect(result.tracks['position.x'].map((key: any) => key.frame)).toEqual([1, 37, 49]);
+  expect(result.tracks['position.y'].map((key: any) => key.frame)).toEqual([1, 25, 49]);
+  expect(result.tracks['position.x'][0].interpolation).toBe('constant');
+  expect(result.tracks['position.y'][0].interpolation).toBe('bezier');
+  expect(result.tracks['position.y'][1].interpolation).toBe('constant');
+
   expect(result.first.x).toBeCloseTo(0, 6);
-  expect(result.first.y).toBeCloseTo(4, 5);
-  expect(result.first.scaleZ).toBeCloseTo(2, 5);
-
-  expect(result.second.x).toBeCloseTo(12, 6);
+  expect(result.first.y).toBeGreaterThan(0);
+  expect(result.first.y).toBeLessThan(8);
+  expect(result.second.x).toBeCloseTo(0, 6);
   expect(result.second.y).toBeCloseTo(8, 6);
-  expect(result.second.scaleZ).toBeCloseTo(4, 6);
-
-  expect(result.curves[0]['position.x'].interpolation).toBe('constant');
-  expect(result.curves[0]['position.y'].interpolation).toBe('bezier');
-  expect(result.curves[1]['position.x'].interpolation).toBe('linear');
-  expect(result.curves[1]['position.y'].interpolation).toBe('constant');
+  expect(result.third.x).toBeCloseTo(12, 6);
+  expect(result.third.y).toBeCloseTo(8, 6);
 });
 
-test('per-key Bezier curves validate, persist and bake evaluated values into GLB', async ({ page }) => {
+test('Bezier scalar tracks persist and bake evaluated values into GLB', async ({ page }) => {
   const setup = await page.evaluate(() => {
     const e = (window as any).__forge;
     const object = e.selected;
-    object.userData.keyframes = [];
 
     e.frame = 1;
     object.position.set(0, 0, 0);
@@ -149,24 +155,24 @@ test('per-key Bezier curves validate, persist and bake evaluated values into GLB
     const saved = e.snapshot();
 
     const invalidMode = JSON.parse(saved);
-    invalidMode.scene.object.children[0].userData.keyframes[0].curves['position.x'].interpolation = 'catmull';
+    invalidMode.scene.object.children[0].userData.animationTracks['position.x'][0].interpolation = 'catmull';
     let invalidModeRejected = false;
     try { e.load(invalidMode); } catch { invalidModeRejected = true; }
 
     const invalidHandle = JSON.parse(saved);
-    invalidHandle.scene.object.children[0].userData.keyframes[0].curves['position.x'].right = [8, null];
+    invalidHandle.scene.object.children[0].userData.animationTracks['position.x'][0].right = [8, null];
     let invalidHandleRejected = false;
     try { e.load(invalidHandle); } catch { invalidHandleRejected = true; }
 
     const unknownField = JSON.parse(saved);
-    unknownField.scene.object.children[0].userData.keyframes[0].curves['position.x'].tension = 0.5;
+    unknownField.scene.object.children[0].userData.animationTracks['position.x'][0].tension = 0.5;
     let unknownFieldRejected = false;
     try { e.load(unknownField); } catch { unknownFieldRejected = true; }
 
     e.load(JSON.parse(saved));
     return {
       expectedAtFrame7,
-      curves: structuredClone(e.selected.userData.keyframes.map((key: any) => key.curves?.['position.x'] ?? null)),
+      track: structuredClone(e.selected.userData.animationTracks['position.x']),
       invalidModeRejected,
       invalidHandleRejected,
       unknownFieldRejected,
@@ -174,10 +180,10 @@ test('per-key Bezier curves validate, persist and bake evaluated values into GLB
   });
 
   expect(setup.expectedAtFrame7).toBeGreaterThan(2);
-  expect(setup.curves[0].interpolation).toBe('bezier');
-  expect(setup.curves[0].right[0]).toBeCloseTo(8, 6);
-  expect(setup.curves[0].right[1]).toBeCloseTo(6, 6);
-  expect(setup.curves[1].left[0]).toBeCloseTo(-8, 6);
+  expect(setup.track[0].interpolation).toBe('bezier');
+  expect(setup.track[0].right[0]).toBeCloseTo(8, 6);
+  expect(setup.track[0].right[1]).toBeCloseTo(6, 6);
+  expect(setup.track[1].left[0]).toBeCloseTo(-8, 6);
   expect(setup).toMatchObject({
     invalidModeRejected: true,
     invalidHandleRejected: true,
@@ -195,6 +201,7 @@ test('per-key Bezier curves validate, persist and bake evaluated values into GLB
   const json = JSON.parse(glb.subarray(20, 20 + jsonLength).toString('utf8'));
   const translationChannel = json.animations[0].channels.find((item: any) => item.target.path === 'translation');
   const sampler = json.animations[0].samplers[translationChannel.sampler];
+
   expect(sampler.interpolation).toBe('LINEAR');
   expect(json.accessors[sampler.input].count).toBe(33);
 
@@ -206,11 +213,10 @@ test('per-key Bezier curves validate, persist and bake evaluated values into GLB
   expect(glb.readFloatLE(frame7Sample)).toBeCloseTo(setup.expectedAtFrame7, 4);
 });
 
-test('Constant per-key segments bake hold behavior into GLB', async ({ page }) => {
+test('Constant scalar segments bake hold behavior into GLB', async ({ page }) => {
   await page.evaluate(() => {
     const e = (window as any).__forge;
     const object = e.selected;
-    object.userData.keyframes = [];
     e.frame = 1;
     object.position.set(0, 0, 0);
     e.insertKey();
@@ -231,6 +237,7 @@ test('Constant per-key segments bake hold behavior into GLB', async ({ page }) =
   const json = JSON.parse(glb.subarray(20, 20 + jsonLength).toString('utf8'));
   const channel = json.animations[0].channels.find((item: any) => item.target.path === 'translation');
   const sampler = json.animations[0].samplers[channel.sampler];
+
   expect(sampler.interpolation).toBe('LINEAR');
   expect(json.accessors[sampler.input].count).toBe(3);
 
@@ -243,15 +250,14 @@ test('Constant per-key segments bake hold behavior into GLB', async ({ page }) =
   expect(glb.readFloatLE(offset + 6 * 4)).toBeCloseTo(8, 4);
 });
 
-test('tangent modes persist and malformed tangent metadata fails closed', async ({ page }) => {
+test('tangent modes persist on scalar keys and malformed tangent metadata fails closed', async ({ page }) => {
   const result = await page.evaluate(() => {
     const e = (window as any).__forge;
     const object = e.selected;
-    object.userData.keyframes = [];
 
-    e.frame = 1; object.position.set(0, 0, 0); e.insertKey();
-    e.frame = 25; object.position.set(8, 0, 0); e.insertKey();
-    e.frame = 49; object.position.set(16, 0, 0); e.insertKey();
+    e.frame = 1; object.position.x = 0; e.insertKey();
+    e.frame = 25; object.position.x = 8; e.insertKey();
+    e.frame = 49; object.position.x = 16; e.insertKey();
 
     e.setKeyInterpolation(1, 'position.x', 'bezier');
     e.setKeyInterpolation(25, 'position.x', 'bezier');
@@ -259,19 +265,15 @@ test('tangent modes persist and malformed tangent metadata fails closed', async 
 
     const alignedSaved = e.snapshot();
     e.load(JSON.parse(alignedSaved));
-    const aligned = structuredClone(
-      e.selected.userData.keyframes.find((key: any) => key.frame === 25).curves['position.x']
-    );
+    const aligned = structuredClone(e.selected.userData.animationTracks['position.x'][1]);
 
     e.setKeyTangentMode(25, 'position.x', 'auto');
     const autoSaved = e.snapshot();
     e.load(JSON.parse(autoSaved));
-    const auto = structuredClone(
-      e.selected.userData.keyframes.find((key: any) => key.frame === 25).curves['position.x']
-    );
+    const auto = structuredClone(e.selected.userData.animationTracks['position.x'][1]);
 
     const invalid = JSON.parse(autoSaved);
-    invalid.scene.object.children[0].userData.keyframes[1].curves['position.x'].tangent = 'vector';
+    invalid.scene.object.children[0].userData.animationTracks['position.x'][1].tangent = 'vector';
     let invalidRejected = false;
     try { e.load(invalid); } catch { invalidRejected = true; }
 

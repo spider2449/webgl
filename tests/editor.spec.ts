@@ -92,7 +92,7 @@ test('creates exact SOMA77 hierarchy and supports FK and full-pose keys', async 
     e.frame = 25; arm.rotation.z = 0.7; rig.updateMatrixWorld(true);
     const after = hand.getWorldPosition(hips.position.clone()).toArray();
     r.keyPose(); e.scrub(13);
-    return { count: bones.length, hips: hips.position.toArray(), parent: hand.parent.name, before, after, angle: arm.rotation.z, keys: arm.userData.keyframes.length };
+    return { count: bones.length, hips: hips.position.toArray(), parent: hand.parent.name, before, after, angle: arm.rotation.z, keys: arm.userData.animationTracks['rotation.z'].length };
   });
   expect(result.count).toBe(77); expect(result.hips).toEqual([0,0,0]); expect(result.parent).toBe('LeftForeArm');
   expect(result.before).not.toEqual(result.after); expect(result.angle).toBeCloseTo(0.35, 4); expect(result.keys).toBe(2);
