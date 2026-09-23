@@ -18,7 +18,8 @@ export type EulerOrder = 'XYZ' | 'YZX' | 'ZXY' | 'XZY' | 'YXZ' | 'ZYX';
 export type TransformOrientation = 'world' | 'local' | 'gimbal';
 export type ScalarAnimationChannel = 'position.x' | 'position.y' | 'position.z' | 'rotation.x' | 'rotation.y' | 'rotation.z' | 'scale.x' | 'scale.y' | 'scale.z';
 export type KeyInterpolation = 'constant' | 'linear' | 'bezier';
-export type KeyCurve = { interpolation?: KeyInterpolation; left?: [number, number]; right?: [number, number] };
+export type KeyTangentMode = 'free' | 'aligned' | 'auto';
+export type KeyCurve = { interpolation?: KeyInterpolation; tangent?: KeyTangentMode; left?: [number, number]; right?: [number, number] };
 export type Keyframe = {
   frame: number;
   position: number[];
@@ -33,6 +34,7 @@ const MAX_HISTORY_BYTES = 24 * 1024 * 1024;
 const cloneKeyCurves = (curves: Keyframe['curves']): Keyframe['curves'] => curves ? Object.fromEntries(
   Object.entries(curves).map(([channel, curve]) => [channel, {
     ...(curve!.interpolation ? { interpolation: curve!.interpolation } : {}),
+    ...(curve!.tangent ? { tangent: curve!.tangent } : {}),
     ...(curve!.left ? { left: [...curve!.left] as [number, number] } : {}),
     ...(curve!.right ? { right: [...curve!.right] as [number, number] } : {}),
   }]),
