@@ -135,6 +135,11 @@ test('Timeline Time Scale retimes selected summary frames across channels in one
     e.scrub(1);
   });
 
+  await page.getByRole('button', { name: 'Animation', exact: true }).click();
+  const graph = page.getByLabel('Animation graph editor');
+  await graph.locator('.graph-key-point[data-frame="40"]').click();
+  await expect(graph).toHaveAttribute('data-selected-frames', '40');
+
   await shiftSelectTimelineMarker(page, 40);
   await shiftSelectTimelineMarker(page, 50);
   await shiftSelectTimelineMarker(page, 60);
@@ -154,6 +159,7 @@ test('Timeline Time Scale retimes selected summary frames across channels in one
   await expect(page.getByRole('button', { name: 'Animation key at frame 30' })).toHaveClass(/selected/);
   await expect(page.getByRole('button', { name: 'Animation key at frame 50' })).toHaveClass(/selected/);
   await expect(page.getByRole('button', { name: 'Animation key at frame 70' })).toHaveClass(/selected/);
+  await expect(graph).toHaveAttribute('data-selected-frames', '30');
 
   await page.evaluate(() => (window as any).__forge.undo());
   const restored = await page.evaluate(() =>
