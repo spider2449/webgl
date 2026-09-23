@@ -245,7 +245,7 @@ test('Shift-click multi-selects channel keys and removes the selected set atomic
 
   await expect(graph).toHaveAttribute('data-selected-frames', '1,20');
   await expect(graph.locator('.graph-key-point.selected')).toHaveCount(2);
-  await expect(page.getByLabel('Selected key interpolation')).toBeDisabled();
+  await expect(page.getByLabel('Selected key interpolation')).toBeEnabled();
   await expect(page.getByLabel('Selected key tangent mode')).toBeDisabled();
 
   const remove = page.getByRole('button', { name: /Remove .*selected channel key/ });
@@ -261,6 +261,86 @@ test('Shift-click multi-selects channel keys and removes the selected set atomic
   expect(await page.evaluate(() =>
     (window as any).__forge.selected.userData.animationTracks['position.x'].map((key: any) => key.frame)
   )).toEqual([1, 20, 40]);
+});
+
+test('multi-selected Graph keys batch-assign segment interpolation in one undo step', async ({ page }) => {
+  await page.evaluate(() => {
+    const e = (window as any).__forge;
+    delete e.selected.userData.animationTracks;
+    e.scrub(1); e.selected.position.x = 0; e.insertChannelKey('position.x');
+    e.scrub(20); e.selected.position.x = 8; e.insertChannelKey('position.x');
+    e.scrub(40); e.selected.position.x = 16; e.insertChannelKey('position.x');
+    e.setKeyInterpolation(1, 'position.x', 'bezier');
+    e.setKeyInterpolation(20, 'position.x', 'constant');
+    e.scrub(1);
+  });
+
+  await page.getByRole('button', { name: 'Animation', exact: true }).click();
+  const graph = page.getByLabel('Animation graph editor');
+  await page.keyboard.down('Shift');
+  await graph.locator('.graph-key-point[data-frame="1"]').click();
+  await graph.locator('.graph-key-point[data-frame="20"]').click();
+  await page.keyboard.up('Shift');
+
+  const interpolation = page.getByLabel('Selected key interpolation');
+  await expect(interpolation).toBeEnabled();
+  await expect(interpolation).toHaveValue('mixed');
+  await interpolation.selectOption('linear');
+
+  expect(await page.evaluate(() =>
+    (window as any).__forge.selected.userData.animationTracks['position.x']
+      .slice(0, 2)
+      .map((key: any) => key.interpolation ?? 'linear')
+  )).toEqual(['linear', 'linear']);
+  await expect(graph).toHaveAttribute('data-selected-frames', '1,20');
+
+  await page.evaluate(() => (window as any).__forge.undo());
+  expect(await page.evaluate(() =>
+    (window as any).__forge.selected.userData.animationTracks['position.x']
+      .slice(0, 2)
+      .map((key: any) => key.interpolation ?? 'linear')
+  )).toEqual(['bezier', 'constant']);
+});
+
+test('multi-selected Bezier keys batch-assign tangent mode in one undo step', async ({ page }) => {
+  await page.evaluate(() => {
+    const e = (window as any).__forge;
+    delete e.selected.userData.animationTracks;
+    e.scrub(1); e.selected.position.x = 0; e.insertChannelKey('position.x');
+    e.scrub(20); e.selected.position.x = 8; e.insertChannelKey('position.x');
+    e.scrub(40); e.selected.position.x = 16; e.insertChannelKey('position.x');
+    e.setKeyInterpolation(1, 'position.x', 'bezier');
+    e.setKeyInterpolation(20, 'position.x', 'bezier');
+    e.setKeyTangentMode(1, 'position.x', 'free');
+    e.setKeyTangentMode(20, 'position.x', 'auto');
+    e.scrub(1);
+  });
+
+  await page.getByRole('button', { name: 'Animation', exact: true }).click();
+  const graph = page.getByLabel('Animation graph editor');
+  await page.keyboard.down('Shift');
+  await graph.locator('.graph-key-point[data-frame="1"]').click();
+  await graph.locator('.graph-key-point[data-frame="20"]').click();
+  await page.keyboard.up('Shift');
+
+  const tangent = page.getByLabel('Selected key tangent mode');
+  await expect(tangent).toBeEnabled();
+  await expect(tangent).toHaveValue('mixed');
+  await tangent.selectOption('aligned');
+
+  expect(await page.evaluate(() =>
+    (window as any).__forge.selected.userData.animationTracks['position.x']
+      .slice(0, 2)
+      .map((key: any) => key.tangent ?? 'free')
+  )).toEqual(['aligned', 'aligned']);
+  await expect(graph).toHaveAttribute('data-selected-frames', '1,20');
+
+  await page.evaluate(() => (window as any).__forge.undo());
+  expect(await page.evaluate(() =>
+    (window as any).__forge.selected.userData.animationTracks['position.x']
+      .slice(0, 2)
+      .map((key: any) => key.tangent ?? 'free')
+  )).toEqual(['free', 'auto']);
 });
 
 test('dragging a multi-selection moves every selected key by one shared delta', async ({ page }) => {
@@ -502,7 +582,7 @@ test('Shift-box drag adds keys to the existing Graph selection', async ({ page }
 
   await expect(graph).toHaveAttribute('data-selected-frames', '20,40,60');
   await expect(graph.locator('.graph-key-point.selected')).toHaveCount(3);
-  await expect(page.getByLabel('Selected key interpolation')).toBeDisabled();
+  await expect(page.getByLabel('Selected key interpolation')).toBeEnabled();
   await expect(page.getByLabel('Selected key tangent mode')).toBeDisabled();
 });
 

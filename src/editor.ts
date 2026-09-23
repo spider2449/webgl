@@ -1220,23 +1220,34 @@ export class Editor extends EventTarget {
   }
 
   setKeyInterpolation(frame: number, channel: ScalarAnimationChannel, mode: KeyInterpolation) {
-    if (!Number.isInteger(frame) || frame < 1 || frame > 250 || !validAnimationChannel(channel) || !validKeyInterpolation(mode)) {
+    return this.setKeyInterpolations([frame], channel, mode);
+  }
+
+  setKeyInterpolations(frames: number[], channel: ScalarAnimationChannel, mode: KeyInterpolation) {
+    if (!validAnimationChannel(channel) || !validKeyInterpolation(mode) || frames.some(frame => !Number.isInteger(frame) || frame < 1 || frame > 250)) {
       throw new Error('Invalid key interpolation.');
     }
     if (!this.selected || this.editMode || this.playing || this.animationKeyDrag || this.animationHandleDrag) return false;
-    const keys = trackKeys(this.selected.userData.animationTracks as AnimationTrackMap | undefined, channel).map(cloneScalarKey);
-    const index = keys.findIndex(key => key.frame === frame);
-    if (index < 0) throw new Error('Choose an authored channel key first.');
-    if (index === keys.length - 1) throw new Error('The last channel key has no outbound segment.');
+    const uniqueFrames = [...new Set(frames)];
+    if (!uniqueFrames.length) throw new Error('Choose an authored channel key first.');
 
-    const key = keys[index];
-    key.interpolation = mode;
-    if (mode === 'bezier') {
-      const next = keys[index + 1];
-      const span = next.frame - key.frame;
-      const delta = next.value - key.value;
-      if ((key.tangent ?? 'free') !== 'auto' && !key.right) key.right = [span / 3, delta / 3];
-      if ((next.tangent ?? 'free') !== 'auto' && !next.left) next.left = [-span / 3, -delta / 3];
+    const keys = trackKeys(this.selected.userData.animationTracks as AnimationTrackMap | undefined, channel).map(cloneScalarKey);
+    const indices = uniqueFrames.map(frame => keys.findIndex(key => key.frame === frame));
+    if (indices.some(index => index < 0)) throw new Error('Choose authored channel keys first.');
+
+    const editableIndices = indices.filter(index => index < keys.length - 1).sort((a, b) => a - b);
+    if (!editableIndices.length) throw new Error('The selected channel keys have no outbound segments.');
+
+    for (const index of editableIndices) {
+      const key = keys[index];
+      key.interpolation = mode;
+      if (mode === 'bezier') {
+        const next = keys[index + 1];
+        const span = next.frame - key.frame;
+        const delta = next.value - key.value;
+        if ((key.tangent ?? 'free') !== 'auto' && !key.right) key.right = [span / 3, delta / 3];
+        if ((next.tangent ?? 'free') !== 'auto' && !next.left) next.left = [-span / 3, -delta / 3];
+      }
     }
 
     this.setAnimationTrack(this.selected, channel, keys);
@@ -1246,48 +1257,64 @@ export class Editor extends EventTarget {
   }
 
   setKeyTangentMode(frame: number, channel: ScalarAnimationChannel, mode: KeyTangentMode) {
-    if (!Number.isInteger(frame) || frame < 1 || frame > 250 || !validAnimationChannel(channel) || !validKeyTangentMode(mode)) {
+    return this.setKeyTangentModes([frame], channel, mode);
+  }
+
+  setKeyTangentModes(frames: number[], channel: ScalarAnimationChannel, mode: KeyTangentMode) {
+    if (!validAnimationChannel(channel) || !validKeyTangentMode(mode) || frames.some(frame => !Number.isInteger(frame) || frame < 1 || frame > 250)) {
       throw new Error('Invalid key tangent mode.');
     }
     if (!this.selected || this.editMode || this.playing || this.animationKeyDrag || this.animationHandleDrag) return false;
+    const uniqueFrames = [...new Set(frames)];
+    if (!uniqueFrames.length) throw new Error('Choose an authored channel key first.');
+
     const keys = trackKeys(this.selected.userData.animationTracks as AnimationTrackMap | undefined, channel).map(cloneScalarKey);
-    const index = keys.findIndex(key => key.frame === frame);
-    if (index < 0) throw new Error('Choose an authored channel key first.');
+    const indices = uniqueFrames.map(frame => keys.findIndex(key => key.frame === frame));
+    if (indices.some(index => index < 0)) throw new Error('Choose authored channel keys first.');
 
-    const incomingBezier = index > 0 && (keys[index - 1].interpolation ?? 'linear') === 'bezier';
-    const outgoingBezier = index < keys.length - 1 && (keys[index].interpolation ?? 'linear') === 'bezier';
-    if (!incomingBezier && !outgoingBezier) throw new Error('Tangent mode requires a Bezier segment.');
+    const eligibleIndices = indices
+      .filter(index => {
+        const incomingBezier = index > 0 && (keys[index - 1].interpolation ?? 'linear') === 'bezier';
+        const outgoingBezier = index < keys.length - 1 && (keys[index].interpolation ?? 'linear') === 'bezier';
+        return incomingBezier || outgoingBezier;
+      })
+      .sort((a, b) => a - b);
+    if (!eligibleIndices.length) throw new Error('Tangent mode requires a Bezier segment.');
 
-    const left = incomingBezier ? effectiveBezierHandle(keys, index, 'left') : null;
-    const right = outgoingBezier ? effectiveBezierHandle(keys, index, 'right') : null;
-    const key = keys[index];
-    key.tangent = mode;
+    for (const index of eligibleIndices) {
+      const incomingBezier = index > 0 && (keys[index - 1].interpolation ?? 'linear') === 'bezier';
+      const outgoingBezier = index < keys.length - 1 && (keys[index].interpolation ?? 'linear') === 'bezier';
+      const left = incomingBezier ? effectiveBezierHandle(keys, index, 'left') : null;
+      const right = outgoingBezier ? effectiveBezierHandle(keys, index, 'right') : null;
+      const key = keys[index];
+      key.tangent = mode;
 
-    if (mode === 'auto') {
-      delete key.left;
-      delete key.right;
-    } else {
-      if (left) key.left = [...left];
-      if (right) key.right = [...right];
-      if (mode === 'aligned' && left && right) {
-        const rightLength = Math.hypot(right[0], right[1]);
-        const leftLength = Math.hypot(left[0], left[1]);
-        if (rightLength > 1e-12 && leftLength > 1e-12) {
-          let aligned: [number, number] = [
-            -right[0] / rightLength * leftLength,
-            -right[1] / rightLength * leftLength,
-          ];
-          const previous = keys[index - 1];
-          const previousRight = effectiveBezierHandle(keys, index - 1, 'right');
-          const minimumLeftFrame = previousRight
-            ? THREE.MathUtils.clamp(previous.frame + previousRight[0], previous.frame, key.frame)
-            : previous.frame;
-          const maxLeftDx = key.frame - minimumLeftFrame;
-          if (Math.abs(aligned[0]) > maxLeftDx && Math.abs(aligned[0]) > 1e-12) {
-            const scale = maxLeftDx / Math.abs(aligned[0]);
-            aligned = [aligned[0] * scale, aligned[1] * scale];
+      if (mode === 'auto') {
+        delete key.left;
+        delete key.right;
+      } else {
+        if (left) key.left = [...left];
+        if (right) key.right = [...right];
+        if (mode === 'aligned' && left && right) {
+          const rightLength = Math.hypot(right[0], right[1]);
+          const leftLength = Math.hypot(left[0], left[1]);
+          if (rightLength > 1e-12 && leftLength > 1e-12) {
+            let aligned: [number, number] = [
+              -right[0] / rightLength * leftLength,
+              -right[1] / rightLength * leftLength,
+            ];
+            const previous = keys[index - 1];
+            const previousRight = effectiveBezierHandle(keys, index - 1, 'right');
+            const minimumLeftFrame = previousRight
+              ? THREE.MathUtils.clamp(previous.frame + previousRight[0], previous.frame, key.frame)
+              : previous.frame;
+            const maxLeftDx = key.frame - minimumLeftFrame;
+            if (Math.abs(aligned[0]) > maxLeftDx && Math.abs(aligned[0]) > 1e-12) {
+              const scale = maxLeftDx / Math.abs(aligned[0]);
+              aligned = [aligned[0] * scale, aligned[1] * scale];
+            }
+            key.left = aligned;
           }
-          key.left = aligned;
         }
       }
     }
