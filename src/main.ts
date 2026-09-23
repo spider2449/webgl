@@ -732,7 +732,6 @@ function applyTimelineTimeScale() {
       toast('Timeline time scale did not move any selected keys.');
       return false;
     }
-    const sourceSet = new Set(frames);
     const targetBySource = new Map(frames.map((frame, index) => [frame, scaled.frames[index]]));
     const graphSelection = animationGraph.selectedKeyFrames.map(frame => targetBySource.get(frame) ?? frame);
     if (graphSelection.some((frame, index) => frame !== animationGraph.selectedKeyFrames[index])) {
