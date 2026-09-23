@@ -153,6 +153,14 @@ test('Graph Editor moves and Alt-drags only the active channel while GLB uses un
   await page.mouse.move(copyBox!.x + copyBox!.width / 2, copyY);
   await page.mouse.down();
   await page.mouse.move(frameX(73), copyY, { steps: 10 });
+
+  const previewTracks = await page.evaluate(() =>
+    structuredClone((window as any).__forge.selected.userData.animationTracks)
+  );
+  expect(previewTracks['position.x'].map((key: any) => key.frame)).toEqual([1, 49]);
+  expect(previewTracks['position.y'].map((key: any) => key.frame)).toEqual([1, 25]);
+  await expect(graph.locator('.graph-key-point.dragging')).toHaveAttribute('data-frame', '73');
+
   await page.mouse.up();
   await page.keyboard.up('Alt');
 
@@ -227,4 +235,37 @@ test('timeline markers and previous-next navigation use the union of channel key
   await expect(page.locator('#current-frame')).toHaveValue('20');
   await page.locator('#previous-key').click();
   await expect(page.locator('#current-frame')).toHaveValue('10');
+});
+
+
+test('Alt-drag copy cancellation leaves no copied channel key', async ({ page }) => {
+  await page.getByRole('button', { name: 'Animation', exact: true }).click();
+  const graph = page.getByLabel('Animation graph editor');
+  const graphBox = await graph.boundingBox();
+  expect(graphBox).not.toBeNull();
+  const frameX = (frame: number) =>
+    graphBox!.x + (48 + (frame - 1) / 249 * 924) / 1000 * graphBox!.width;
+
+  const marker = graph.locator('.graph-key-point[data-frame="25"]');
+  const box = await marker.boundingBox();
+  expect(box).not.toBeNull();
+  const y = box!.y + box!.height / 2;
+
+  await page.keyboard.down('Alt');
+  await page.mouse.move(box!.x + box!.width / 2, y);
+  await page.mouse.down();
+  await page.mouse.move(frameX(60), y, { steps: 8 });
+
+  expect(await page.evaluate(() =>
+    (window as any).__forge.selected.userData.animationTracks['position.x'].map((key: any) => key.frame)
+  )).toEqual([1, 25]);
+
+  await page.keyboard.press('Escape');
+  await page.mouse.up();
+  await page.keyboard.up('Alt');
+
+  expect(await page.evaluate(() =>
+    (window as any).__forge.selected.userData.animationTracks['position.x'].map((key: any) => key.frame)
+  )).toEqual([1, 25]);
+  await expect(page.locator('#current-frame')).toHaveValue('25');
 });
