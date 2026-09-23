@@ -1,4 +1,4 @@
-import { animationChannels, animationTracks, effectiveSegmentInterpolation } from './animation';
+import { animationChannels, animationTracks, effectiveSegmentInterpolation, sampleAnimationChannel } from './animation';
 import { AnimationGraphView, animationChannelLabel } from './animation-graph';
 import './style.css';
 import * as THREE from 'three';
@@ -219,14 +219,46 @@ document.querySelectorAll<HTMLButtonElement>('[data-workspace]').forEach(b => b.
   if (name === 'modeling') { void editor.enterEditMode(true).then(ok => { if (!ok) toast('Select a mesh and apply its modifiers to enter Edit Mode.'); tool('translate'); }).catch(error => toast(error.message)); }
   else editor.setEditMode(false);
 });
+type TransformKeyState = 'none' | 'keyed-current' | 'animated' | 'changed';
 function updateTransforms() {
   const object = editor.selected;
   if (!object) return;
+  const keys: Keyframe[] = object.userData.keyframes ?? [];
+  const currentFrame = Math.round(editor.frame);
+  const hasCurrentKey = keys.some(key => key.frame === currentFrame);
+
   document.querySelectorAll<HTMLInputElement>('[data-transform]').forEach(input => {
-    if (document.activeElement === input) return;
     const property = input.dataset.transform as 'position' | 'rotation' | 'scale';
     const axis = input.dataset.axis as 'x' | 'y' | 'z';
-    input.value = (object[property][axis] * (property === 'rotation' ? 180 / Math.PI : 1)).toFixed(3);
+    const channel = `${property}.${axis}` as ScalarAnimationChannel;
+    const value = object[property][axis];
+
+    let state: TransformKeyState = 'none';
+    if (keys.length) {
+      const expected = sampleAnimationChannel(keys, editor.frame, channel);
+      const changed = Math.abs(value - expected) > 1e-6;
+      state = changed ? 'changed' : hasCurrentKey ? 'keyed-current' : 'animated';
+    }
+
+    const field = input.closest<HTMLElement>('.axis-input');
+    if (field) {
+      field.dataset.keyState = state;
+      field.classList.toggle('key-state-current', state === 'keyed-current');
+      field.classList.toggle('key-state-animated', state === 'animated');
+      field.classList.toggle('key-state-changed', state === 'changed');
+      field.title = state === 'keyed-current'
+        ? 'Keyframed on the current frame'
+        : state === 'animated'
+          ? 'Animated; keyframe is on another frame'
+          : state === 'changed'
+            ? 'Changed from the animated value; insert a key to store it'
+            : '';
+    }
+
+    input.dataset.keyState = state;
+    if (document.activeElement !== input) {
+      input.value = (value * (property === 'rotation' ? 180 / Math.PI : 1)).toFixed(3);
+    }
   });
 }
 function updateUI() {
