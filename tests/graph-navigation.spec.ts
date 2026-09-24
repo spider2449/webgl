@@ -112,6 +112,7 @@ test('Graph pan cancellation restores the starting view', async ({ page }) => {
   expect(during.frameMin).not.toBeCloseTo(before.frameMin, 6);
 
   await page.keyboard.press('Escape');
+  await page.mouse.up({ button: 'middle' });
 
   const restored = await graphView(page);
   expect(restored.frameMin).toBeCloseTo(before.frameMin, 6);
