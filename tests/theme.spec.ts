@@ -2,22 +2,49 @@ import { test, expect } from '@playwright/test';
 
 async function contrastRatio(page: any, foregroundSelector: string, backgroundSelector: string) {
   return page.evaluate(({ foregroundSelector, backgroundSelector }) => {
-    const parse = (value: string) => {
-      const match = value.match(/rgba?\(([^)]+)\)/);
-      if (!match) throw new Error(`Unsupported color: ${value}`);
-      return match[1].split(',').slice(0, 3).map(part => Number(part.trim()));
+    type Rgba = [number, number, number, number];
+
+    const parse = (value: string): Rgba => {
+      const parts = value.match(/[\\d.]+/g)?.map(Number) ?? [];
+      if (parts.length < 3) throw new Error(`Unsupported color: ${value}`);
+      return [parts[0], parts[1], parts[2], parts[3] ?? 1];
     };
-    const luminance = (rgb: number[]) => {
-      const linear = rgb.map(channel => {
+
+    const composite = (foreground: Rgba, background: Rgba): Rgba => {
+      const alpha = foreground[3] + background[3] * (1 - foreground[3]);
+      if (alpha <= 0) return [0, 0, 0, 0];
+      return [
+        (foreground[0] * foreground[3] + background[0] * background[3] * (1 - foreground[3])) / alpha,
+        (foreground[1] * foreground[3] + background[1] * background[3] * (1 - foreground[3])) / alpha,
+        (foreground[2] * foreground[3] + background[2] * background[3] * (1 - foreground[3])) / alpha,
+        alpha,
+      ];
+    };
+
+    const effectiveBackground = (element: Element): Rgba => {
+      const layers: Rgba[] = [];
+      for (let current: Element | null = element; current; current = current.parentElement) {
+        layers.push(parse(getComputedStyle(current).backgroundColor));
+      }
+      let result: Rgba = [255, 255, 255, 1];
+      for (const layer of layers.reverse()) result = composite(layer, result);
+      return result;
+    };
+
+    const luminance = (rgba: Rgba) => {
+      const linear = rgba.slice(0, 3).map(channel => {
         const s = channel / 255;
         return s <= 0.04045 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
       });
       return 0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2];
     };
+
     const foreground = document.querySelector(foregroundSelector)!;
     const background = document.querySelector(backgroundSelector)!;
-    const fg = luminance(parse(getComputedStyle(foreground).color));
-    const bg = luminance(parse(getComputedStyle(background).backgroundColor));
+    const effectiveBg = effectiveBackground(background);
+    const effectiveFg = composite(parse(getComputedStyle(foreground).color), effectiveBg);
+    const fg = luminance(effectiveFg);
+    const bg = luminance(effectiveBg);
     const lighter = Math.max(fg, bg);
     const darker = Math.min(fg, bg);
     return (lighter + 0.05) / (darker + 0.05);
