@@ -92,6 +92,34 @@ test('GLB quaternion import keeps a continuous Euler branch across ±180 degrees
   }
 });
 
+test('custom GLB cubic-spline interpolant factories are sampled without calling getInterpolation', () => {
+  const root = new THREE.Group();
+  const target = new THREE.Object3D();
+  target.name = 'Cube';
+  root.add(target);
+
+  const track = new THREE.VectorKeyframeTrack(
+    'Cube.position',
+    [0, 1],
+    [0, 0, 0, 2, 0, 0],
+    THREE.InterpolateLinear,
+  );
+  const baseFactory = track.createInterpolant;
+  const customFactory = function (this: THREE.KeyframeTrack, result: any) {
+    return baseFactory.call(this, result);
+  } as typeof track.createInterpolant & { isInterpolantFactoryMethodGLTFCubicSpline?: boolean };
+  customFactory.isInterpolantFactoryMethodGLTFCubicSpline = true;
+  track.createInterpolant = customFactory;
+  track.getInterpolation = (() => {
+    throw new Error('custom interpolant must not call getInterpolation');
+  }) as typeof track.getInterpolation;
+
+  const summary = importAnimationClip(root, new THREE.AnimationClip('CubicLike', 1, [track]));
+
+  expect(summary.frameEnd).toBe(25);
+  expect(target.userData.animationTracks['position.x'][12].value).toBeCloseTo(1, 6);
+});
+
 test('unsupported GLB animation properties reject transactionally', () => {
   const root = new THREE.Group();
   const target = new THREE.Object3D();
