@@ -134,7 +134,8 @@
 @media(max-width:760px){
   .animation-workspace .animation-graph{display:none}
   .animation-workspace .timeline{height:143px}
-  .animation-workspace .timeline-key-toolbar{display:flex}
+  .animation-workspace .timeline-key-toolbar{display:flex;width:100%;max-width:100%;min-width:0;box-sizing:border-box;overflow-x:auto;overflow-y:hidden;padding-left:8px;padding-right:8px;scrollbar-width:thin}
+  .animation-workspace .timeline-key-toolbar>*{flex-shrink:0}
   .animation-workspace .timeline-track{height:calc(100% - 66px)}
   .timeline-key-toolbar-hint{display:none}
 }
