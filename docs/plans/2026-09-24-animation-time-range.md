@@ -1,23 +1,37 @@
-# Animation Time Range
+# Configurable Scene Frame Range
 
 Date: 2026-09-24
 
 ## Goal
 
-Add an explicit Scene Animation Range to Forge Studio without changing the existing authored-key domain.
+Remove Forge Studio's hard-coded 1–250 animation domain and replace it with a configurable Scene Frame Range.
 
-Forge keeps authored animation keys valid on integer frames 1–250.
+The Scene Frame Range determines the length of the scene animation.
 
-The configurable range:
+Defaults:
 
-- defaults to Start 1 / End 250,
-- controls playback looping,
-- controls the Timeline visible frame window,
-- controls First / Last playback buttons,
-- controls Graph Scene Range framing,
-- persists in .forge project files.
+- Start: 1
+- End: 250
 
-Keys outside the active range remain valid, remain saved, and remain editable in the Graph Editor.
+The default 250 is not an animation-system maximum.
+
+Forge supports Scene End values up to 100,000 as a defensive implementation limit.
+
+## Blender terminology reference
+
+Forge follows the same conceptual split used by Blender's Timeline:
+
+- Scene Frame Range defines the scene animation length.
+- Preview Range is a separate temporary playback range for repeatedly previewing a subsection.
+
+References:
+
+- https://docs.blender.org/manual/en/4.5/editors/timeline.html
+- https://docs.blender.org/manual/en/4.5/editors/graph_editor/introduction.html
+
+This package implements Scene Frame Range only.
+
+Preview Range is an explicit non-goal and should be implemented separately.
 
 ## Authority
 
@@ -28,83 +42,108 @@ Editor owns:
 - animationRange
 - setAnimationRange(start, end)
 
-The range must use integer frames in 1–250 with Start < End.
+The Scene Frame Range must:
 
-Changing the range:
+- use integer frames,
+- start at frame 1 or later,
+- have End greater than Start,
+- remain at or below the defensive 100,000-frame ceiling.
 
-- is blocked while playback or an animation drag is active,
-- is one undoable project-state edit,
-- does not delete or reject authored keys outside the new range,
-- does not force the current frame into the range.
+All authored animation operations use the current Scene Frame Range.
 
-Current frame remains valid anywhere in 1–250.
+## Authored keys
+
+Keyframes are valid only inside the active Scene Frame Range.
+
+Therefore an extended range such as 1–1000 allows authored keys at frames 500, 900, and 1000.
+
+Graph and Timeline operations use the dynamic range instead of assuming 1–250.
+
+Shrinking the Scene Frame Range is rejected atomically when any existing authored key would be excluded.
+
+Forge never silently deletes, clamps, or hides an authored key to make a range change succeed.
+
+The user must move or remove conflicting keys first.
+
+## Current frame
+
+The current frame is constrained to the Scene Frame Range.
+
+Changing the range clamps the current frame when necessary.
+
+Timeline scrubbing and the Current Frame field both use Start / End.
 
 ## Playback
 
-Playback starts from the current frame clamped into Start–End.
+Until a separate Preview Range feature exists, playback uses the entire Scene Frame Range.
 
-Playback loops only inside Start–End.
+Playback:
 
-The end frame receives a full frame-duration hold while playback remains numerically within the configured range.
+- starts inside Start–End,
+- loops inside Start–End,
+- never numerically exceeds End,
+- uses First / Last as Start / End.
 
-First Frame jumps to Start.
-Last Frame jumps to End.
+A future Preview Range may override the playback subset without changing this Scene Frame Range.
 
 ## Timeline
 
-Timeline scrubber min/max follow Start / End.
+Timeline ruler, scrubber, playhead, selection, key markers, Timeline drag/copy, and Timeline Time Scale use the dynamic Scene Frame Range.
 
-Timeline ruler labels are regenerated from the active range.
+Example:
 
-Only summary keys inside Start–End are rendered in the Timeline.
-
-Range-external keys remain authored and are not removed from scalar tracks.
-
-Timeline box selection and Timeline previous/next key navigation operate only on keys visible inside the active range.
-
-Current Frame input remains 1–250 so the user can inspect authored animation outside the playback window.
+- Start 1 / End 1000 produces a Timeline from 1 through 1000.
+- A key at frame 900 is a normal authored key.
+- Last Frame jumps to 1000.
 
 ## Graph Editor
 
-Graph default view and Graph Scene Range use Start–End.
+Graph Editor receives Start / End from Editor.
 
-Graph Frame All and Frame Selected remain authored-data operations and may reveal keys outside Start–End.
+Graph default view and Scene Range use the current Scene Frame Range.
 
-Graph key editing, retiming, copying, interpolation, tangent editing, and Graph Time Scale continue to use the global authored-frame domain 1–250.
+Graph Frame All / Frame Selected also respect the authored Scene Frame Range.
 
-Changing playback range does not make Graph keys outside the range invalid.
+Graph key drag, copy, precise Frame edit, Time Scale, tangent editing, and Bezier-handle editing continue to operate under the current dynamic range.
 
-## Project format
+Graph navigation must support ranges wider than the previous 1000-frame view-span cap; its maximum horizontal span scales with the current scene range.
 
-Project version remains 1.
+## Project persistence
 
-Optional field:
+Project format remains version 1.
+
+New snapshots contain:
 
 ```json
 "animationRange": {
-  "start": 20,
-  "end": 80
+  "start": 1,
+  "end": 1000
 }
 ```
 
-New snapshots include animationRange.
+Project load validates authored animation tracks against the stored Scene Frame Range.
 
-Older projects without animationRange load as 1–250.
+Older projects without animationRange default to 1–250.
 
-Project validation still validates authored keys against the global 1–250 domain, independently from playback range.
+## Undo / redo
+
+Changing Scene Frame Range is a project-state edit and participates in undo / redo.
+
+Invalid range changes and rejected shrinking operations are atomic and must not alter history or scene state.
 
 ## Validation
 
 Focused Playwright coverage verifies:
 
-1. Start / End update Timeline scrubber and ruler.
-2. First / Last jump to Start / End.
-3. Keys outside range remain authored but disappear from Timeline.
-4. Graph Scene Range uses Start–End while Frame All can recover outside keys.
-5. Current frame and Graph edits remain valid outside playback range.
-6. Playback remains inside the configured range.
-7. Range edits are undoable / redoable.
-8. .forge save/load round-trips range and legacy projects default to 1–250.
-9. Invalid ranges reject atomically without history mutation.
+1. Default is 1–250 but End can extend to 1000.
+2. Timeline ruler, scrubber and Current Frame update to the extended range.
+3. Authored keys and Timeline markers work beyond frame 250.
+4. Graph Scene Range and Frame All support a 5000-frame scene.
+5. Current frame and Graph key editing work beyond frame 250.
+6. Shrinking the range rejects authored keys that would be excluded.
+7. Playback stays inside the configured Scene Frame Range.
+8. Range changes undo / redo correctly.
+9. .forge snapshots round-trip extended ranges and legacy projects default to 1–250.
+10. Invalid ranges reject atomically.
 
 Full Windows-local build and Playwright validation remain the merge gate for the exact PR HEAD.
