@@ -378,7 +378,7 @@ export class AnimationGraphView {
 
     const addHandle = (side: 'left' | 'right', handleFrame: number, handleValue: number) => {
       const line = svgElement('line', {
-        class: 'graph-handle-line',
+        class: `graph-handle-line ${tangent}`,
         x1: x(key.frame),
         y1: y(keyValue),
         x2: x(handleFrame),
@@ -387,7 +387,7 @@ export class AnimationGraphView {
       line.dataset.handleLine = side;
       line.dataset.keyFrame = String(key.frame);
       const marker = svgElement('circle', {
-        class: `graph-handle${tangent === 'auto' ? ' auto' : ''}`,
+        class: `graph-handle ${tangent}`,
         cx: x(handleFrame),
         cy: y(handleValue),
         r: 4,
@@ -400,8 +400,10 @@ export class AnimationGraphView {
       marker.dataset.tangent = tangent;
       const tooltip = svgElement('title', {});
       tooltip.textContent = tangent === 'auto'
-        ? `Auto ${side} tangent · switch Tangent mode to edit`
-        : `${tangent[0].toUpperCase() + tangent.slice(1)} ${side} tangent`;
+        ? `Auto ${side} tangent · drag to convert to Aligned`
+        : tangent === 'aligned'
+          ? `Aligned ${side} tangent · opposite handle stays collinear`
+          : `Free ${side} tangent · independent handle`;
       marker.append(tooltip);
       this.curveLayer.append(line, marker);
     };
