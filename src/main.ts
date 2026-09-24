@@ -2,12 +2,11 @@ import { allAnimationFrames, animationChannels, animationTracks, effectiveBezier
 import { AnimationGraphView, animationChannelLabel } from './animation/animation-graph';
 import './style.css';
 import * as THREE from 'three';
-import { createIcons, Box, ChevronDown, ChevronRight, Plus, MousePointer2, Move, Rotate3d, Scaling, Magnet, Grid2x2, Scan, Eye, EyeOff, Search, SlidersHorizontal, Layers, Diamond, Play, Pause, SkipBack, SkipForward, ChevronFirst, ChevronLast, Undo2, Redo2, Copy, Trash2, X, HelpCircle, Download, Upload, Camera, Check, Circle, Triangle, Hexagon, FolderOpen, FolderPlus, LogOut, Save, FilePlus2, Maximize, Globe, Settings2, Crosshair, Sun, Moon, Activity, PanelRightClose } from 'lucide';
+import { createIcons, Box, ChevronDown, ChevronRight, Plus, MousePointer2, Move, Rotate3d, Scaling, Magnet, Grid2x2, Scan, Eye, EyeOff, Search, SlidersHorizontal, Layers, Diamond, Play, Pause, SkipBack, SkipForward, ChevronFirst, ChevronLast, Undo2, Redo2, Copy, Trash2, X, HelpCircle, Download, Upload, Camera, Check, Circle, Triangle, Hexagon, FolderOpen, FolderPlus, LogOut, Save, FilePlus2, Maximize, Globe, Settings2, Crosshair, Sun, Moon, PanelRightClose } from 'lucide';
 import { mountModelingUI } from './modeling/modeling-ui';
 import { Editor, type AnimationTrackMap, type Primitive, type Project, type KeyInterpolation, type KeyTangentMode, type ScalarAnimationChannel, type TransformOrientation } from './editor';
-import { RigSystem, rigBones, RIG_SOURCE } from './rig/rig';
 
-const icons = { Box, ChevronDown, ChevronRight, Plus, MousePointer2, Move, Rotate3d, Scaling, Magnet, Grid2x2, Scan, Eye, EyeOff, Search, SlidersHorizontal, Layers, Diamond, Play, Pause, SkipBack, SkipForward, ChevronFirst, ChevronLast, Undo2, Redo2, Copy, Trash2, X, HelpCircle, Download, Upload, Camera, Check, Circle, Triangle, Hexagon, FolderOpen, FolderPlus, LogOut, Save, FilePlus2, Maximize, Globe, Settings2, Crosshair, Sun, Moon, Activity, PanelRightClose };
+const icons = { Box, ChevronDown, ChevronRight, Plus, MousePointer2, Move, Rotate3d, Scaling, Magnet, Grid2x2, Scan, Eye, EyeOff, Search, SlidersHorizontal, Layers, Diamond, Play, Pause, SkipBack, SkipForward, ChevronFirst, ChevronLast, Undo2, Redo2, Copy, Trash2, X, HelpCircle, Download, Upload, Camera, Check, Circle, Triangle, Hexagon, FolderOpen, FolderPlus, LogOut, Save, FilePlus2, Maximize, Globe, Settings2, Crosshair, Sun, Moon, PanelRightClose };
 const icon = (name: string, cls = '') => `<i data-lucide="${name}" class="${cls}"></i>`;
 const button = (id: string, name: string, label: string, extra = '') => `<button id="${id}" class="icon-button ${extra}" title="${label}" aria-label="${label}">${icon(name)}</button>`;
 const $ = <T extends HTMLElement = HTMLElement>(selector: string) => document.querySelector<T>(selector)!;
@@ -82,32 +81,6 @@ $('#app').innerHTML = `
   <dialog id="new-dialog"><div class="dialog-heading"><span>Create a new scene?</span></div><p>Download your project first if you want to keep a permanent copy. You can undo this action in the current session.</p><div class="dialog-actions"><button id="cancel-new">Cancel</button><button id="confirm-new" class="primary-button">New scene</button></div></dialog>
   <input type="file" id="project-input" accept=".forge,.json" hidden><input type="file" id="model-input" accept=".glb,.obj" hidden>
 `;
-$('.workspace-tabs').insertAdjacentHTML('beforeend', '<button class="workspace-tab" data-workspace="rigging">Rigging</button>');
-$('.properties-tabs').insertAdjacentHTML('beforeend', `<button data-panel="rig">${icon('activity')} Rig</button>`);
-$('.properties-content').insertAdjacentHTML('beforeend', `
-  <div id="panel-rig" class="property-panel hidden">
-    <div class="section-heading"><span>${icon('activity')} Kimodo Rig</span><span class="count">SOMA77</span></div>
-    <p class="field-help">Official 77-joint hierarchy and native rest positions. Meters · Y up · +Z forward.</p>
-    <button class="wide-button" id="create-rig">${icon('plus')} Create SOMA77 armature</button>
-    <div class="rig-active-fields hidden" id="rig-active-fields">
-      <label class="property-row">Armature<select id="rig-select" aria-label="Active armature"></select></label>
-      <div class="section-heading border-top"><span>${icon('chevron-down')} Pose controls</span></div>
-      <div class="action-row"><button id="rig-reset">Rest pose</button><button id="rig-key">Key full pose</button></div>
-      <label class="property-row">Limb IK<select id="ik-limb" aria-label="IK limb"><option value="LeftHand">Left hand</option><option value="RightHand">Right hand</option><option value="LeftFoot">Left foot</option><option value="RightFoot">Right foot</option></select></label>
-      <button class="wide-button" id="enable-ik">${icon('move')} Move IK target</button>
-      <p class="field-help">Drag the target to solve the limb. Select a joint for FK rotation. IK is positional; pole controls and anatomical limits are planned.</p>
-      <div class="section-heading border-top"><span>${icon('chevron-down')} Skin binding</span></div>
-      <button class="wide-button" id="rig-preview">${icon('box')} Add skinned preview</button>
-      <button class="wide-button" id="rig-bind">${icon('layers')} Bind selected mesh</button>
-      <p class="field-help">Align a standalone mesh with the rest skeleton, select it, then bind. Four distance-based influences per vertex; up to 100k vertices. Weight painting is planned.</p>
-      <div class="section-heading border-top"><span>${icon('chevron-down')} Joints <span class="count">77</span></span></div>
-      <input id="bone-search" class="bone-search" placeholder="Filter joints…" aria-label="Filter joints">
-      <div class="bone-list" id="bone-list"></div>
-      <a class="rig-source" href="${RIG_SOURCE}" target="_blank" rel="noreferrer">NVIDIA Kimodo skeleton source ↗</a>
-    </div>
-  </div>`);
-$('#add-menu').insertAdjacentHTML('beforeend', `<hr><button id="add-rig-menu">${icon('activity')}Kimodo SOMA77 rig</button>`);
-$('.dialog-note').textContent = 'This release supports vertex, edge and triangle face editing, modeling-core tools, scene collections, Kimodo SOMA77 FK/IK posing and basic skinning. Polygon modeling, sculpting, physics and native .blend files are planned.';
 $('#material-fields').insertAdjacentHTML('beforeend', `<details class="painting-section" open><summary>Texture paint</summary><canvas id="paint-view" width="256" height="256" aria-label="Texture paint canvas"></canvas><p class="field-help">Paints an embedded 256×256 texture in the mesh UV layout. Mesh geometry and UV coordinates stay unchanged.</p><button class="wide-button" id="paint-enable">Enable texture painting</button><button class="wide-button" id="texture-import">Import PNG / JPEG / WebP</button><button class="wide-button" id="texture-export">Export texture PNG</button><input id="texture-input" type="file" accept="image/png,image/jpeg,image/webp" hidden><label class="property-row">Brush color<input id="paint-color" aria-label="Brush color" type="color" value="#e08050"></label><label class="property-row">Brush size<input id="paint-size" aria-label="Brush size" type="number" min="1" max="128" step="1" value="16"></label><button class="wide-button" id="paint-clear">Clear texture</button></details>`);
 refreshIcons();
 applyTheme(themeMode, false);
@@ -194,40 +167,6 @@ on('texture-export', () => {
     canvas.toBlob(blob => { if (blob) { download(blob, `${editor.name}-texture.png`, 'image/png'); toast('Texture PNG downloaded.'); } else toast('Texture export failed.'); }, 'image/png');
   } catch (error) { toast((error as Error).message); }
 });
-const rigSystem = new RigSystem(editor);
-function rigAction(action: () => void) { try { action(); } catch (error) { toast((error as Error).message); } }
-function refreshRig() {
-  const active = rigSystem.activeRig;
-  $('#rig-active-fields').classList.toggle('hidden', !active);
-  const select = $<HTMLSelectElement>('#rig-select');
-  select.replaceChildren(...rigSystem.rigs.map(rig => { const option = new Option(rig.name,rig.uuid); option.selected = rig === active; return option; }));
-  const list = $('#bone-list'); list.replaceChildren();
-  if (!active) return;
-  const query = $<HTMLInputElement>('#bone-search').value.toLowerCase();
-  for (const bone of rigBones(active)) {
-    if (!bone.name.toLowerCase().includes(query)) continue;
-    const button = document.createElement('button');
-    button.className = `bone-button ${editor.selected === bone ? 'active' : ''}`;
-    button.textContent = bone.name;
-    button.title = `Select ${bone.name} for FK posing`;
-    button.style.paddingLeft = `${Math.min(5, boneDepth(bone)) * 9 + 8}px`;
-    button.onclick = () => { editor.select(bone); tool('rotate'); };
-    list.append(button);
-  }
-}
-function boneDepth(bone: THREE.Object3D): number { return bone.parent instanceof THREE.Bone ? 1 + boneDepth(bone.parent) : 0; }
-for (const id of ['create-rig','add-rig-menu']) on(id, () => rigAction(() => { rigSystem.add(); panel('rig'); toast('Official Kimodo SOMA77 armature created.'); }));
-on('rig-reset', () => rigAction(() => rigSystem.resetPose()));
-on('rig-key', () => rigAction(() => { rigSystem.keyPose(); toast(`All 77 joints keyed at frame ${Math.round(editor.frame)}.`); }));
-on('rig-preview', () => rigAction(() => { rigSystem.addPreview(); toast('Skinned preview added. Rotate a joint to deform it.'); }));
-on('enable-ik', () => rigAction(() => { rigSystem.enableIK($<HTMLSelectElement>('#ik-limb').value); toast('Drag the move gizmo to pose the limb, then Key full pose.'); }));
-on('rig-bind', () => {
-  const button = $<HTMLButtonElement>('#rig-bind'); button.disabled = true; toast('Computing skin weights in a worker…');
-  void rigSystem.bindSelected().then(() => toast('Mesh bound. Select a bone to test the deformation.')).catch(error => toast(error.message)).finally(() => button.disabled = false);
-});
-$<HTMLSelectElement>('#rig-select').onchange = e => { editor.select(editor.content.getObjectByProperty('uuid',(e.target as HTMLSelectElement).value) ?? null); refreshRig(); };
-$<HTMLInputElement>('#bone-search').oninput = refreshRig;
-editor.addEventListener('change', refreshRig);
 function closeMenus() { document.querySelectorAll('.menu').forEach(menu => menu.classList.add('hidden')); }
 document.querySelectorAll<HTMLButtonElement>('[data-menu]').forEach(b => b.onclick = e => { e.stopPropagation(); const menu = $(`#${b.dataset.menu}`); const open = menu.classList.contains('hidden'); closeMenus(); menu.classList.toggle('hidden', !open); });
 document.addEventListener('click', closeMenus);
@@ -249,7 +188,7 @@ document.querySelectorAll<HTMLButtonElement>('[data-workspace]').forEach(b => b.
   document.querySelectorAll('[data-workspace]').forEach(t => t.classList.remove('active'));
   b.classList.add('active');
   const name = b.dataset.workspace;
-  panel(name === 'material' ? 'material' : name === 'rigging' ? 'rig' : 'object');
+  panel(name === 'material' ? 'material' : 'object');
   document.body.classList.toggle('animation-workspace', name === 'animation');
   if (name === 'modeling') { void editor.enterEditMode(true).then(ok => { if (!ok) toast('Select a mesh and apply its modifiers to enter Edit Mode.'); tool('translate'); }).catch(error => toast(error.message)); }
   else editor.setEditMode(false);
@@ -1887,4 +1826,4 @@ document.addEventListener('keydown', e => {
 document.addEventListener('keyup', e => { if (e.key === 'Alt') editor.orbit.mouseButtons.LEFT = null as unknown as THREE.MOUSE; });
 window.addEventListener('blur', () => { editor.orbit.mouseButtons.LEFT = null as unknown as THREE.MOUSE; cancelTimelineKeyDrag(); cancelTimelineBoxDrag(); cancelTimelinePanDrag(); cancelTimelineScrollbarDrag(); if (editor.playing) editor.togglePlayback(); });
 document.addEventListener('visibilitychange', () => { if (document.hidden && editor.playing) editor.togglePlayback(); });
-if (import.meta.env.DEV) Object.assign(window, { __forge: editor, __rig: rigSystem });
+if (import.meta.env.DEV) Object.assign(window, { __forge: editor });
