@@ -8,7 +8,6 @@ Reorganize Forge Studio source files by feature domain without changing runtime 
 - Keep global styling at `src/style.css`.
 - Group animation implementation under `src/animation/`.
 - Group modeling implementation and workers under `src/modeling/`.
-- Group rig implementation, skeleton data and worker under `src/rig/`.
 - Group viewport-only helpers under `src/viewport/`.
 - Preserve existing filenames inside their domains to keep history recognizable.
 - Update only relative imports required by the moves.
@@ -35,10 +34,6 @@ src/
 │  ├─ modifiers.ts
 │  ├─ modeling-worker-client.ts
 │  └─ modeling.worker.ts
-├─ rig/
-│  ├─ rig.ts
-│  ├─ soma77.ts
-│  └─ weights.worker.ts
 └─ viewport/
    ├─ grid.ts
    └─ gimbal-controls.ts
@@ -49,7 +44,7 @@ src/
 - No Editor decomposition.
 - No API redesign.
 - No file-content refactoring beyond import paths.
-- No animation/modeling/rig behavior changes.
+- No animation/modeling behavior changes.
 - No data-model migrations.
 - No test-directory reorganization in this increment.
 - Test logic remains unchanged; direct imports into moved source modules are updated to their new paths.
@@ -59,7 +54,11 @@ src/
 
 - TypeScript/Vite build passes.
 - Full Playwright suite passes with unchanged assertions/behavior; only direct source import paths may change.
-- Worker entrypoints continue to resolve from their moved domain directories.
+- Modeling worker entrypoints continue to resolve from their moved domain directory.
 - Git diff contains only renames/moves, import path updates, and this plan document.
 
 This branch remains unmerged until Windows-local validation is reported.
+
+## Later cleanup
+
+The legacy preset-specific rig subsystem was removed on 2026-09-24 before native Forge rigging work resumed. The current source tree intentionally has no dedicated rig domain; a new rigging architecture will be introduced only when its own data model and acceptance criteria are defined.
