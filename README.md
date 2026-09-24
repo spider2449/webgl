@@ -297,7 +297,7 @@ Sources: [official skeleton documentation](https://research.nvidia.com/labs/sil/
 | OBJ | Geometry; external MTL/textures are not loaded | Geometry only |
 | PNG | — | Current viewport, including helpers |
 
-Imported GLB animation clips are not loaded into the editable timeline. Draco/KTX2 assets and external model resources are not supported. Native `.blend` files are not supported. Scene settings and camera view are session-only.
+A GLB with exactly one transform animation clip imports that clip into the editable Timeline / Graph Editor. Forge bakes position, quaternion rotation and scale animation to its 24 fps scalar-track model; STEP becomes Constant scalar segments and quaternion samples are unwrapped onto a continuous Euler branch. Scene End expands when needed, and model plus range expansion undo together. Multi-clip GLBs are rejected for now because Forge does not yet have an Action / NLA clip system, and morph-target animation is rejected rather than silently discarded. Imported animation baking is capped at 250,000 scalar keys. Draco/KTX2 assets and external model resources are not supported. Native `.blend` files are not supported. Scene settings and camera view are session-only.
 
 Small scenes recover through browser local storage. Local storage has browser-specific limits; larger scenes must be downloaded. Opening a project replaces the current scene and can be undone while the history budget permits. Project files are capped at 32 MB and two million vertices. Back up important work with **Save project**.
 
