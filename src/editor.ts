@@ -1198,7 +1198,7 @@ export class Editor extends EventTarget {
       if ('animationInterpolation' in o.userData || 'animationChannelInterpolation' in o.userData || 'keyframes' in o.userData) {
         throw new Error('Legacy animation metadata is unsupported.');
       }
-      if (!validAnimationTracks(o.userData.animationTracks, range.start, range.end)) throw new Error('Invalid animation tracks for the project frame range.');
+      if (!validAnimationTracks(o.userData.animationTracks, 1, MAX_ANIMATION_FRAME)) throw new Error('Invalid animation tracks.');
     }); } catch (error) { this.disposeObject(root); throw error; }
     if (vertices > 2_000_000) { this.disposeObject(root); throw new Error('Scene exceeds the 2 million vertex limit.'); }
     this.playing = false;
@@ -1243,15 +1243,19 @@ export class Editor extends EventTarget {
   get playbackRange(): AnimationRange { return this.previewRange ?? this.animationRange; }
 
   private authoredFrame(frame: number) {
-    return Number.isInteger(frame) && frame >= this.frameStart && frame <= this.frameEnd;
+    return Number.isInteger(frame) && frame >= 1 && frame <= MAX_ANIMATION_FRAME;
   }
 
   private frameInRange(frame: number) {
-    return this.authoredFrame(frame);
+    return Number.isInteger(frame) && frame >= this.frameStart && frame <= this.frameEnd;
   }
 
   private animationRangeLabel() {
     return `${this.frameStart}–${this.frameEnd}`;
+  }
+
+  private authoredFrameLabel() {
+    return `1–${MAX_ANIMATION_FRAME}`;
   }
 
   setAnimationRange(start: number, end: number) {
@@ -1264,16 +1268,6 @@ export class Editor extends EventTarget {
     ) throw new Error(`Animation range must use integer frames from 1 to ${MAX_ANIMATION_FRAME} with Start before End.`);
     if (this.playing || this.animationKeyDrag || this.animationHandleDrag) throw new Error('Pause playback and finish animation editing before changing the time range.');
     if (start === this.frameStart && end === this.frameEnd) return false;
-
-    let outside: number | null = null;
-    this.content.traverse(object => {
-      if (outside !== null) return;
-      const frames = allAnimationFrames(object.userData.animationTracks as AnimationTrackMap | undefined);
-      outside = frames.find(frame => frame < start || frame > end) ?? null;
-    });
-    if (outside !== null) {
-      throw new Error(`Scene frame range ${start}–${end} would exclude authored key frame ${outside}. Move or remove that key first.`);
-    }
 
     this.frameStart = start;
     this.frameEnd = end;
@@ -2018,7 +2012,7 @@ export class Editor extends EventTarget {
     const pivot = (uniqueFrames[0] + uniqueFrames[uniqueFrames.length - 1]) / 2;
     const targetFrames = uniqueFrames.map(frame => Math.round(pivot + (frame - pivot) * factor));
     if (targetFrames.some(frame => !this.authoredFrame(frame))) {
-      throw new Error(`Scaled keys would leave the ${this.animationRangeLabel()} frame range.`);
+      throw new Error(`Scaled keys would leave the supported ${this.authoredFrameLabel()} frame domain.`);
     }
     if (new Set(targetFrames).size !== targetFrames.length) {
       throw new Error('Scaled keys would collapse onto the same frame.');
@@ -2062,7 +2056,7 @@ export class Editor extends EventTarget {
 
   editChannelKey(channel: ScalarAnimationChannel, sourceFrame: number, targetFrame: number, displayValue: number) {
     if (!validAnimationChannel(channel) || !Number.isInteger(sourceFrame) || !this.authoredFrame(targetFrame) || !Number.isFinite(displayValue)) {
-      throw new Error(`Enter an integer frame within ${this.animationRangeLabel()} and a finite key value.`);
+      throw new Error(`Enter an integer frame within ${this.authoredFrameLabel()} and a finite key value.`);
     }
     if (!this.selected || this.editMode || this.playing || this.animationKeyDrag || this.animationHandleDrag) return false;
 
@@ -2112,7 +2106,7 @@ export class Editor extends EventTarget {
 
   retimeChannelKey(channel: ScalarAnimationChannel, targetFrame: number, copy = false) {
     if (!validAnimationChannel(channel) || !this.authoredFrame(targetFrame)) {
-      throw new Error(`Choose a supported channel and integer frame within ${this.animationRangeLabel()}.`);
+      throw new Error(`Choose a supported channel and integer frame within ${this.authoredFrameLabel()}.`);
     }
     if (!this.selected || this.editMode || this.playing) throw new Error('Select an object in Object Mode and pause playback first.');
     const keys = trackKeys(this.selected.userData.animationTracks as AnimationTrackMap | undefined, channel).map(cloneScalarKey);
