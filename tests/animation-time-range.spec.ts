@@ -89,6 +89,27 @@ test('current frame and Graph key editing remain valid outside playback range', 
   )).toEqual([15]);
 });
 
+test('playback loops inside the configured animation range', async ({ page }) => {
+  await setRange(page, 20, 22);
+
+  await page.evaluate(() => {
+    const e = (window as any).__forge;
+    e.scrub(22);
+    e.togglePlayback();
+  });
+  await page.waitForTimeout(180);
+
+  const during = await page.evaluate(() => ({
+    frame: (window as any).__forge.frame,
+    playing: (window as any).__forge.playing,
+  }));
+  expect(during.playing).toBe(true);
+  expect(during.frame).toBeGreaterThanOrEqual(20);
+  expect(during.frame).toBeLessThanOrEqual(22);
+
+  await page.evaluate(() => (window as any).__forge.togglePlayback());
+});
+
 test('changing animation range is one undoable project-state edit', async ({ page }) => {
   await setRange(page, 20, 80);
   expect(await page.evaluate(() => (window as any).__forge.animationRange)).toEqual({ start: 20, end: 80 });
