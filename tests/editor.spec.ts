@@ -118,6 +118,114 @@ test('adds, transforms, duplicates, undoes and removes objects through the UI', 
   await expect(page.locator('.object-row')).toHaveCount(2);
 });
 
+test('parametric cube subdivisions regenerate geometry and survive project reload', async ({ page }) => {
+  await expect(page.getByLabel('Primitive Segments X')).toHaveValue('1');
+  await expect(page.getByLabel('Primitive Segments Y')).toHaveValue('1');
+  await expect(page.getByLabel('Primitive Segments Z')).toHaveValue('1');
+
+  const before = await page.evaluate(() => {
+    const e = (window as any).__forge;
+    return {
+      vertices: e.selected.geometry.getAttribute('position').count,
+      triangles: e.selected.geometry.index.count / 3,
+    };
+  });
+
+  await page.getByLabel('Primitive Segments X').fill('4');
+  await page.getByLabel('Primitive Segments X').press('Enter');
+  await page.getByLabel('Primitive Segments Y').fill('3');
+  await page.getByLabel('Primitive Segments Y').press('Enter');
+  await page.getByLabel('Primitive Segments Z').fill('2');
+  await page.getByLabel('Primitive Segments Z').press('Enter');
+
+  const changed = await page.evaluate(() => {
+    const e = (window as any).__forge;
+    const name = e.selected.name;
+    const saved = e.snapshot();
+    e.load(JSON.parse(saved));
+    return {
+      metadata: e.selected.userData.forgePrimitive,
+      vertices: e.selected.geometry.getAttribute('position').count,
+      triangles: e.selected.geometry.index.count / 3,
+      name,
+      restoredName: e.selected.name,
+    };
+  });
+
+  expect(changed.vertices).toBeGreaterThan(before.vertices);
+  expect(changed.triangles).toBeGreaterThan(before.triangles);
+  expect(changed.metadata.widthSegments).toBe(4);
+  expect(changed.metadata.heightSegments).toBe(3);
+  expect(changed.metadata.depthSegments).toBe(2);
+  expect(changed.restoredName).toBe(changed.name);
+  await expect(page.getByLabel('Primitive Segments X')).toHaveValue('4');
+});
+
+test('topology modeling applies primitive parameters and preserves generated density', async ({ page }) => {
+  await page.getByLabel('Primitive Segments X').fill('3');
+  await page.getByLabel('Primitive Segments X').press('Enter');
+
+  const result = await page.evaluate(async () => {
+    const e = (window as any).__forge;
+    const before = e.selected.geometry.getAttribute('position').count;
+    await e.runModeling({ kind: 'subdivide-all' });
+    return {
+      before,
+      after: e.selected.geometry.getAttribute('position').count,
+      primitive: e.selected.userData.forgePrimitive,
+    };
+  });
+
+  expect(result.after).toBeGreaterThan(result.before);
+  expect(result.primitive).toBeUndefined();
+  await expect(page.locator('#primitive-fields')).toHaveClass(/hidden/);
+});
+
+test('primitive parameter validation rejects unsafe segment counts without replacing geometry', async ({ page }) => {
+  const result = await page.evaluate(() => {
+    const e = (window as any).__forge;
+    const before = e.selected.geometry.uuid;
+    let message = '';
+    try {
+      e.setPrimitiveParameter('widthSegments', 999);
+    } catch (error) {
+      message = (error as Error).message;
+    }
+    return {
+      before,
+      after: e.selected.geometry.uuid,
+      message,
+      segments: e.selected.userData.forgePrimitive.widthSegments,
+    };
+  });
+
+  expect(result.after).toBe(result.before);
+  expect(result.segments).toBe(1);
+  expect(result.message).toContain('between 1 and 256');
+});
+
+test('Apply primitive freezes current generated mesh without changing geometry', async ({ page }) => {
+  await page.getByLabel('Primitive Segments X').fill('2');
+  await page.getByLabel('Primitive Segments X').press('Enter');
+  const before = await page.evaluate(() => {
+    const e = (window as any).__forge;
+    return Array.from(e.selected.geometry.getAttribute('position').array);
+  });
+
+  await page.locator('#primitive-apply').click();
+  await expect(page.locator('#primitive-fields')).toHaveClass(/hidden/);
+
+  const after = await page.evaluate(() => {
+    const e = (window as any).__forge;
+    return {
+      positions: Array.from(e.selected.geometry.getAttribute('position').array),
+      primitive: e.selected.userData.forgePrimitive,
+    };
+  });
+  expect(after.positions).toEqual(before);
+  expect(after.primitive).toBeUndefined();
+});
+
 test('round trips edited geometry, transforms and materials', async ({ page }) => {
   const result = await page.evaluate(() => {
     const e = (window as any).__forge;
