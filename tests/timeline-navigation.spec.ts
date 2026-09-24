@@ -18,7 +18,7 @@ async function seedTimelineKeys(page: any) {
 }
 
 async function viewState(page: any) {
-  const track = page.getByLabel('Timeline view');
+  const track = page.getByLabel('Timeline view', { exact: true });
   return track.evaluate((element: HTMLElement) => ({
     start: Number(element.dataset.viewStart),
     end: Number(element.dataset.viewEnd),
@@ -30,7 +30,7 @@ test('Timeline view defaults to Scene Range and Scene framing restores it', asyn
   await seedTimelineKeys(page);
   expect(await viewState(page)).toEqual({ start: 1, end: 1000, manual: false });
 
-  const track = page.getByLabel('Timeline view');
+  const track = page.getByLabel('Timeline view', { exact: true });
   const box = await track.boundingBox();
   expect(box).not.toBeNull();
   await page.mouse.move(box!.x + box!.width / 2, box!.y + box!.height / 2);
@@ -55,7 +55,7 @@ test('Timeline wheel zoom changes only editor view and not project history', asy
     };
   });
 
-  const track = page.getByLabel('Timeline view');
+  const track = page.getByLabel('Timeline view', { exact: true });
   const box = await track.boundingBox();
   await page.mouse.move(box!.x + box!.width * 0.65, box!.y + box!.height / 2);
   await page.mouse.wheel(0, -420);
@@ -77,7 +77,7 @@ test('Timeline wheel zoom changes only editor view and not project history', asy
 
 test('MMB pan changes Timeline view and Escape restores the starting view', async ({ page }) => {
   await seedTimelineKeys(page);
-  const track = page.getByLabel('Timeline view');
+  const track = page.getByLabel('Timeline view', { exact: true });
   const box = await track.boundingBox();
 
   await page.mouse.move(box!.x + box!.width / 2, box!.y + box!.height / 2);
@@ -116,7 +116,7 @@ test('Frame Selected fits selected Timeline summary keys', async ({ page }) => {
 
 test('Center Timeline on current frame preserves zoom span', async ({ page }) => {
   await seedTimelineKeys(page);
-  const track = page.getByLabel('Timeline view');
+  const track = page.getByLabel('Timeline view', { exact: true });
   const box = await track.boundingBox();
 
   await page.mouse.move(box!.x + box!.width / 2, box!.y + box!.height / 2);
@@ -144,7 +144,7 @@ test('Timeline key drag uses the active navigated view transform', async ({ page
   await page.keyboard.up('Shift');
   await page.getByRole('button', { name: 'Frame selected Timeline keys (Numpad .)' }).click();
 
-  const track = page.getByLabel('Timeline view');
+  const track = page.getByLabel('Timeline view', { exact: true });
   const view = await viewState(page);
   const box = await track.boundingBox();
   const source = page.locator('.key-marker[data-frame="500"]');
@@ -167,7 +167,7 @@ test('Timeline key drag uses the active navigated view transform', async ({ page
 
 test('Timeline framing shortcuts act when the Timeline view has focus', async ({ page }) => {
   await seedTimelineKeys(page);
-  const track = page.getByLabel('Timeline view');
+  const track = page.getByLabel('Timeline view', { exact: true });
   const box = await track.boundingBox();
 
   await page.mouse.move(box!.x + box!.width / 2, box!.y + box!.height / 2);
