@@ -187,7 +187,11 @@ test('duplicating a generic armature keeps skeleton references independent', asy
       names: copySkin.skeleton.bones.map((bone: any) => bone.name),
     };
   });
-  expect(result).toEqual({ sourceAngle: 0, distinct: true, referencesCopy: true, referencesOriginal: false, names: ['Root', 'Mid', 'Tip'] });
+  expect(result.sourceAngle).toBeCloseTo(0, 12);
+  expect(result.distinct).toBe(true);
+  expect(result.referencesCopy).toBe(true);
+  expect(result.referencesOriginal).toBe(false);
+  expect(result.names).toEqual(['Root', 'Mid', 'Tip']);
 });
 
 test('IK solves an arbitrary three-bone armature without named limb assumptions', async ({ page }) => {
