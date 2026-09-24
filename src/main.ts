@@ -5,7 +5,8 @@ import * as THREE from 'three';
 import { createIcons, Box, ChevronDown, ChevronRight, Plus, MousePointer2, Move, Rotate3d, Scaling, Magnet, Grid2x2, Scan, Eye, EyeOff, Search, SlidersHorizontal, Layers, Diamond, Play, Pause, SkipBack, SkipForward, ChevronFirst, ChevronLast, Undo2, Redo2, Copy, Trash2, X, HelpCircle, Download, Upload, Camera, Check, Circle, Triangle, Hexagon, FolderOpen, FolderPlus, LogOut, Save, FilePlus2, Maximize, Globe, Settings2, Crosshair, Sun, Moon, Activity, PanelRightClose } from 'lucide';
 import { mountModelingUI } from './modeling/modeling-ui';
 import { Editor, type AnimationTrackMap, type Primitive, type Project, type KeyInterpolation, type KeyTangentMode, type ScalarAnimationChannel, type TransformOrientation } from './editor';
-import { RigSystem, rigBones, RIG_SOURCE } from './rig/rig';
+import { RigSystem, rigBones } from './rig/rig';
+import { addSomaPreview, createSomaRig, RIG_SOURCE } from './rig/soma77';
 
 const icons = { Box, ChevronDown, ChevronRight, Plus, MousePointer2, Move, Rotate3d, Scaling, Magnet, Grid2x2, Scan, Eye, EyeOff, Search, SlidersHorizontal, Layers, Diamond, Play, Pause, SkipBack, SkipForward, ChevronFirst, ChevronLast, Undo2, Redo2, Copy, Trash2, X, HelpCircle, Download, Upload, Camera, Check, Circle, Triangle, Hexagon, FolderOpen, FolderPlus, LogOut, Save, FilePlus2, Maximize, Globe, Settings2, Crosshair, Sun, Moon, Activity, PanelRightClose };
 const icon = (name: string, cls = '') => `<i data-lucide="${name}" class="${cls}"></i>`;
@@ -194,7 +195,7 @@ on('texture-export', () => {
     canvas.toBlob(blob => { if (blob) { download(blob, `${editor.name}-texture.png`, 'image/png'); toast('Texture PNG downloaded.'); } else toast('Texture export failed.'); }, 'image/png');
   } catch (error) { toast((error as Error).message); }
 });
-const rigSystem = new RigSystem(editor);
+const rigSystem = new RigSystem(editor, createSomaRig);
 function rigAction(action: () => void) { try { action(); } catch (error) { toast((error as Error).message); } }
 function refreshRig() {
   const active = rigSystem.activeRig;
@@ -219,8 +220,8 @@ function boneDepth(bone: THREE.Object3D): number { return bone.parent instanceof
 for (const id of ['create-rig','add-rig-menu']) on(id, () => rigAction(() => { rigSystem.add(); panel('rig'); toast('Official Kimodo SOMA77 armature created.'); }));
 on('rig-reset', () => rigAction(() => rigSystem.resetPose()));
 on('rig-key', () => rigAction(() => { rigSystem.keyPose(); toast(`All 77 joints keyed at frame ${Math.round(editor.frame)}.`); }));
-on('rig-preview', () => rigAction(() => { rigSystem.addPreview(); toast('Skinned preview added. Rotate a joint to deform it.'); }));
-on('enable-ik', () => rigAction(() => { rigSystem.enableIK($<HTMLSelectElement>('#ik-limb').value); toast('Drag the move gizmo to pose the limb, then Key full pose.'); }));
+on('rig-preview', () => rigAction(() => { const rig = rigSystem.activeRig; if (!rig) throw new Error('Create or select an armature first.'); addSomaPreview(rig); editor.commit(); toast('Skinned preview added. Rotate a joint to deform it.'); }));
+on('enable-ik', () => rigAction(() => { const rig = rigSystem.activeRig; const end = rig ? rigBones(rig).find(bone => bone.name === $<HTMLSelectElement>('#ik-limb').value) : null; if (!end) throw new Error('Choose a supported SOMA limb on the active armature.'); rigSystem.enableIK(end); toast('Drag the move gizmo to pose the limb, then Key full pose.'); }));
 on('rig-bind', () => {
   const button = $<HTMLButtonElement>('#rig-bind'); button.disabled = true; toast('Computing skin weights in a worker…');
   void rigSystem.bindSelected().then(() => toast('Mesh bound. Select a bone to test the deformation.')).catch(error => toast(error.message)).finally(() => button.disabled = false);
