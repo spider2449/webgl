@@ -28,11 +28,14 @@ Forge currently has one scene animation timeline rather than an Action stack.
 
 Therefore:
 
+- Forge GLB export combines all animated objects and bones into one `ForgeSceneAction` clip.
 - GLB with zero animation clips imports as a static model.
 - GLB with exactly one animation clip imports that clip as editable scalar tracks.
 - GLB with more than one animation clip is rejected before the model is added.
 
-Forge does not silently choose the first clip or discard extra clips.
+Forge does not silently choose the first clip, merge unrelated external Actions, or discard extra clips.
+
+This preserves Forge export → reimport round-trip while keeping external multi-Action files fail-closed.
 
 A later Action / clip-management package can remove this restriction.
 
