@@ -5,7 +5,7 @@ async function contrastRatio(page: any, foregroundSelector: string, backgroundSe
     type Rgba = [number, number, number, number];
 
     const parse = (value: string): Rgba => {
-      const parts = value.match(/[\\d.]+/g)?.map(Number) ?? [];
+      const parts = value.match(/[\d.]+/g)?.map(Number) ?? [];
       if (parts.length < 3) throw new Error(`Unsupported color: ${value}`);
       return [parts[0], parts[1], parts[2], parts[3] ?? 1];
     };
