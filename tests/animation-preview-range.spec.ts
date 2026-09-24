@@ -170,8 +170,10 @@ test('Preview Range changes participate in undo redo', async ({ page }) => {
 
 test('Preview controls stay contained inside the mobile Timeline toolbar', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.getByRole('button', { name: 'Animation', exact: true }).click();
 
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(390);
+
+  await page.getByRole('button', { name: 'Animation', exact: true }).click();
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(390);
 
   const toolbar = page.getByLabel('Timeline key editing controls');
