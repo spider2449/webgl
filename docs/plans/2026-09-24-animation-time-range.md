@@ -49,21 +49,17 @@ The Scene Frame Range must:
 - have End greater than Start,
 - remain at or below the defensive 100,000-frame ceiling.
 
-All authored animation operations use the current Scene Frame Range.
+Scene Frame Range controls the primary Timeline / playback window. It does not define authored-key legality.
 
 ## Authored keys
 
-Keyframes are valid only inside the active Scene Frame Range.
+Authored keyframes use Forge's defensive global frame domain 1–100,000.
 
-Therefore an extended range such as 1–1000 allows authored keys at frames 500, 900, and 1000.
+Keys may exist before Scene Start or after Scene End.
 
-Graph and Timeline operations use the dynamic range instead of assuming 1–250.
+Changing or shrinking the Scene Frame Range never rejects, deletes, clamps, or invalidates those keys.
 
-Shrinking the Scene Frame Range is rejected atomically when any existing authored key would be excluded.
-
-Forge never silently deletes, clamps, or hides an authored key to make a range change succeed.
-
-The user must move or remove conflicting keys first.
+Timeline shows and edits summary keys inside the current Scene Range. Graph Frame All / Frame Selected can reveal and edit authored keys outside it.
 
 ## Current frame
 
@@ -102,9 +98,11 @@ Graph Editor receives Start / End from Editor.
 
 Graph default view and Scene Range use the current Scene Frame Range.
 
-Graph Frame All / Frame Selected also respect the authored Scene Frame Range.
+Graph Scene Range uses the current Scene Frame Range.
 
-Graph key drag, copy, precise Frame edit, Time Scale, tangent editing, and Bezier-handle editing continue to operate under the current dynamic range.
+Graph Frame All / Frame Selected operate on authored data and may reveal keys outside Scene Start–End.
+
+Graph key drag, copy, precise Frame edit, Time Scale, tangent editing, and Bezier-handle editing use the global authored-frame domain 1–100,000.
 
 Graph navigation must support ranges wider than the previous 1000-frame view-span cap; its maximum horizontal span scales with the current scene range.
 
@@ -121,7 +119,7 @@ New snapshots contain:
 }
 ```
 
-Project load validates authored animation tracks against the stored Scene Frame Range.
+Project load validates authored animation tracks against the global 1–100,000 authored-frame domain, independently from the stored Scene Frame Range.
 
 Older projects without animationRange default to 1–250.
 
@@ -140,7 +138,7 @@ Focused Playwright coverage verifies:
 3. Authored keys and Timeline markers work beyond frame 250.
 4. Graph Scene Range and Frame All support a 5000-frame scene.
 5. Current frame and Graph key editing work beyond frame 250.
-6. Shrinking the range rejects authored keys that would be excluded.
+6. Shrinking the range preserves authored keys outside it without warning.
 7. Playback stays inside the configured Scene Frame Range.
 8. Range changes undo / redo correctly.
 9. .forge snapshots round-trip extended ranges and legacy projects default to 1–250.
