@@ -239,6 +239,7 @@ export type ImportedAnimationSummary = {
   targets: number;
   sourceTracks: number;
   scalarKeys: number;
+  firstTarget: THREE.Object3D | null;
 };
 
 const GLB_IMPORT_FPS = 24;
@@ -319,7 +320,7 @@ export function importAnimationClip(
   if (!Number.isFinite(fps) || fps <= 0) throw new Error('GLB animation import requires a positive finite frame rate.');
   if (!Number.isInteger(maxFrame) || maxFrame < 2) throw new Error('GLB animation import frame limit is invalid.');
   if (!Number.isInteger(maxScalarKeys) || maxScalarKeys < 1) throw new Error('GLB animation import key limit is invalid.');
-  if (!clip.tracks.length) return { frameEnd: 1, targets: 0, sourceTracks: 0, scalarKeys: 0 };
+  if (!clip.tracks.length) return { frameEnd: 1, targets: 0, sourceTracks: 0, scalarKeys: 0, firstTarget: null };
 
   let duration = 0;
   for (const track of clip.tracks) {
@@ -431,6 +432,7 @@ export function importAnimationClip(
     targets: pending.size,
     sourceTracks: clip.tracks.length,
     scalarKeys,
+    firstTarget: pending.keys().next().value ?? null,
   };
 }
 
