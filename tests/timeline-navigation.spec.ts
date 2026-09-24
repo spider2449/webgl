@@ -165,6 +165,17 @@ test('Timeline key drag uses the active navigated view transform', async ({ page
   )).toEqual([100, 505, 900]);
 });
 
+test('Timeline view scrollbar sits below the key interaction track', async ({ page }) => {
+  const track = page.getByLabel('Timeline view', { exact: true });
+  const scrollbar = page.getByRole('scrollbar', { name: 'Timeline view scrollbar' });
+  const trackBox = await track.boundingBox();
+  const scrollbarBox = await scrollbar.boundingBox();
+
+  expect(trackBox).not.toBeNull();
+  expect(scrollbarBox).not.toBeNull();
+  expect(scrollbarBox!.y).toBeGreaterThanOrEqual(trackBox!.y + trackBox!.height);
+});
+
 test('Timeline view scrollbar thumb pans the view without changing project history', async ({ page }) => {
   await seedTimelineKeys(page);
   const track = page.getByLabel('Timeline view', { exact: true });
