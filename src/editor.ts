@@ -294,7 +294,8 @@ export class Editor extends EventTarget {
       this.pending = false;
       if (this.playing) {
         const span = this.frameEnd - this.frameStart + 1;
-        this.frame = this.frameStart + ((this.playbackFrame - this.frameStart + (time - this.playbackStart) / 1000 * 24) % span);
+        const phase = (this.playbackFrame - this.frameStart + (time - this.playbackStart) / 1000 * 24) % span;
+        this.frame = this.frameStart + Math.min(phase, this.frameEnd - this.frameStart);
         this.evaluateAnimation();
         this.emit('frame');
         this.emit('transform');
