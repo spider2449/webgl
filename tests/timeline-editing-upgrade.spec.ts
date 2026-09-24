@@ -124,6 +124,19 @@ test('Delete removes selected Timeline summary keys without deleting the active 
   expect(restored['position.z'].map((key: any) => key.frame)).toEqual([70]);
 });
 
+test('Timeline batch controls sit beside the summary-key track and remain distinct from Graph controls', async ({ page }) => {
+  await page.getByRole('button', { name: 'Animation', exact: true }).click();
+
+  const toolbar = page.getByLabel('Timeline key editing controls');
+  await expect(toolbar).toBeVisible();
+  await expect(toolbar).toContainText('Summary Keys');
+  await expect(toolbar.locator('#timeline-time-scale')).toHaveCount(1);
+  await expect(toolbar.locator('#apply-timeline-time-scale')).toHaveCount(1);
+  await expect(page.locator('.timeline-key-toolbar + #timeline-track')).toHaveCount(1);
+  await expect(page.locator('.animation-graph-header #graph-time-scale')).toHaveCount(1);
+  await expect(page.locator('.animation-graph-header #apply-graph-time-scale')).toHaveCount(1);
+});
+
 test('Timeline Time Scale retimes selected summary frames across channels in one undo step', async ({ page }) => {
   await page.evaluate(() => {
     const e = (window as any).__forge;
