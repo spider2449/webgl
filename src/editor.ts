@@ -546,16 +546,35 @@ export class Editor extends EventTarget {
   setShading(value: string) { this.viewStyle = value; this.invalidate(); }
   setQuality(value: string) { this.renderer.setPixelRatio(Math.min(devicePixelRatio, value === 'high' ? 2 : value === 'low' ? 1 : 1.5)); this.resize(); }
   view(axis: 'front' | 'right' | 'top' | 'perspective') {
-    const distance = this.camera.position.distanceTo(this.orbit.target);
-    const direction = axis === 'front' ? new THREE.Vector3(0, 0, 1) : axis === 'right' ? new THREE.Vector3(1, 0, 0) : axis === 'top' ? new THREE.Vector3(0, 1, 0.0001) : new THREE.Vector3(1, 0.75, 1.25).normalize();
+    const distance = Math.max(0.001, this.camera.position.distanceTo(this.orbit.target));
+    const next = axis === 'perspective' ? this.perspective : this.orthographic;
+    const direction =
+      axis === 'front' ? new THREE.Vector3(0, 0, 1) :
+      axis === 'right' ? new THREE.Vector3(1, 0, 0) :
+      axis === 'top' ? new THREE.Vector3(0, 1, 0) :
+      new THREE.Vector3(1, 0.75, 1.25).normalize();
+    const up = axis === 'top' ? new THREE.Vector3(0, 0, -1) : new THREE.Vector3(0, 1, 0);
+
+    if (next === this.orthographic && this.camera !== this.orthographic) {
+      this.orthographic.zoom = 14 / Math.max(1, distance * 0.77);
+      this.orthographic.updateProjectionMatrix();
+    }
+    this.camera = next;
+    this.orbit.object = next;
+    this.transform.camera = next;
+    this.gimbal.setCamera(next);
+    this.camera.up.copy(up);
     this.camera.position.copy(this.orbit.target).addScaledVector(direction, distance);
+    this.camera.lookAt(this.orbit.target);
     this.orbit.update();
     this.invalidate();
+    this.emit('view');
   }
   toggleProjection() {
     const next = this.camera === this.perspective ? this.orthographic : this.perspective;
     next.position.copy(this.camera.position);
     next.quaternion.copy(this.camera.quaternion);
+    next.up.copy(this.camera.up);
     if (next === this.orthographic) { next.zoom = 14 / Math.max(1, this.camera.position.distanceTo(this.orbit.target) * 0.77); next.updateProjectionMatrix(); }
     this.camera = next;
     this.orbit.object = next;
