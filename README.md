@@ -278,7 +278,7 @@ cross-channel key selection remain future work.
 ## Armature rigging
 
 1. Open **Rigging** and choose **Create armature**. Forge creates a native editable armature with one root bone and enters **Edit** mode.
-2. In Edit mode, use **Extrude** to create child bones, **Add root** for another root chain, and **Reparent selected bone** to change hierarchy while preserving the bone's world transform. Move or rotate bones to author the rest skeleton.
+2. In Edit mode, use **Extrude** to create child bones, **Add bone** for another root chain, **Reparent selected bone** to change hierarchy while preserving the bone's world transform, and **Delete selected bone** to remove a joint while reparenting its children in place. Move or rotate bones to author the rest skeleton. Forge always keeps at least one bone in an armature.
 3. Switch to **Pose** mode before binding or animating. Select a bone in the viewport or searchable bone list for FK posing. The existing scalar Timeline and Graph channels animate bone position, rotation and scale like any other transform target.
 4. For positional IK, select an end bone, choose the chain length, and click **IK selected bone**. Drag the target, then choose **Key full pose**. IK is solved into ordinary FK transforms rather than stored as a persistent constraint.
 5. To bind a custom mesh, leave the armature at its rest pose, select a standalone mesh, then click **Bind selected mesh**. Four distance-based influences per vertex are generated in a worker as a starting point.

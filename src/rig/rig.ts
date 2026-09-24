@@ -221,6 +221,31 @@ export class RigSystem {
     this.editor.commit();
     return bone;
   }
+  deleteSelectedBone() {
+    const rig = this.activeRig;
+    if (!rig || this.editRig !== rig) throw new Error('Switch the active armature to Edit mode first.');
+    this.assertEditableRig(rig);
+    const bone = this.editor.selected;
+    if (!(bone instanceof THREE.Bone) || this.rigFor(bone) !== rig) throw new Error('Select a bone to delete.');
+    const bones = rigBones(rig);
+    if (bones.length <= 1) throw new Error('An armature must keep at least one bone.');
+
+    const targetParent: THREE.Object3D = bone.parent instanceof THREE.Bone ? bone.parent : rig;
+    const children = [...bone.children];
+    this.editor.content.updateMatrixWorld(true);
+    for (const child of children) {
+      targetParent.attach(child);
+      if (child instanceof THREE.Bone) captureBoneRest(child);
+    }
+    bone.removeFromParent();
+
+    const next = targetParent instanceof THREE.Bone
+      ? targetParent
+      : rigBones(rig).find(candidate => candidate !== bone) ?? rig;
+    this.editor.select(next);
+    this.editor.commit();
+    return next;
+  }
   sync() {
     const current = new Set(this.rigs);
     if (this.editRig && !current.has(this.editRig)) this.editRig = null;
