@@ -168,6 +168,27 @@ test('Preview Range changes participate in undo redo', async ({ page }) => {
   expect(await page.evaluate(() => (window as any).__forge.previewRange)).toEqual({ start: 300, end: 420 });
 });
 
+test('Preview controls stay contained inside the mobile Timeline toolbar', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.getByRole('button', { name: 'Animation', exact: true }).click();
+
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(390);
+
+  const toolbar = page.getByLabel('Timeline key editing controls');
+  await expect(toolbar).toBeVisible();
+  const sizing = await toolbar.evaluate((element: HTMLElement) => ({
+    clientWidth: element.clientWidth,
+    scrollWidth: element.scrollWidth,
+    overflowX: getComputedStyle(element).overflowX,
+  }));
+  expect(sizing.clientWidth).toBeLessThanOrEqual(390);
+  expect(sizing.scrollWidth).toBeGreaterThanOrEqual(sizing.clientWidth);
+  expect(sizing.overflowX).toBe('auto');
+
+  await expect(page.getByLabel('Preview start frame')).toHaveCount(1);
+  await expect(page.getByLabel('Preview end frame')).toHaveCount(1);
+});
+
 test('Preview Range must stay inside Scene Frame Range and rejects invalid edits atomically', async ({ page }) => {
   const result = await page.evaluate(() => {
     const e = (window as any).__forge;
