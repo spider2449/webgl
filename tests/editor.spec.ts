@@ -61,9 +61,9 @@ test('renders the viewport and stops rendering while idle', async ({ page }) => 
 
 test('axis widget snaps X Y Z to deterministic orthographic views', async ({ page }) => {
   const cases = [
-    { id: '#axis-x', direction: [1, 0, 0], up: [0, 1, 0], label: 'Right Orthographic' },
-    { id: '#axis-y', direction: [0, 1, 0], up: [0, 0, -1], label: 'Top Orthographic' },
-    { id: '#axis-z', direction: [0, 0, 1], up: [0, 1, 0], label: 'Front Orthographic' },
+    { id: '#axis-x', direction: [1, 0, 0], up: [0, 1, 0], gridPlane: 2, gridNormal: [1, 0, 0], label: 'Right Orthographic' },
+    { id: '#axis-y', direction: [0, 1, 0], up: [0, 0, -1], gridPlane: 0, gridNormal: [0, 1, 0], label: 'Top Orthographic' },
+    { id: '#axis-z', direction: [0, 0, 1], up: [0, 1, 0], gridPlane: 1, gridNormal: [0, 0, 1], label: 'Front Orthographic' },
   ] as const;
 
   for (const expected of cases) {
@@ -75,19 +75,29 @@ test('axis widget snaps X Y Z to deterministic orthographic views', async ({ pag
         orthographic: e.camera === e.orthographic,
         direction: e.camera.position.clone().sub(e.orbit.target).normalize().toArray(),
         up: e.camera.up.toArray(),
+        gridVisible: e.grid.visible,
+        gridPlane: e.grid.material.uniforms.gridPlane.value,
+        gridNormal: e.camera.up.clone().set(0, 1, 0).applyQuaternion(e.grid.quaternion).normalize().toArray(),
       };
     });
     expect(view.orthographic).toBe(true);
+    expect(view.gridVisible).toBe(true);
+    expect(view.gridPlane).toBe(expected.gridPlane);
     expected.direction.forEach((value, index) => expect(view.direction[index]).toBeCloseTo(value, 5));
     expected.up.forEach((value, index) => expect(view.up[index]).toBeCloseTo(value, 6));
+    expected.gridNormal.forEach((value, index) => expect(Math.abs(view.gridNormal[index])).toBeCloseTo(Math.abs(value), 6));
   }
 
   await page.locator('#axis-home').click();
   await expect(page.locator('#view-label')).toHaveText('User Perspective');
   expect(await page.evaluate(() => {
     const e = (window as any).__forge;
-    return e.camera === e.perspective;
-  })).toBe(true);
+    return {
+      perspective: e.camera === e.perspective,
+      gridPlane: e.grid.material.uniforms.gridPlane.value,
+      gridRotation: e.grid.rotation.toArray().slice(0, 3),
+    };
+  })).toEqual({ perspective: true, gridPlane: 0, gridRotation: [0, 0, 0] });
 });
 
 test('adds, transforms, duplicates, undoes and removes objects through the UI', async ({ page }) => {
