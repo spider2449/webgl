@@ -28,8 +28,10 @@ export type ScalarKey = {
   right?: [number, number];
 };
 export type AnimationTrackMap = Partial<Record<ScalarAnimationChannel, ScalarKey[]>>;
-export type Project = { format: 'forge-studio'; version: 1; name: string; scene: ReturnType<THREE.Group['toJSON']> };
+export type AnimationRange = { start: number; end: number };
+export type Project = { format: 'forge-studio'; version: 1; name: string; animationRange?: AnimationRange; scene: ReturnType<THREE.Group['toJSON']> };
 const MAX_HISTORY_BYTES = 24 * 1024 * 1024;
+const MAX_ANIMATION_FRAME = 100_000;
 const cloneScalarKey = (key: ScalarKey): ScalarKey => ({
   frame: key.frame,
   value: key.value,
@@ -63,6 +65,8 @@ export class Editor extends EventTarget {
   private modelingVersion = 0;
   name = 'Untitled scene';
   frame = 1;
+  frameStart = 1;
+  frameEnd = 250;
   playing = false;
   renderedFrames = 0;
   editMode = false;
@@ -289,7 +293,8 @@ export class Editor extends EventTarget {
     requestAnimationFrame(time => {
       this.pending = false;
       if (this.playing) {
-        this.frame = 1 + ((this.playbackFrame - 1 + (time - this.playbackStart) / 1000 * 24) % 250);
+        const span = this.frameEnd - this.frameStart + 1;
+        this.frame = this.frameStart + ((this.playbackFrame - this.frameStart + (time - this.playbackStart) / 1000 * 24) % span);
         this.evaluateAnimation();
         this.emit('frame');
         this.emit('transform');
@@ -1106,7 +1111,7 @@ export class Editor extends EventTarget {
     this.content.traverse(o => { if (o instanceof THREE.Mesh && !o.geometry.boundingSphere) o.geometry.computeBoundingSphere(); });
     const points = this.vertexPoints;
     points?.removeFromParent();
-    try { return JSON.stringify({ format: 'forge-studio', version: 1, name: this.name, scene: this.content.toJSON() } satisfies Project); }
+    try { return JSON.stringify({ format: 'forge-studio', version: 1, name: this.name, animationRange: { start: this.frameStart, end: this.frameEnd }, scene: this.content.toJSON() } satisfies Project); }
     finally { if (points && this.selected) this.selected.add(points); }
   }
   commit() {
@@ -1139,6 +1144,14 @@ export class Editor extends EventTarget {
   }
   load(project: Project, commit = true) {
     if (project.format !== 'forge-studio' || project.version !== 1 || !project.scene?.object) throw new Error('This is not a supported Forge project.');
+    const range = project.animationRange ?? { start: 1, end: 250 };
+    if (
+      !Number.isInteger(range.start) ||
+      !Number.isInteger(range.end) ||
+      range.start < 1 ||
+      range.end > MAX_ANIMATION_FRAME ||
+      range.end <= range.start
+    ) throw new Error(`Animation range must use integer frames from 1 to ${MAX_ANIMATION_FRAME} with Start before End.`);
     const text = JSON.stringify(project);
     if (text.length > 32 * 1024 * 1024) throw new Error('Project exceeds the 32 MB limit.');
     let storedVertices = 0;
@@ -1166,7 +1179,7 @@ export class Editor extends EventTarget {
       if ('animationInterpolation' in o.userData || 'animationChannelInterpolation' in o.userData || 'keyframes' in o.userData) {
         throw new Error('Legacy animation metadata is unsupported.');
       }
-      if (!validAnimationTracks(o.userData.animationTracks)) throw new Error('Invalid animation tracks.');
+      if (!validAnimationTracks(o.userData.animationTracks, range.start, range.end)) throw new Error('Invalid animation tracks for the project animation range.');
     }); } catch (error) { this.disposeObject(root); throw error; }
     if (vertices > 2_000_000) { this.disposeObject(root); throw new Error('Scene exceeds the 2 million vertex limit.'); }
     this.playing = false;
@@ -1175,10 +1188,72 @@ export class Editor extends EventTarget {
     this.content.clear();
     this.content.add(...root.children.slice());
     this.name = typeof project.name === 'string' ? project.name.slice(0, 100) : 'Untitled scene';
+    this.frameStart = range.start;
+    this.frameEnd = range.end;
+    this.frame = THREE.MathUtils.clamp(this.frame, this.frameStart, this.frameEnd);
+    this.playbackFrame = this.frame;
     this.select(this.content.children[0] ?? null);
+    this.evaluateAnimation();
+    this.emit('range');
+    this.emit('frame');
     if (commit) this.commit();
   }
-  newProject() { this.playing = false; this.select(null); this.disposeObject(this.content); this.content.clear(); this.name = 'Untitled scene'; this.frame = 1; this.seed(); }
+  newProject() {
+    this.playing = false;
+    this.select(null);
+    this.disposeObject(this.content);
+    this.content.clear();
+    this.name = 'Untitled scene';
+    this.frameStart = 1;
+    this.frameEnd = 250;
+    this.frame = 1;
+    this.playbackFrame = 1;
+    this.seed();
+  }
+
+  get animationRange(): AnimationRange { return { start: this.frameStart, end: this.frameEnd }; }
+
+  private frameInRange(frame: number) {
+    return Number.isInteger(frame) && frame >= this.frameStart && frame <= this.frameEnd;
+  }
+
+  private animationRangeLabel() {
+    return `${this.frameStart}–${this.frameEnd}`;
+  }
+
+  setAnimationRange(start: number, end: number) {
+    if (
+      !Number.isInteger(start) ||
+      !Number.isInteger(end) ||
+      start < 1 ||
+      end > MAX_ANIMATION_FRAME ||
+      end <= start
+    ) throw new Error(`Animation range must use integer frames from 1 to ${MAX_ANIMATION_FRAME} with Start before End.`);
+    if (this.playing || this.animationKeyDrag || this.animationHandleDrag) throw new Error('Pause playback and finish animation editing before changing the time range.');
+    if (start === this.frameStart && end === this.frameEnd) return false;
+
+    let outside: number | null = null;
+    this.content.traverse(object => {
+      if (outside !== null) return;
+      const frames = allAnimationFrames(object.userData.animationTracks as AnimationTrackMap | undefined);
+      outside = frames.find(frame => frame < start || frame > end) ?? null;
+    });
+    if (outside !== null) {
+      throw new Error(`Animation range ${start}–${end} would exclude authored key frame ${outside}. Move or remove that key first.`);
+    }
+
+    this.frameStart = start;
+    this.frameEnd = end;
+    this.frame = THREE.MathUtils.clamp(this.frame, start, end);
+    this.playbackFrame = this.frame;
+    this.evaluateAnimation();
+    this.emit('range');
+    this.emit('frame');
+    this.emit('animation');
+    this.emit('transform');
+    this.commit();
+    return true;
+  }
   private channelNativeValue(object: THREE.Object3D, channel: ScalarAnimationChannel) {
     const [property, axis] = channel.split('.') as ['position' | 'rotation' | 'scale', 'x' | 'y' | 'z'];
     return object[property][axis];
@@ -1988,10 +2063,11 @@ export class Editor extends EventTarget {
     this.commit();
   }
 
-  scrub(frame: number) { this.frame = THREE.MathUtils.clamp(frame, 1, 250); this.evaluateAnimation(); this.emit('frame'); this.emit('transform'); this.invalidate(); }
+  scrub(frame: number) { this.frame = THREE.MathUtils.clamp(frame, this.frameStart, this.frameEnd); this.evaluateAnimation(); this.emit('frame'); this.emit('transform'); this.invalidate(); }
   togglePlayback() {
     this.setEditMode(false);
     this.playing = !this.playing;
+    this.frame = THREE.MathUtils.clamp(this.frame, this.frameStart, this.frameEnd);
     this.playbackStart = performance.now();
     this.playbackFrame = this.frame;
     this.emit('frame');
