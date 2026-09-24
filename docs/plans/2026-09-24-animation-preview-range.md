@@ -6,9 +6,9 @@ Date: 2026-09-24
 
 Add a Preview / Playback Range that is separate from the Scene Frame Range.
 
-Forge already has a configurable Scene Frame Range that defines the authored animation domain.
+Forge already has a configurable Scene Frame Range for the primary Timeline / playback window. Authored keys use a separate global 1–100,000 frame domain and may exist outside Scene Start–End.
 
-Preview Range is a temporary playback subset inside that scene range.
+Preview Range is a temporary playback subset inside the Scene Frame Range.
 
 Example:
 
@@ -92,11 +92,11 @@ Clearing Preview Range returns playback to the full Scene Frame Range.
 
 ## Scene Range interaction
 
-Scene Frame Range remains authoritative.
+Scene Frame Range remains authoritative for Preview Range bounds, not for authored-key validity.
 
 When a Scene Range change makes the active Preview Range invalid, Preview Range is cleared automatically.
 
-Scene-range key-preservation rules remain unchanged.
+Authored keys before or after the new Scene Range remain intact and do not cause warnings.
 
 ## Project persistence
 
