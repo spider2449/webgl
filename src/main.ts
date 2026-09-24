@@ -441,8 +441,8 @@ function updateTimeline() {
   const graphKeyValue = $<HTMLInputElement>('#graph-key-value');
   const graphKeyApply = $<HTMLButtonElement>('#apply-graph-key-inspector');
   const canInspectGraphKey = singleGraphKey !== null && !editor.editMode && !editor.playing;
-  graphKeyFrame.min = String(editor.frameStart);
-  graphKeyFrame.max = String(editor.frameEnd);
+  graphKeyFrame.min = '1';
+  graphKeyFrame.max = '100000';
   graphKeyFrame.disabled = !canInspectGraphKey;
   graphKeyValue.disabled = !canInspectGraphKey;
   graphKeyApply.disabled = !canInspectGraphKey;
