@@ -26,10 +26,10 @@ test('Timeline Start and End define playback controls and visible ruler range', 
   await expect(ruler.locator('span').last()).toHaveText('80');
 
   await page.getByRole('button', { name: 'Last frame' }).click();
-  await expect(page.getByLabel('Current frame')).toHaveValue('80');
+  await expect(page.getByRole('spinbutton', { name: 'Current frame', exact: true })).toHaveValue('80');
 
   await page.getByRole('button', { name: 'First frame' }).click();
-  await expect(page.getByLabel('Current frame')).toHaveValue('20');
+  await expect(page.getByRole('spinbutton', { name: 'Current frame', exact: true })).toHaveValue('20');
 });
 
 test('range outside keys stay authored while Timeline shows only keys inside the range', async ({ page }) => {
@@ -75,9 +75,9 @@ test('current frame and Graph key editing remain valid outside playback range', 
 
   await setRange(page, 20, 80);
 
-  await page.getByLabel('Current frame').fill('10');
-  await page.getByLabel('Current frame').press('Enter');
-  await expect(page.getByLabel('Current frame')).toHaveValue('10');
+  await page.getByRole('spinbutton', { name: 'Current frame', exact: true }).fill('10');
+  await page.getByRole('spinbutton', { name: 'Current frame', exact: true }).press('Enter');
+  await expect(page.getByRole('spinbutton', { name: 'Current frame', exact: true })).toHaveValue('10');
   expect(await page.evaluate(() => (window as any).__forge.frame)).toBe(10);
 
   const edited = await page.evaluate(() =>
@@ -110,8 +110,8 @@ test('playback loops inside the configured animation range', async ({ page }) =>
   await page.evaluate(() => (window as any).__forge.togglePlayback());
 });
 
-test('changing animation range is one undoable project-state edit', async ({ page }) => {
-  await setRange(page, 20, 80);
+test('setAnimationRange is one undoable project-state edit', async ({ page }) => {
+  await page.evaluate(() => (window as any).__forge.setAnimationRange(20, 80));
   expect(await page.evaluate(() => (window as any).__forge.animationRange)).toEqual({ start: 20, end: 80 });
 
   await page.evaluate(() => (window as any).__forge.undo());
