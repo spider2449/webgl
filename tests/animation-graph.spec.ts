@@ -489,7 +489,7 @@ test('Graph Time Scale rejects out-of-range targets atomically', async ({ page }
     (window as any).__forge.selected.userData.animationTracks['position.x'].map((key: any) => key.frame)
   )).toEqual([10, 20]);
   await expect(graph).toHaveAttribute('data-selected-frames', '10,20');
-  await expect(page.locator('#toast')).toContainText('1–250');
+  await expect(page.locator('#toast')).toContainText('1–100000');
 });
 
 test('dragging a multi-selection moves every selected key by one shared delta', async ({ page }) => {
