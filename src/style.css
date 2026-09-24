@@ -41,7 +41,11 @@
 .animation-graph-header{height:32px;display:flex;align-items:center;gap:12px;padding:0 22px;border-bottom:1px solid var(--border);background:var(--surface)}
 .animation-graph-header>span:first-child{font:500 10px var(--mono);color:#d7b487;letter-spacing:.2px}
 #animation-graph-detail{font:9px var(--mono);color:var(--text-muted)}
-.animation-graph-header .graph-editor-badge{margin-left:auto}
+.graph-view-controls{display:flex;align-items:center;gap:2px;margin-left:auto;padding-left:6px;border-left:1px solid var(--border)}
+.graph-view-controls .icon-button{width:24px;height:24px;color:var(--text-muted)}
+.graph-view-controls .icon-button svg{width:12px;height:12px}
+.graph-view-controls .icon-button:hover:not(:disabled){color:var(--accent-strong);background:var(--hover-strong)}
+.animation-graph-header .graph-editor-badge{margin-left:2px}
 .graph-key-toolbar{height:30px;display:flex;align-items:center;gap:7px;padding:0 22px;border-bottom:1px solid var(--border);background:var(--surface-soft);font:8px var(--mono);letter-spacing:.35px;color:var(--text-muted)}
 .graph-key-toolbar-label{color:#c6a77e;text-transform:uppercase;letter-spacing:.7px}
 #graph-selection-count{min-width:54px}
@@ -95,7 +99,9 @@
 .graph-channel-group button>small{font:7px var(--mono);line-height:8px;color:var(--text-faint)}
 .graph-channel-group button.active{border-color:#9e805c;background:#b18e6120;color:#e3bf8c}
 .graph-channel-group button.active>small{color:#b89970}
-#animation-graph{display:block;width:100%;height:182px;background:var(--graph-bg);touch-action:none}
+#animation-graph{display:block;width:100%;height:182px;background:var(--graph-bg);touch-action:none;cursor:crosshair;outline:none}
+#animation-graph:focus-visible{box-shadow:inset 0 0 0 1px var(--accent)}
+#animation-graph.panning{cursor:grabbing}
 .graph-grid,.graph-key-grid,.graph-curve,.graph-playhead{vector-effect:non-scaling-stroke}
 .graph-grid{stroke:var(--grid);stroke-width:1}
 .graph-key-grid{stroke:var(--grid-strong);stroke-width:1;stroke-dasharray:3 4}

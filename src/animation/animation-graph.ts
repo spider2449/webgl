@@ -159,8 +159,6 @@ type KeyDragState = {
   anchorValue: number;
   startClientX: number;
   startClientY: number;
-  valueMin: number;
-  valueMax: number;
   markers: { sourceFrame: number; sourceValue: number; marker: SVGRectElement }[];
   ghostMarkers: SVGRectElement[];
   copy: boolean;
@@ -173,8 +171,6 @@ type HandleDragState = {
   pointerId: number;
   keyFrame: number;
   side: 'left' | 'right';
-  valueMin: number;
-  valueMax: number;
   marker: SVGCircleElement;
   line: SVGLineElement;
 };
@@ -191,7 +187,23 @@ type BoxDragState = {
   moved: boolean;
 };
 
-type GraphDragState = KeyDragState | HandleDragState | BoxDragState;
+type PanDragState = {
+  kind: 'pan';
+  pointerId: number;
+  startClientX: number;
+  startClientY: number;
+  startView: GraphViewState;
+  startManual: boolean;
+};
+
+type GraphViewState = {
+  frameMin: number;
+  frameMax: number;
+  valueMin: number;
+  valueMax: number;
+};
+
+type GraphDragState = KeyDragState | HandleDragState | BoxDragState | PanDragState;
 
 export class AnimationGraphView {
   private signature = '';
@@ -203,6 +215,10 @@ export class AnimationGraphView {
   private selectedFrames = new Set<number>();
   private objectId: string | null = null;
   private channel: ScalarAnimationChannel | null = null;
+  private currentFrame = 1;
+  private view: GraphViewState | null = null;
+  private viewIsManual = false;
+  private readonly savedViews = new Map<string, GraphViewState>();
 
   constructor(
     private readonly svg: SVGSVGElement,
@@ -210,11 +226,17 @@ export class AnimationGraphView {
     private readonly detail: HTMLElement,
     private readonly edits: AnimationGraphEditCallbacks,
   ) {
-    svg.replaceChildren(this.curveLayer, this.selectionBox, this.playhead);
+    const defs = svgElement('defs', {});
+    const plotClip = svgElement('clipPath', { id: 'animation-graph-plot-clip' });
+    plotClip.append(svgElement('rect', { x: 44, y: 14, width: 932, height: 152 }));
+    defs.append(plotClip);
+    svg.replaceChildren(defs, this.curveLayer, this.selectionBox, this.playhead);
     svg.addEventListener('pointerdown', this.pointerDown);
     svg.addEventListener('pointermove', this.pointerMove);
     svg.addEventListener('pointerup', this.pointerUp);
     svg.addEventListener('pointercancel', this.pointerCancel);
+    svg.addEventListener('wheel', this.wheel, { passive: false });
+    svg.addEventListener('keydown', this.keyDown);
     window.addEventListener('keydown', event => {
       if (event.key === 'Escape' && this.drag) {
         event.preventDefault();
@@ -242,16 +264,81 @@ export class AnimationGraphView {
     this.signature = '';
   }
 
+  frameAll() {
+    if (!this.data) return false;
+    const frameSpan = Math.max(1, this.data.frameMax - this.data.frameMin);
+    const framePad = Math.max(2, frameSpan * 0.08);
+    const frameMin = Math.max(1, this.data.frameMin - framePad);
+    const frameMax = Math.min(250, this.data.frameMax + framePad);
+    return this.applyView({
+      frameMin: frameMax - frameMin < 4 ? Math.max(1, (frameMin + frameMax) / 2 - 2) : frameMin,
+      frameMax: frameMax - frameMin < 4 ? Math.min(250, (frameMin + frameMax) / 2 + 2) : frameMax,
+      valueMin: this.data.valueMin,
+      valueMax: this.data.valueMax,
+    });
+  }
+
+  frameSelected() {
+    if (!this.data || !this.selectedFrames.size) return false;
+    const selected = this.data.keys.filter(key => this.selectedFrames.has(key.frame));
+    if (!selected.length) return false;
+
+    let frameMin = Math.min(...selected.map(key => key.frame));
+    let frameMax = Math.max(...selected.map(key => key.frame));
+    let valueMin = Math.min(...selected.map(key => key.value));
+    let valueMax = Math.max(...selected.map(key => key.value));
+
+    if (selected.length === 1) {
+      frameMin = Math.max(1, frameMin - 10);
+      frameMax = Math.min(250, frameMax + 10);
+      const referenceSpan = Math.max(1e-6, this.data.valueMax - this.data.valueMin);
+      const pad = Math.max(referenceSpan * 0.2, Math.abs(valueMin) * 0.05, 0.5);
+      valueMin -= pad;
+      valueMax += pad;
+    } else {
+      const framePad = Math.max(2, (frameMax - frameMin) * 0.12);
+      frameMin = Math.max(1, frameMin - framePad);
+      frameMax = Math.min(250, frameMax + framePad);
+      const valueSpan = valueMax - valueMin;
+      const valuePad = Math.max(valueSpan * 0.18, Math.abs(valueMin + valueMax) * 0.025, 0.25);
+      valueMin -= valuePad;
+      valueMax += valuePad;
+    }
+
+    return this.applyView({ frameMin, frameMax, valueMin, valueMax });
+  }
+
+  frameSceneRange() {
+    if (!this.data) return false;
+    const view = this.currentView();
+    return this.applyView({ ...view, frameMin: 1, frameMax: 250 });
+  }
+
+  centerCurrentFrame() {
+    if (!this.data) return false;
+    const view = this.currentView();
+    const span = view.frameMax - view.frameMin;
+    return this.applyView({
+      ...view,
+      frameMin: this.currentFrame - span / 2,
+      frameMax: this.currentFrame + span / 2,
+    });
+  }
+
   update(
     object: THREE.Object3D | null,
     channel: ScalarAnimationChannel,
     frame: number,
   ) {
+    this.currentFrame = frame;
     const nextObjectId = object?.uuid ?? null;
     if (nextObjectId !== this.objectId || channel !== this.channel) {
       this.objectId = nextObjectId;
       this.channel = channel;
       this.selectedFrames.clear();
+      const saved = this.savedViews.get(this.viewKey(nextObjectId, channel));
+      this.view = saved ? { ...saved } : null;
+      this.viewIsManual = Boolean(saved);
       this.signature = '';
     }
 
@@ -280,6 +367,9 @@ export class AnimationGraphView {
     } else if (signature !== this.signature) {
       this.signature = signature;
       this.data = buildAnimationGraphData(keys, channel);
+      if (this.data && (!this.view || !this.viewIsManual)) {
+        this.view = this.defaultView(this.data);
+      }
       this.renderStatic();
     }
     this.renderPlayhead(frame);
@@ -293,6 +383,12 @@ export class AnimationGraphView {
     this.svg.dataset.keyCount = String(data?.keys.length ?? 0);
     this.svg.dataset.selectedFrame = this.selectedKeyFrame === null ? '' : String(this.selectedKeyFrame);
     this.svg.dataset.selectedFrames = this.selectedKeyFrames.join(',');
+    const view = data ? this.currentView() : null;
+    this.svg.dataset.viewFrameMin = view ? String(view.frameMin) : '';
+    this.svg.dataset.viewFrameMax = view ? String(view.frameMax) : '';
+    this.svg.dataset.viewValueMin = view ? String(view.valueMin) : '';
+    this.svg.dataset.viewValueMax = view ? String(view.valueMax) : '';
+    this.svg.dataset.viewManual = String(this.viewIsManual);
 
     if (!data) {
       this.title.textContent = 'Graph Editor';
@@ -314,10 +410,10 @@ export class AnimationGraphView {
     }
     for (const key of data.keys) {
       const gx = x(key.frame);
-      this.curveLayer.append(svgElement('line', { class: 'graph-key-grid', x1: gx, x2: gx, y1: 18, y2: 162 }));
+      this.curveLayer.append(svgElement('line', { class: 'graph-key-grid', x1: gx, x2: gx, y1: 18, y2: 162, 'clip-path': 'url(#animation-graph-plot-clip)' }));
     }
 
-    const path = svgElement('path', { class: 'graph-curve', d: this.curvePath(data) });
+    const path = svgElement('path', { class: 'graph-curve', d: this.curvePath(data), 'clip-path': 'url(#animation-graph-plot-clip)' });
     path.dataset.sampleCount = String(data.samples.length);
     this.curveLayer.append(path);
 
@@ -329,6 +425,7 @@ export class AnimationGraphView {
         width: 8,
         height: 8,
         rx: 1,
+        'clip-path': 'url(#animation-graph-plot-clip)',
       });
       marker.dataset.frame = String(key.frame);
       marker.dataset.value = String(key.value);
@@ -341,14 +438,15 @@ export class AnimationGraphView {
 
     this.renderHandles(data, x, y);
 
+    const activeView = this.currentView();
     const top = svgElement('text', { class: 'graph-value-label', x: 8, y: 24 });
-    top.textContent = this.format(data.valueMax);
+    top.textContent = this.format(activeView.valueMax);
     const bottom = svgElement('text', { class: 'graph-value-label', x: 8, y: 160 });
-    bottom.textContent = this.format(data.valueMin);
+    bottom.textContent = this.format(activeView.valueMin);
     const frameStart = svgElement('text', { class: 'graph-frame-label', x: 48, y: 176, 'text-anchor': 'start' });
-    frameStart.textContent = 'F1';
+    frameStart.textContent = `F${this.formatFrame(activeView.frameMin)}`;
     const frameEnd = svgElement('text', { class: 'graph-frame-label', x: 972, y: 176, 'text-anchor': 'end' });
-    frameEnd.textContent = 'F250';
+    frameEnd.textContent = `F${this.formatFrame(activeView.frameMax)}`;
     this.curveLayer.append(top, bottom, frameStart, frameEnd);
     this.playhead.setAttribute('visibility', 'visible');
   }
@@ -383,6 +481,7 @@ export class AnimationGraphView {
         y1: y(keyValue),
         x2: x(handleFrame),
         y2: y(handleValue),
+        'clip-path': 'url(#animation-graph-plot-clip)',
       });
       line.dataset.handleLine = side;
       line.dataset.keyFrame = String(key.frame);
@@ -391,6 +490,7 @@ export class AnimationGraphView {
         cx: x(handleFrame),
         cy: y(handleValue),
         r: 4,
+        'clip-path': 'url(#animation-graph-plot-clip)',
       });
       marker.dataset.handle = side;
       marker.dataset.keyFrame = String(key.frame);
@@ -471,20 +571,79 @@ export class AnimationGraphView {
   private renderPlayhead(frame: number) {
     const data = this.data;
     if (!data) return;
-    const clamped = THREE.MathUtils.clamp(frame, 1, 250);
-    const x = this.frameX(clamped);
+    const view = this.currentView();
+    const rawX = this.frameX(frame);
+    const x = THREE.MathUtils.clamp(rawX, 48, 972);
     this.playhead.setAttribute('x1', x.toFixed(2));
     this.playhead.setAttribute('x2', x.toFixed(2));
     this.playhead.dataset.frame = String(frame);
-    this.playhead.classList.toggle('outside', frame < 1 || frame > 250);
+    this.playhead.classList.toggle('outside', frame < view.frameMin || frame > view.frameMax);
+  }
+
+  private viewKey(objectId: string | null, channel: ScalarAnimationChannel) {
+    return `${objectId ?? 'none'}:${channel}`;
+  }
+
+  private defaultView(data: AnimationGraphData): GraphViewState {
+    return { frameMin: 1, frameMax: 250, valueMin: data.valueMin, valueMax: data.valueMax };
+  }
+
+  private currentView() {
+    if (this.view) return this.view;
+    if (this.data) {
+      this.view = this.defaultView(this.data);
+      return this.view;
+    }
+    return { frameMin: 1, frameMax: 250, valueMin: -1, valueMax: 1 };
+  }
+
+  private normalizeView(view: GraphViewState): GraphViewState {
+    let frameMin = Math.min(view.frameMin, view.frameMax);
+    let frameMax = Math.max(view.frameMin, view.frameMax);
+    const frameCenter = (frameMin + frameMax) / 2;
+    const frameSpan = THREE.MathUtils.clamp(frameMax - frameMin, 2, 1000);
+    frameMin = frameCenter - frameSpan / 2;
+    frameMax = frameCenter + frameSpan / 2;
+
+    let valueMin = Math.min(view.valueMin, view.valueMax);
+    let valueMax = Math.max(view.valueMin, view.valueMax);
+    const valueCenter = (valueMin + valueMax) / 2;
+    const minimumValueSpan = Math.max(1e-6, Math.abs(valueCenter) * 1e-6);
+    const valueSpan = THREE.MathUtils.clamp(valueMax - valueMin, minimumValueSpan, 1e12);
+    valueMin = valueCenter - valueSpan / 2;
+    valueMax = valueCenter + valueSpan / 2;
+
+    return { frameMin, frameMax, valueMin, valueMax };
+  }
+
+  private applyView(view: GraphViewState) {
+    if (!this.data) return false;
+    this.view = this.normalizeView(view);
+    this.viewIsManual = true;
+    this.savedViews.set(this.viewKey(this.objectId, this.data.channel), { ...this.view });
+    this.renderStatic();
+    this.renderPlayhead(this.currentFrame);
+    return true;
   }
 
   private frameX(frame: number) {
-    return 48 + (frame - 1) / 249 * 924;
+    const view = this.currentView();
+    return 48 + (frame - view.frameMin) / (view.frameMax - view.frameMin) * 924;
   }
 
-  private valueY(data: AnimationGraphData, value: number) {
-    return 18 + (data.valueMax - value) / (data.valueMax - data.valueMin) * 144;
+  private frameAtX(x: number) {
+    const view = this.currentView();
+    return view.frameMin + (x - 48) / 924 * (view.frameMax - view.frameMin);
+  }
+
+  private valueY(_data: AnimationGraphData, value: number) {
+    const view = this.currentView();
+    return 18 + (view.valueMax - value) / (view.valueMax - view.valueMin) * 144;
+  }
+
+  private valueAtY(y: number) {
+    const view = this.currentView();
+    return view.valueMax - (y - 18) / 144 * (view.valueMax - view.valueMin);
   }
 
   private viewPoint(event: PointerEvent) {
@@ -520,7 +679,25 @@ export class AnimationGraphView {
   }
 
   private pointerDown = (event: PointerEvent) => {
-    if (event.button !== 0 || this.drag || !this.data) return;
+    if (this.drag || !this.data) return;
+    this.svg.focus({ preventScroll: true });
+
+    if (event.button === 1) {
+      this.drag = {
+        kind: 'pan',
+        pointerId: event.pointerId,
+        startClientX: event.clientX,
+        startClientY: event.clientY,
+        startView: { ...this.currentView() },
+        startManual: this.viewIsManual,
+      };
+      this.svg.classList.add('panning');
+      this.svg.setPointerCapture(event.pointerId);
+      event.preventDefault();
+      return;
+    }
+
+    if (event.button !== 0) return;
     const element = event.target instanceof Element ? event.target : null;
     const handle = element?.closest<SVGCircleElement>('.graph-handle');
     if (handle) {
@@ -535,8 +712,6 @@ export class AnimationGraphView {
         pointerId: event.pointerId,
         keyFrame,
         side,
-        valueMin: this.data.valueMin,
-        valueMax: this.data.valueMax,
         marker: handle,
         line,
       };
@@ -619,8 +794,6 @@ export class AnimationGraphView {
       anchorValue: value,
       startClientX: event.clientX,
       startClientY: event.clientY,
-      valueMin: this.data.valueMin,
-      valueMax: this.data.valueMax,
       markers: selectedMarkers,
       ghostMarkers,
       copy,
@@ -638,6 +811,22 @@ export class AnimationGraphView {
     if (!drag || !data || event.pointerId !== drag.pointerId) return;
     const rect = this.svg.getBoundingClientRect();
     if (rect.width <= 0 || rect.height <= 0) return;
+
+    if (drag.kind === 'pan') {
+      const start = drag.startView;
+      const frameSpan = start.frameMax - start.frameMin;
+      const valueSpan = start.valueMax - start.valueMin;
+      const frameDelta = -(event.clientX - drag.startClientX) / rect.width * 1000 / 924 * frameSpan;
+      const valueDelta = (event.clientY - drag.startClientY) / rect.height * 180 / 144 * valueSpan;
+      this.applyView({
+        frameMin: start.frameMin + frameDelta,
+        frameMax: start.frameMax + frameDelta,
+        valueMin: start.valueMin + valueDelta,
+        valueMax: start.valueMax + valueDelta,
+      });
+      event.preventDefault();
+      return;
+    }
 
     if (drag.kind === 'box') {
       const point = this.viewPoint(event);
@@ -668,9 +857,8 @@ export class AnimationGraphView {
     if (drag.kind === 'handle') {
       const viewX = (event.clientX - rect.left) / rect.width * 1000;
       const viewY = (event.clientY - rect.top) / rect.height * 180;
-      const targetFrame = 1 + (viewX - 48) / 924 * 249;
-      const span = drag.valueMax - drag.valueMin;
-      const rawValue = drag.valueMax - (viewY - 18) / 144 * span;
+      const targetFrame = this.frameAtX(viewX);
+      const rawValue = this.valueAtY(viewY);
       const precision = data.channel.startsWith('rotation.') ? 0.1 : 0.001;
       const targetValue = Math.round(rawValue / precision) * precision;
       const applied = this.edits.previewHandle(targetFrame, targetValue);
@@ -683,9 +871,13 @@ export class AnimationGraphView {
 
     const deltaViewX = (event.clientX - drag.startClientX) / rect.width * 1000;
     const deltaViewY = (event.clientY - drag.startClientY) / rect.height * 180;
-    const targetFrame = THREE.MathUtils.clamp(Math.round(drag.anchorFrame + deltaViewX / 924 * 249), 1, 250);
-    const span = drag.valueMax - drag.valueMin;
-    const rawValue = drag.anchorValue - deltaViewY / 144 * span;
+    const view = this.currentView();
+    const targetFrame = THREE.MathUtils.clamp(
+      Math.round(drag.anchorFrame + deltaViewX / 924 * (view.frameMax - view.frameMin)),
+      1,
+      250,
+    );
+    const rawValue = drag.anchorValue - deltaViewY / 144 * (view.valueMax - view.valueMin);
     const precision = data.channel.startsWith('rotation.') ? 0.1 : 0.001;
     const targetValue = Math.round(rawValue / precision) * precision;
     if (!this.edits.preview(targetFrame, data.channel, targetValue)) {
@@ -741,6 +933,24 @@ export class AnimationGraphView {
     const drag = this.drag;
     if (!drag) return;
 
+    if (drag.kind === 'pan') {
+      if (cancel) {
+        this.view = this.normalizeView(drag.startView);
+        this.viewIsManual = drag.startManual;
+        const key = this.data ? this.viewKey(this.objectId, this.data.channel) : null;
+        if (key) {
+          if (drag.startManual) this.savedViews.set(key, { ...this.view });
+          else this.savedViews.delete(key);
+        }
+        this.renderStatic();
+        this.renderPlayhead(this.currentFrame);
+      }
+      this.svg.classList.remove('panning');
+      if (this.svg.hasPointerCapture(drag.pointerId)) this.svg.releasePointerCapture(drag.pointerId);
+      this.drag = null;
+      return;
+    }
+
     if (drag.kind === 'box') {
       this.selectionBox.setAttribute('visibility', 'hidden');
       if (cancel) {
@@ -771,6 +981,48 @@ export class AnimationGraphView {
     if (drag.kind === 'handle') this.edits.endHandle(cancel);
     else this.edits.end(cancel);
   }
+
+  private wheel = (event: WheelEvent) => {
+    if (!this.data || this.drag) return;
+    const rect = this.svg.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) return;
+    const x = THREE.MathUtils.clamp((event.clientX - rect.left) / rect.width * 1000, 48, 972);
+    const y = THREE.MathUtils.clamp((event.clientY - rect.top) / rect.height * 180, 18, 162);
+    const view = this.currentView();
+    const frameAnchor = this.frameAtX(x);
+    const valueAnchor = this.valueAtY(y);
+    const frameRatio = (x - 48) / 924;
+    const valueRatio = (y - 18) / 144;
+    const factor = Math.exp(THREE.MathUtils.clamp(event.deltaY, -240, 240) * 0.0025);
+    const frameSpan = THREE.MathUtils.clamp((view.frameMax - view.frameMin) * factor, 2, 1000);
+    const valueSpan = THREE.MathUtils.clamp(
+      (view.valueMax - view.valueMin) * factor,
+      Math.max(1e-6, Math.abs(valueAnchor) * 1e-6),
+      1e12,
+    );
+    this.applyView({
+      frameMin: frameAnchor - frameRatio * frameSpan,
+      frameMax: frameAnchor + (1 - frameRatio) * frameSpan,
+      valueMin: valueAnchor - (1 - valueRatio) * valueSpan,
+      valueMax: valueAnchor + valueRatio * valueSpan,
+    });
+    event.preventDefault();
+  };
+
+  private keyDown = (event: KeyboardEvent) => {
+    if (this.drag || event.altKey || event.ctrlKey || event.metaKey) return;
+    if (event.key === 'Home') {
+      if (this.frameAll()) event.preventDefault();
+      return;
+    }
+    if (event.code === 'NumpadDecimal') {
+      if (this.frameSelected()) event.preventDefault();
+      return;
+    }
+    if (event.code === 'Numpad0') {
+      if (this.centerCurrentFrame()) event.preventDefault();
+    }
+  };
 
   private formatFrame(frame: number) {
     return Number.isInteger(frame) ? String(frame) : frame.toFixed(2);
