@@ -1,9 +1,50 @@
 import { test, expect } from '@playwright/test';
 import * as THREE from 'three';
+import { GLTFExporter } from 'three/addons/exporters/GLTFExporter.js';
 import { importAnimationClip } from '../src/animation/animation';
 
 const rad = (degrees: number) => degrees * Math.PI / 180;
 const deg = (radians: number) => radians * 180 / Math.PI;
+
+class TestFileReader {
+  result: ArrayBuffer | null = null;
+  onloadend: (() => void) | null = null;
+
+  readAsArrayBuffer(blob: Blob) {
+    void blob.arrayBuffer().then(buffer => {
+      this.result = buffer;
+      this.onloadend?.();
+    });
+  }
+}
+
+function ensureExporterFileReader() {
+  if (typeof globalThis.FileReader === 'undefined') {
+    (globalThis as typeof globalThis & { FileReader: typeof FileReader }).FileReader = TestFileReader as unknown as typeof FileReader;
+  }
+}
+
+async function makeAnimatedGlb(clips: THREE.AnimationClip[]) {
+  ensureExporterFileReader();
+  const source = new THREE.Group();
+  const mesh = new THREE.Mesh(
+    new THREE.BoxGeometry(),
+    new THREE.MeshStandardMaterial(),
+  );
+  mesh.name = 'AnimatedCube';
+  source.add(mesh);
+
+  try {
+    const binary = await new GLTFExporter().parseAsync(source, {
+      binary: true,
+      animations: clips,
+    }) as ArrayBuffer;
+    return Buffer.from(new Uint8Array(binary));
+  } finally {
+    mesh.geometry.dispose();
+    mesh.material.dispose();
+  }
+}
 
 test('GLB vector animation bakes to editable 24 fps scalar tracks', () => {
   const root = new THREE.Group();
@@ -218,37 +259,18 @@ test('single-clip GLB file import produces editable Timeline tracks and selects 
   await page.goto('/');
   await page.waitForFunction(() => (window as any).__forge?.selected);
 
-  await page.evaluate(async () => {
-    const THREE = await import('three');
-    const { GLTFExporter } = await import('three/addons/exporters/GLTFExporter.js');
-
-    const source = new THREE.Group();
-    const mesh = new THREE.Mesh(
-      new THREE.BoxGeometry(),
-      new THREE.MeshStandardMaterial(),
-    );
-    mesh.name = 'AnimatedCube';
-    source.add(mesh);
-
-    const clip = new THREE.AnimationClip('Move', 12, [
-      new THREE.VectorKeyframeTrack(
-        'AnimatedCube.position',
-        [0, 12],
-        [0, 0, 0, 12, 0, 0],
-      ),
-    ]);
-
-    const binary = await new GLTFExporter().parseAsync(source, {
-      binary: true,
-      animations: [clip],
-    }) as ArrayBuffer;
-
-    const file = new File([binary], 'animated.glb', { type: 'model/gltf-binary' });
-    const transfer = new DataTransfer();
-    transfer.items.add(file);
-    const input = document.querySelector<HTMLInputElement>('#model-input')!;
-    input.files = transfer.files;
-    input.dispatchEvent(new Event('change', { bubbles: true }));
+  const clip = new THREE.AnimationClip('Move', 12, [
+    new THREE.VectorKeyframeTrack(
+      'AnimatedCube.position',
+      [0, 12],
+      [0, 0, 0, 12, 0, 0],
+    ),
+  ]);
+  const binary = await makeAnimatedGlb([clip]);
+  await page.locator('#model-input').setInputFiles({
+    name: 'animated.glb',
+    mimeType: 'model/gltf-binary',
+    buffer: binary,
   });
 
   await expect(page.locator('#toast')).toContainText('editable animation');
@@ -285,34 +307,18 @@ test('multi-clip GLB file import rejects without adding a partial model', async 
     snapshot: (window as any).__forge.snapshot(),
   }));
 
-  await page.evaluate(async () => {
-    const THREE = await import('three');
-    const { GLTFExporter } = await import('three/addons/exporters/GLTFExporter.js');
-
-    const source = new THREE.Group();
-    const mesh = new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshStandardMaterial());
-    mesh.name = 'AnimatedCube';
-    source.add(mesh);
-
-    const makeClip = (name: string, end: number) => new THREE.AnimationClip(name, 1, [
-      new THREE.VectorKeyframeTrack(
-        'AnimatedCube.position',
-        [0, 1],
-        [0, 0, 0, end, 0, 0],
-      ),
-    ]);
-
-    const binary = await new GLTFExporter().parseAsync(source, {
-      binary: true,
-      animations: [makeClip('A', 1), makeClip('B', 2)],
-    }) as ArrayBuffer;
-
-    const file = new File([binary], 'two-clips.glb', { type: 'model/gltf-binary' });
-    const transfer = new DataTransfer();
-    transfer.items.add(file);
-    const input = document.querySelector<HTMLInputElement>('#model-input')!;
-    input.files = transfer.files;
-    input.dispatchEvent(new Event('change', { bubbles: true }));
+  const makeClip = (name: string, end: number) => new THREE.AnimationClip(name, 1, [
+    new THREE.VectorKeyframeTrack(
+      'AnimatedCube.position',
+      [0, 1],
+      [0, 0, 0, end, 0, 0],
+    ),
+  ]);
+  const binary = await makeAnimatedGlb([makeClip('A', 1), makeClip('B', 2)]);
+  await page.locator('#model-input').setInputFiles({
+    name: 'two-clips.glb',
+    mimeType: 'model/gltf-binary',
+    buffer: binary,
   });
 
   await expect(page.locator('#toast')).toContainText('one editable clip at a time');
