@@ -234,6 +234,206 @@ function propertyChannels(property: 'position' | 'rotation' | 'scale') {
   return axes.map(axis => `${property}.${axis}` as ScalarAnimationChannel);
 }
 
+export type ImportedAnimationSummary = {
+  frameEnd: number;
+  targets: number;
+  sourceTracks: number;
+  scalarKeys: number;
+};
+
+const GLB_IMPORT_FPS = 24;
+const GLB_IMPORT_MAX_FRAME = 100_000;
+const GLB_IMPORT_MAX_SCALAR_KEYS = 250_000;
+
+function resolveImportedAnimationTarget(root: THREE.Object3D, token: string) {
+  if (!token) return root;
+  const uuidMatches: THREE.Object3D[] = [];
+  const nameMatches: THREE.Object3D[] = [];
+  root.traverse(object => {
+    if (object.uuid === token) uuidMatches.push(object);
+    if (object.name === token) nameMatches.push(object);
+  });
+  if (uuidMatches.length === 1) return uuidMatches[0];
+  if (uuidMatches.length > 1) throw new Error(`GLB animation target "${token}" is ambiguous.`);
+  if (nameMatches.length === 1) return nameMatches[0];
+  if (!nameMatches.length) throw new Error(`GLB animation target "${token}" was not found in the imported scene.`);
+  throw new Error(`GLB animation target "${token}" is ambiguous; animated node names must be unique.`);
+}
+
+function continuousEulerFromQuaternion(
+  quaternion: THREE.Quaternion,
+  order: THREE.EulerOrder,
+  reference: THREE.Vector3,
+) {
+  const primaryEuler = new THREE.Euler().setFromQuaternion(quaternion, order);
+  const primary = new THREE.Vector3(primaryEuler.x, primaryEuler.y, primaryEuler.z);
+  const turn = Math.PI * 2;
+  const unwrap = (value: number, target: number) => value + Math.round((target - value) / turn) * turn;
+  const nearest = (candidate: THREE.Vector3) => new THREE.Vector3(
+    unwrap(candidate.x, reference.x),
+    unwrap(candidate.y, reference.y),
+    unwrap(candidate.z, reference.z),
+  );
+
+  if (order === 'XYZ' && Math.abs(Math.cos(primary.y)) < 1e-3) {
+    const matrix = new THREE.Matrix4().makeRotationFromQuaternion(quaternion);
+    const elements = matrix.elements;
+    const theta = Math.atan2(elements[6], elements[5]);
+    const positive = Math.sin(primary.y) >= 0;
+    const referenceCombination = positive ? reference.x + reference.z : reference.x - reference.z;
+    const compatibleCombination = unwrap(theta, referenceCombination);
+    const delta = compatibleCombination - referenceCombination;
+    return new THREE.Vector3(
+      reference.x + delta / 2,
+      unwrap(primary.y, reference.y),
+      reference.z + (positive ? delta / 2 : -delta / 2),
+    );
+  }
+
+  const alternate = primary.clone();
+  const first = order[0].toLowerCase() as 'x' | 'y' | 'z';
+  const middle = order[1].toLowerCase() as 'x' | 'y' | 'z';
+  const last = order[2].toLowerCase() as 'x' | 'y' | 'z';
+  alternate[first] += Math.PI;
+  alternate[middle] = Math.PI - alternate[middle];
+  alternate[last] += Math.PI;
+
+  const candidates = [nearest(primary), nearest(alternate)];
+  return candidates.reduce((a, b) =>
+    a.distanceToSquared(reference) <= b.distanceToSquared(reference) ? a : b
+  );
+}
+
+export function importAnimationClip(
+  root: THREE.Object3D,
+  clip: THREE.AnimationClip,
+  options: {
+    fps?: number;
+    maxFrame?: number;
+    maxScalarKeys?: number;
+  } = {},
+): ImportedAnimationSummary {
+  const fps = options.fps ?? GLB_IMPORT_FPS;
+  const maxFrame = options.maxFrame ?? GLB_IMPORT_MAX_FRAME;
+  const maxScalarKeys = options.maxScalarKeys ?? GLB_IMPORT_MAX_SCALAR_KEYS;
+  if (!Number.isFinite(fps) || fps <= 0) throw new Error('GLB animation import requires a positive finite frame rate.');
+  if (!Number.isInteger(maxFrame) || maxFrame < 2) throw new Error('GLB animation import frame limit is invalid.');
+  if (!Number.isInteger(maxScalarKeys) || maxScalarKeys < 1) throw new Error('GLB animation import key limit is invalid.');
+  if (!clip.tracks.length) return { frameEnd: 1, targets: 0, sourceTracks: 0, scalarKeys: 0 };
+
+  let duration = 0;
+  for (const track of clip.tracks) {
+    if (!track.times.length) throw new Error(`GLB animation track "${track.name}" has no key times.`);
+    let previous = -Infinity;
+    for (const time of track.times) {
+      if (!Number.isFinite(time) || time < 0 || time < previous) {
+        throw new Error(`GLB animation track "${track.name}" has invalid key times.`);
+      }
+      previous = time;
+      duration = Math.max(duration, time);
+    }
+  }
+
+  const frameEnd = Math.ceil(duration * fps - 1e-9) + 1;
+  if (frameEnd > maxFrame) {
+    throw new Error(`GLB animation reaches frame ${frameEnd}, beyond Forge's supported frame ${maxFrame}.`);
+  }
+
+  const estimatedScalarKeys = clip.tracks.length * 3 * frameEnd;
+  if (estimatedScalarKeys > maxScalarKeys) {
+    throw new Error(
+      `GLB animation would create about ${estimatedScalarKeys.toLocaleString()} scalar keys; the import limit is ${maxScalarKeys.toLocaleString()}.`,
+    );
+  }
+
+  const pending = new Map<THREE.Object3D, AnimationTrackMap>();
+  const seen = new Set<string>();
+  let scalarKeys = 0;
+
+  for (const track of clip.tracks) {
+    const match = /^(.*)\.(position|quaternion|scale)$/.exec(track.name);
+    if (!match) {
+      const property = track.name.slice(track.name.lastIndexOf('.') + 1);
+      throw new Error(
+        property === 'morphTargetInfluences'
+          ? 'GLB morph-target animation is not editable in Forge yet.'
+          : `GLB animation track "${track.name}" targets an unsupported property.`,
+      );
+    }
+
+    const [, targetToken, property] = match as [string, string, 'position' | 'quaternion' | 'scale'];
+    const target = resolveImportedAnimationTarget(root, targetToken);
+    const identity = `${target.uuid}:${property}`;
+    if (seen.has(identity)) {
+      throw new Error(`GLB animation contains multiple "${property}" tracks for "${target.name || target.uuid}".`);
+    }
+    seen.add(identity);
+
+    const expectedSize = property === 'quaternion' ? 4 : 3;
+    const output = new Float32Array(expectedSize);
+    const interpolant = track.createInterpolant(output);
+    const discrete = track.getInterpolation() === THREE.InterpolateDiscrete;
+    const targetTracks = pending.get(target) ?? {};
+    pending.set(target, targetTracks);
+
+    const channels = property === 'quaternion'
+      ? propertyChannels('rotation')
+      : propertyChannels(property);
+    const keys = channels.map(() => [] as ScalarKey[]);
+    let rotationReference = new THREE.Vector3(target.rotation.x, target.rotation.y, target.rotation.z);
+    const quaternion = new THREE.Quaternion();
+
+    for (let frame = 1; frame <= frameEnd; frame++) {
+      const time = Math.min((frame - 1) / fps, duration);
+      const sample = interpolant.evaluate(time);
+      if (property === 'quaternion') {
+        quaternion.set(Number(sample[0]), Number(sample[1]), Number(sample[2]), Number(sample[3]));
+        if (![quaternion.x, quaternion.y, quaternion.z, quaternion.w].every(Number.isFinite) || quaternion.lengthSq() < 1e-12) {
+          throw new Error(`GLB animation track "${track.name}" contains an invalid quaternion sample.`);
+        }
+        quaternion.normalize();
+        const rotation = continuousEulerFromQuaternion(quaternion, target.rotation.order, rotationReference);
+        rotationReference = rotation;
+        [rotation.x, rotation.y, rotation.z].forEach((value, axis) => {
+          keys[axis].push({
+            frame,
+            value,
+            ...(discrete ? { interpolation: 'constant' as const } : {}),
+          });
+        });
+      } else {
+        for (let axis = 0; axis < 3; axis++) {
+          const value = Number(sample[axis]);
+          if (!Number.isFinite(value)) throw new Error(`GLB animation track "${track.name}" contains a non-finite sample.`);
+          keys[axis].push({
+            frame,
+            value,
+            ...(discrete ? { interpolation: 'constant' as const } : {}),
+          });
+        }
+      }
+    }
+
+    channels.forEach((channel, axis) => {
+      targetTracks[channel] = keys[axis];
+      scalarKeys += keys[axis].length;
+    });
+  }
+
+  if (scalarKeys > maxScalarKeys) {
+    throw new Error(`GLB animation exceeds the ${maxScalarKeys.toLocaleString()} scalar-key import limit.`);
+  }
+
+  for (const [target, tracks] of pending) target.userData.animationTracks = tracks;
+
+  return {
+    frameEnd,
+    targets: pending.size,
+    sourceTracks: clip.tracks.length,
+    scalarKeys,
+  };
+}
+
 function sampledFramesForGroup(
   tracks: AnimationTrackMap,
   property: 'position' | 'rotation' | 'scale',
