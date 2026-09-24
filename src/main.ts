@@ -656,6 +656,18 @@ function updateTimeline() {
   timelineTrackElement.dataset.viewStart = String(timelineViewStart);
   timelineTrackElement.dataset.viewEnd = String(timelineViewEnd);
   timelineTrackElement.dataset.viewManual = String(timelineViewManual);
+
+  const sceneSpan = editor.frameEnd - editor.frameStart;
+  const scrollbarLeft = sceneSpan > 0 ? (timelineViewStart - editor.frameStart) / sceneSpan * 100 : 0;
+  const scrollbarWidth = sceneSpan > 0 ? (timelineViewEnd - timelineViewStart) / sceneSpan * 100 : 100;
+  timelineViewThumb.style.left = `${THREE.MathUtils.clamp(scrollbarLeft, 0, 100)}%`;
+  timelineViewThumb.style.width = `${THREE.MathUtils.clamp(scrollbarWidth, 0, 100)}%`;
+  timelineViewScrollbar.setAttribute('aria-valuemin', String(editor.frameStart));
+  timelineViewScrollbar.setAttribute('aria-valuemax', String(editor.frameEnd));
+  timelineViewScrollbar.setAttribute('aria-valuenow', String(Math.round(timelineViewStart)));
+  timelineViewScrollbar.setAttribute('aria-valuetext', `Timeline view ${Math.round(timelineViewStart)}–${Math.round(timelineViewEnd)}`);
+  timelineViewScrollbar.title = `Timeline view ${Math.round(timelineViewStart)}–${Math.round(timelineViewEnd)} · drag to pan · resize handles to zoom`;
+
   $<HTMLButtonElement>('#timeline-frame-selected').disabled = !timelineSelectionCount;
   $<HTMLButtonElement>('#timeline-frame-scene').disabled = false;
   $<HTMLButtonElement>('#timeline-center-current').disabled = false;
@@ -1135,9 +1147,21 @@ type TimelinePanDrag = {
 };
 let timelinePanDrag: TimelinePanDrag | null = null;
 
+type TimelineScrollbarDrag = {
+  pointerId: number;
+  kind: 'pan' | 'start' | 'end';
+  startClientX: number;
+  startViewStart: number;
+  startViewEnd: number;
+  startManual: boolean;
+};
+let timelineScrollbarDrag: TimelineScrollbarDrag | null = null;
+
 const timelineTrack = $('#timeline-track');
 const timelineSelectionBox = $('#timeline-selection-box');
 const timelineMarkers = $('#keyframe-markers');
+const timelineViewScrollbar = $('#timeline-view-scrollbar');
+const timelineViewThumb = $('#timeline-view-thumb');
 
 function timelinePercent(frame: number) {
   return THREE.MathUtils.clamp(
