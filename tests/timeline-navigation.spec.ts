@@ -165,6 +165,128 @@ test('Timeline key drag uses the active navigated view transform', async ({ page
   )).toEqual([100, 505, 900]);
 });
 
+test('Timeline view scrollbar thumb pans the view without changing project history', async ({ page }) => {
+  await seedTimelineKeys(page);
+  const track = page.getByLabel('Timeline view', { exact: true });
+  const trackBox = await track.boundingBox();
+  await page.mouse.move(trackBox!.x + trackBox!.width / 2, trackBox!.y + trackBox!.height / 2);
+  await page.mouse.wheel(0, -520);
+
+  const beforeView = await viewState(page);
+  const beforeProject = await page.evaluate(() => {
+    const e = (window as any).__forge;
+    return {
+      snapshot: e.snapshot(),
+      history: JSON.stringify(e.history),
+      historyIndex: e.historyIndex,
+    };
+  });
+
+  const scrollbar = page.getByRole('scrollbar', { name: 'Timeline view scrollbar' });
+  const barBox = await scrollbar.boundingBox();
+  const thumb = page.locator('#timeline-view-thumb');
+  const thumbBox = await thumb.boundingBox();
+  expect(barBox).not.toBeNull();
+  expect(thumbBox).not.toBeNull();
+
+  await page.mouse.move(thumbBox!.x + thumbBox!.width / 2, thumbBox!.y + thumbBox!.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(
+    thumbBox!.x + thumbBox!.width / 2 + barBox!.width * 0.1,
+    thumbBox!.y + thumbBox!.height / 2,
+    { steps: 5 },
+  );
+  await page.mouse.up();
+
+  const afterView = await viewState(page);
+  expect(afterView.start).toBeGreaterThan(beforeView.start);
+  expect(afterView.end - afterView.start).toBeCloseTo(beforeView.end - beforeView.start, 6);
+
+  const afterProject = await page.evaluate(() => {
+    const e = (window as any).__forge;
+    return {
+      snapshot: e.snapshot(),
+      history: JSON.stringify(e.history),
+      historyIndex: e.historyIndex,
+    };
+  });
+  expect(afterProject).toEqual(beforeProject);
+});
+
+test('Timeline view scrollbar handles resize the visible range', async ({ page }) => {
+  await seedTimelineKeys(page);
+
+  await page.keyboard.down('Shift');
+  await page.locator('.key-marker[data-frame="500"]').click();
+  await page.keyboard.up('Shift');
+  await page.getByRole('button', { name: 'Frame selected Timeline keys (Numpad .)' }).click();
+
+  const before = await viewState(page);
+  expect(before.end - before.start).toBeLessThan(50);
+
+  const scrollbar = page.getByRole('scrollbar', { name: 'Timeline view scrollbar' });
+  const barBox = await scrollbar.boundingBox();
+  const endHandle = page.locator('[data-timeline-view-handle="end"]');
+  const handleBox = await endHandle.boundingBox();
+
+  await page.mouse.move(handleBox!.x + handleBox!.width / 2, handleBox!.y + handleBox!.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(
+    handleBox!.x + handleBox!.width / 2 + barBox!.width * 0.1,
+    handleBox!.y + handleBox!.height / 2,
+    { steps: 5 },
+  );
+  await page.mouse.up();
+
+  const resized = await viewState(page);
+  expect(resized.start).toBeCloseTo(before.start, 6);
+  expect(resized.end).toBeGreaterThan(before.end + 50);
+});
+
+test('clicking empty Timeline scrollbar track pages the view', async ({ page }) => {
+  await seedTimelineKeys(page);
+  const track = page.getByLabel('Timeline view', { exact: true });
+  const trackBox = await track.boundingBox();
+  await page.mouse.move(trackBox!.x + trackBox!.width / 2, trackBox!.y + trackBox!.height / 2);
+  await page.mouse.wheel(0, -520);
+
+  const before = await viewState(page);
+  const scrollbar = page.getByRole('scrollbar', { name: 'Timeline view scrollbar' });
+  const barBox = await scrollbar.boundingBox();
+
+  await page.mouse.click(barBox!.x + barBox!.width * 0.95, barBox!.y + barBox!.height / 2);
+
+  const after = await viewState(page);
+  expect(after.start).toBeGreaterThan(before.start);
+  expect(after.end - after.start).toBeCloseTo(before.end - before.start, 6);
+});
+
+test('Escape cancels an active Timeline scrollbar drag', async ({ page }) => {
+  await seedTimelineKeys(page);
+  const track = page.getByLabel('Timeline view', { exact: true });
+  const trackBox = await track.boundingBox();
+  await page.mouse.move(trackBox!.x + trackBox!.width / 2, trackBox!.y + trackBox!.height / 2);
+  await page.mouse.wheel(0, -520);
+  const before = await viewState(page);
+
+  const scrollbar = page.getByRole('scrollbar', { name: 'Timeline view scrollbar' });
+  const barBox = await scrollbar.boundingBox();
+  const thumb = page.locator('#timeline-view-thumb');
+  const thumbBox = await thumb.boundingBox();
+
+  await page.mouse.move(thumbBox!.x + thumbBox!.width / 2, thumbBox!.y + thumbBox!.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(
+    thumbBox!.x + thumbBox!.width / 2 + barBox!.width * 0.12,
+    thumbBox!.y + thumbBox!.height / 2,
+    { steps: 4 },
+  );
+  expect((await viewState(page)).start).toBeGreaterThan(before.start);
+
+  await page.keyboard.press('Escape');
+  expect(await viewState(page)).toEqual(before);
+});
+
 test('Timeline framing shortcuts act when the Timeline view has focus', async ({ page }) => {
   await seedTimelineKeys(page);
   const track = page.getByLabel('Timeline view', { exact: true });
