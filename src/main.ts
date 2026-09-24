@@ -2,16 +2,43 @@ import { allAnimationFrames, animationChannels, animationTracks, effectiveBezier
 import { AnimationGraphView, animationChannelLabel } from './animation/animation-graph';
 import './style.css';
 import * as THREE from 'three';
-import { createIcons, Box, ChevronDown, ChevronRight, Plus, MousePointer2, Move, Rotate3d, Scaling, Magnet, Grid2x2, Scan, Eye, EyeOff, Search, SlidersHorizontal, Layers, Diamond, Play, Pause, SkipBack, SkipForward, ChevronFirst, ChevronLast, Undo2, Redo2, Copy, Trash2, X, HelpCircle, Download, Upload, Camera, Check, Circle, Triangle, Hexagon, FolderOpen, FolderPlus, LogOut, Save, FilePlus2, Maximize, Globe, Settings2, Crosshair, Sun, Activity, PanelRightClose } from 'lucide';
+import { createIcons, Box, ChevronDown, ChevronRight, Plus, MousePointer2, Move, Rotate3d, Scaling, Magnet, Grid2x2, Scan, Eye, EyeOff, Search, SlidersHorizontal, Layers, Diamond, Play, Pause, SkipBack, SkipForward, ChevronFirst, ChevronLast, Undo2, Redo2, Copy, Trash2, X, HelpCircle, Download, Upload, Camera, Check, Circle, Triangle, Hexagon, FolderOpen, FolderPlus, LogOut, Save, FilePlus2, Maximize, Globe, Settings2, Crosshair, Sun, Moon, Activity, PanelRightClose } from 'lucide';
 import { mountModelingUI } from './modeling/modeling-ui';
 import { Editor, type AnimationTrackMap, type Primitive, type Project, type KeyInterpolation, type KeyTangentMode, type ScalarAnimationChannel, type TransformOrientation } from './editor';
 import { RigSystem, rigBones, RIG_SOURCE } from './rig/rig';
 
-const icons = { Box, ChevronDown, ChevronRight, Plus, MousePointer2, Move, Rotate3d, Scaling, Magnet, Grid2x2, Scan, Eye, EyeOff, Search, SlidersHorizontal, Layers, Diamond, Play, Pause, SkipBack, SkipForward, ChevronFirst, ChevronLast, Undo2, Redo2, Copy, Trash2, X, HelpCircle, Download, Upload, Camera, Check, Circle, Triangle, Hexagon, FolderOpen, FolderPlus, LogOut, Save, FilePlus2, Maximize, Globe, Settings2, Crosshair, Sun, Activity, PanelRightClose };
+const icons = { Box, ChevronDown, ChevronRight, Plus, MousePointer2, Move, Rotate3d, Scaling, Magnet, Grid2x2, Scan, Eye, EyeOff, Search, SlidersHorizontal, Layers, Diamond, Play, Pause, SkipBack, SkipForward, ChevronFirst, ChevronLast, Undo2, Redo2, Copy, Trash2, X, HelpCircle, Download, Upload, Camera, Check, Circle, Triangle, Hexagon, FolderOpen, FolderPlus, LogOut, Save, FilePlus2, Maximize, Globe, Settings2, Crosshair, Sun, Moon, Activity, PanelRightClose };
 const icon = (name: string, cls = '') => `<i data-lucide="${name}" class="${cls}"></i>`;
 const button = (id: string, name: string, label: string, extra = '') => `<button id="${id}" class="icon-button ${extra}" title="${label}" aria-label="${label}">${icon(name)}</button>`;
 const $ = <T extends HTMLElement = HTMLElement>(selector: string) => document.querySelector<T>(selector)!;
 const refreshIcons = () => createIcons({ icons, attrs: { 'stroke-width': 1.5 } });
+
+type ThemeMode = 'dark' | 'light';
+const THEME_STORAGE_KEY = 'forge-theme';
+const storedTheme = localStorage.getItem(THEME_STORAGE_KEY);
+let themeMode: ThemeMode = storedTheme === 'light' ? 'light' : 'dark';
+
+function applyTheme(mode: ThemeMode, persist = true) {
+  themeMode = mode;
+  document.documentElement.dataset.theme = mode;
+  document.documentElement.style.colorScheme = mode;
+  if (persist) localStorage.setItem(THEME_STORAGE_KEY, mode);
+
+  const themeColor = document.querySelector<HTMLMetaElement>('meta[name="theme-color"]');
+  if (themeColor) themeColor.content = mode === 'light' ? '#f4f6f9' : '#17191d';
+
+  const toggle = document.querySelector<HTMLButtonElement>('#theme-toggle');
+  if (toggle) {
+    const next = mode === 'dark' ? 'light' : 'dark';
+    toggle.innerHTML = `${icon(next === 'light' ? 'sun' : 'moon')}<span>${next === 'light' ? 'Light' : 'Dark'}</span>`;
+    toggle.title = `Switch to ${next} theme`;
+    toggle.setAttribute('aria-label', `Switch to ${next} theme`);
+    toggle.setAttribute('aria-pressed', String(mode === 'light'));
+    refreshIcons();
+  }
+}
+
+applyTheme(themeMode, false);
 
 $('#app').innerHTML = `
   <header class="topbar">
@@ -23,6 +50,7 @@ $('#app').innerHTML = `
     </nav>
     <div class="project-name"><span class="project-dot"></span><input id="project-name" aria-label="Project name" value="Untitled scene" maxlength="100"><span class="file-type">.forge</span></div>
     <span id="save-status" class="save-status">Local workspace</span>
+    <button id="theme-toggle" class="theme-toggle" type="button" title="Switch to light theme" aria-label="Switch to light theme" aria-pressed="false">${icon('sun')}<span>Light</span></button>
     <button class="export-button" id="export-top">${icon('download')} Export <span>GLB</span></button>
   </header>
   <div class="workspace-bar"><div class="workspace-tabs"><button class="workspace-tab active" data-workspace="layout">Layout</button><button class="workspace-tab" data-workspace="modeling">Modeling</button><button class="workspace-tab" data-workspace="material">Material</button><button class="workspace-tab" data-workspace="animation">Animation</button></div><span class="workspace-note"><span></span> All processing stays on your device</span>${button('toggle-sidebar', 'panel-right-close', 'Toggle properties panel')}</div>
@@ -82,6 +110,11 @@ $('#add-menu').insertAdjacentHTML('beforeend', `<hr><button id="add-rig-menu">${
 $('.dialog-note').textContent = 'This release supports vertex, edge and triangle face editing, modeling-core tools, scene collections, Kimodo SOMA77 FK/IK posing and basic skinning. Polygon modeling, sculpting, physics and native .blend files are planned.';
 $('#material-fields').insertAdjacentHTML('beforeend', `<details class="painting-section" open><summary>Texture paint</summary><canvas id="paint-view" width="256" height="256" aria-label="Texture paint canvas"></canvas><p class="field-help">Paints an embedded 256×256 texture in the mesh UV layout. Mesh geometry and UV coordinates stay unchanged.</p><button class="wide-button" id="paint-enable">Enable texture painting</button><button class="wide-button" id="texture-import">Import PNG / JPEG / WebP</button><button class="wide-button" id="texture-export">Export texture PNG</button><input id="texture-input" type="file" accept="image/png,image/jpeg,image/webp" hidden><label class="property-row">Brush color<input id="paint-color" aria-label="Brush color" type="color" value="#e08050"></label><label class="property-row">Brush size<input id="paint-size" aria-label="Brush size" type="number" min="1" max="128" step="1" value="16"></label><button class="wide-button" id="paint-clear">Clear texture</button></details>`);
 refreshIcons();
+applyTheme(themeMode, false);
+
+$('#theme-toggle').addEventListener('click', () => {
+  applyTheme(themeMode === 'dark' ? 'light' : 'dark');
+});
 
 let editor: Editor;
 let graphChannel: ScalarAnimationChannel = 'position.x';
