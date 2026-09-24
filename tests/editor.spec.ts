@@ -402,6 +402,16 @@ test('manual Weight Mode edits selected skin vertices with normalized four-bone 
     expect(vertex.tip).toBeCloseTo(0.8, 5);
   });
 
+  const frozen = await page.evaluate(() => {
+    const e = (window as any).__forge;
+    const frame = e.frame;
+    return { play: e.togglePlayback(), scrub: e.scrub(frame + 5), frame: e.frame, playing: e.playing };
+  });
+  expect(frozen.play).toBe(false);
+  expect(frozen.scrub).toBe(false);
+  expect(frozen.playing).toBe(false);
+  expect(frozen.frame).toBe(1);
+
   await page.locator('#rig-weight-clear').click();
   const cleared = await page.evaluate(() => (window as any).__rig.weightSelectionSummary());
   expect(cleared.average).toBeCloseTo(0, 6);
