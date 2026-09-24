@@ -28,7 +28,7 @@ The scalar animation-track model remains authoritative. Timeline selection conti
 
 ## Batch deletion
 
-- The Timeline header exposes a remove-selected control.
+- A dedicated **Summary Keys** toolbar directly above the Timeline track exposes a remove-selected control.
 - Delete/Backspace removes the selected Timeline summary frames when Timeline selection is active.
 - This also works when the transparent Timeline scrubber retains keyboard focus.
 - Every scalar key authored at the selected summary frames is removed.
@@ -37,7 +37,7 @@ The scalar animation-track model remains authoritative. Timeline selection conti
 
 ## Timeline Time Scale
 
-- The Timeline header exposes a positive Time Scale factor and Scale action.
+- The **Summary Keys** toolbar directly above the Timeline track exposes a positive Time Scale factor and Scale action.
 - Two or more selected Timeline summary frames are required.
 - Frames scale around the midpoint of the selected summary-frame range.
 - Results are rounded to integer frames.
