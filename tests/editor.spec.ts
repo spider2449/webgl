@@ -110,14 +110,12 @@ test('creates a generic armature hierarchy and supports FK and full-pose keys', 
     };
   });
 
-  expect(result).toEqual({
-    count: 3,
-    names: ['Root', 'Bone', 'Bone.001'],
-    parent: 'Bone',
-    angle: expect.closeTo(0.35, 4),
-    keys: 2,
-    rootParentIsRig: true,
-  });
+  expect(result.count).toBe(3);
+  expect(result.names).toEqual(['Root', 'Bone', 'Bone.001']);
+  expect(result.parent).toBe('Bone');
+  expect(result.angle).toBeCloseTo(0.35, 4);
+  expect(result.keys).toBe(2);
+  expect(result.rootParentIsRig).toBe(true);
 });
 
 test('Forge rest pose captures arbitrary bone transforms and restores them', async ({ page }) => {
@@ -358,8 +356,18 @@ test('rig workspace screenshot', async ({ page }) => {
   await page.evaluate(() => { const e=(window as any).__forge;e.select(e.content.children[0]);e.remove(); });
   await page.locator('[data-workspace="rigging"]').click();
   await page.locator('#create-rig').click();
-  await page.locator('#rig-preview').click();
-  await page.evaluate(() => { const e=(window as any).__forge,r=(window as any).__rig; r.activeRig.getObjectByName('LeftArm').rotation.z=0.5;e.commit();e.focus(true); });
+  await page.locator('#rig-add-bone').click();
+  await page.locator('#rig-add-bone').click();
+  await page.evaluate(() => {
+    const e=(window as any).__forge,r=(window as any).__rig;
+    const rig=r.activeRig;
+    const middle=rig.getObjectByName('Bone');
+    middle.rotation.z=0.5;
+    rig.updateMatrixWorld(true);
+    e.commit();
+    e.select(rig);
+    e.focus(true);
+  });
   await page.waitForTimeout(250);
   await page.screenshot({path:'test-results/rig.png'});
 });
