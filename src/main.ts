@@ -1817,7 +1817,7 @@ $<HTMLInputElement>('#model-input').onchange = async e => {
     if (count > 2_000_000) throw new Error('Import would exceed the 2 million vertex scene limit.');
 
     root.name = editor.uniqueName(file.name.replace(/\.[^.]+$/, ''));
-    editor.importObject(root, importedAnimation?.frameEnd);
+    editor.importObject(root, importedAnimation?.scalarKeys ? importedAnimation.frameEnd : undefined);
     added = true;
     if (importedAnimation?.firstTarget) editor.select(importedAnimation.firstTarget);
     editor.focus();
