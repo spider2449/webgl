@@ -372,8 +372,13 @@ export function importAnimationClip(
 
     const expectedSize = property === 'quaternion' ? 4 : 3;
     const output = new Float32Array(expectedSize);
-    const interpolant = track.createInterpolant(output);
-    const discrete = track.getInterpolation() === THREE.InterpolateDiscrete;
+    const interpolantFactory = track.createInterpolant as typeof track.createInterpolant & {
+      isInterpolantFactoryMethodGLTFCubicSpline?: boolean;
+    };
+    const interpolant = interpolantFactory.call(track, output);
+    const discrete =
+      !interpolantFactory.isInterpolantFactoryMethodGLTFCubicSpline &&
+      track.getInterpolation() === THREE.InterpolateDiscrete;
     const targetTracks = pending.get(target) ?? {};
     pending.set(target, targetTracks);
 
