@@ -106,6 +106,11 @@ test('creates and edits a Forge-native armature hierarchy through rig controls',
   await page.locator('#rig-add-root').click();
   await expect(page.locator('.bone-button')).toHaveCount(4);
 
+  await page.locator('[data-panel="object"]').click();
+  await page.getByLabel('position x', { exact: true }).fill('1.5');
+  await page.getByLabel('position x', { exact: true }).press('Enter');
+  await page.locator('[data-panel="rig"]').click();
+
   const before = await page.evaluate(() => {
     const e = (window as any).__forge, r = (window as any).__rig;
     const rig = r.activeRig;
@@ -114,10 +119,12 @@ test('creates and edits a Forge-native armature hierarchy through rig controls',
     return {
       target: target.uuid,
       world: selected.getWorldPosition(selected.position.clone()).toArray(),
+      rest: selected.userData.restPosition,
       names: (() => { const names: string[] = []; rig.traverse((o: any) => { if (o.isBone) names.push(o.name); }); return names; })(),
     };
   });
   expect(before.names).toEqual(['Bone', 'Bone.001', 'Bone.002', 'Bone.003']);
+  expect(before.rest[0]).toBeCloseTo(1.5, 6);
   await page.locator('#rig-parent').selectOption(before.target);
   await page.locator('#rig-reparent').click();
   const after = await page.evaluate(() => {
@@ -155,10 +162,13 @@ test('creates exact SOMA77 hierarchy and supports FK and full-pose keys', async 
     e.frame = 25; arm.rotation.z = 0.7; rig.updateMatrixWorld(true);
     const after = hand.getWorldPosition(hips.position.clone()).toArray();
     r.keyPose(); e.scrub(13);
-    return { count: bones.length, hips: hips.position.toArray(), parent: hand.parent.name, before, after, angle: arm.rotation.z, keys: arm.userData.animationTracks['rotation.z'].length };
+    let editError = '';
+    try { r.setMode('edit'); } catch (error) { editError = (error as Error).message; }
+    return { count: bones.length, hips: hips.position.toArray(), parent: hand.parent.name, before, after, angle: arm.rotation.z, keys: arm.userData.animationTracks['rotation.z'].length, editError };
   });
   expect(result.count).toBe(77); expect(result.hips).toEqual([0,0,0]); expect(result.parent).toBe('LeftForeArm');
   expect(result.before).not.toEqual(result.after); expect(result.angle).toBeCloseTo(0.35, 4); expect(result.keys).toBe(2);
+  expect(result.editError).toContain('pose-only');
 });
 
 test('skinned vertices deform and survive project reload', async ({ page }) => {
