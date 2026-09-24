@@ -71,7 +71,7 @@ $('#app').innerHTML = `
     <aside class="sidebar">
       <section class="outliner"><div class="panel-heading"><span class="panel-title">${icon('layers')} Scene Collection</span><span class="count" id="object-count">1</span>${button('add-outliner','plus','Add mesh')}</div><div class="search-field">${icon('search')}<input id="object-search" placeholder="Search objects…" aria-label="Search objects"><kbd>/</kbd></div><div class="collection-row">${icon('chevron-down')}${icon('folder-open')}<span>Scene Collection</span>${button('add-collection','plus','Create collection')}</div><div id="object-list" class="object-list"></div><div class="outliner-footer"><span id="selection-count">1 object selected</span>${button('delete-outliner','trash-2','Delete selected object')}<input id="collection-name" aria-label="New collection name" value="Collection" maxlength="100"><select id="collection-target" aria-label="Target collection"><option value="">Move selected to…</option></select>${button('move-to-collection','folder-open','Move selected to collection')}${button('unlink-collection','log-out','Unlink from collection')}${button('delete-collection','trash-2','Delete empty collection')}</div></section>
       <section class="properties"><div class="properties-tabs"><button class="active" data-panel="object">${icon('sliders-horizontal')} Object</button><button data-panel="material">${icon('circle')} Material</button><button data-panel="scene">${icon('settings-2')} Scene</button></div><div class="properties-content">
-        <div id="panel-object" class="property-panel"><div class="object-title">${icon('box')}<input id="object-name" aria-label="Object name" maxlength="100" value="Cube"><span class="object-type" id="object-type">MESH</span></div><div id="no-selection" class="empty-state hidden">Select an object to edit its properties.</div><div id="object-fields"><div class="section-heading"><span>${icon('chevron-down')} Transform</span><button id="reset-transform" title="Reset transform" aria-label="Reset transform">${icon('undo-2')}</button></div>${['position','rotation','scale'].map((group) => `<div class="transform-group"><label>${group === 'position' ? 'Location' : group[0].toUpperCase()+group.slice(1)}</label><div class="vector-inputs">${['x','y','z'].map(axis => `<label class="axis-input ${axis}"><span>${axis.toUpperCase()}</span><input type="number" step="${group === 'rotation' ? 1 : 0.1}" data-transform="${group}" data-axis="${axis}" aria-label="${group} ${axis}" value="0"></label>`).join('')}</div></div>`).join('')}<div class="property-note">${icon('globe')} Local object transform · Rotation in degrees · Gimbal edits Euler channels directly</div><div class="section-heading border-top"><span>${icon('chevron-down')} Geometry</span></div><div class="geometry-stats"><div><span>Vertices</span><strong id="mesh-vertices">24</strong></div><div><span>Triangles</span><strong id="mesh-triangles">12</strong></div></div><div class="action-row"><button id="smooth">Shade smooth</button><button id="flat">Shade flat</button></div><label class="property-row">Extrusion distance<input id="extrude-distance" aria-label="Extrusion distance" type="number" min="0.0001" max="1000" step="0.1" value="0.5"></label><button class="wide-button" id="extrude-face">Extrude selected triangle</button><p class="field-help">Select a triangle face in Edit Mode. Extrusion follows its normal in local units.</p><button class="wide-button" id="mirror">${icon('copy')} Mirror geometry on X</button><p class="field-help">Mirror is applied to the mesh. Use Edit Mode to move vertices, edges or triangle faces.</p></div></div>
+        <div id="panel-object" class="property-panel"><div class="object-title">${icon('box')}<input id="object-name" aria-label="Object name" maxlength="100" value="Cube"><span class="object-type" id="object-type">MESH</span></div><div id="no-selection" class="empty-state hidden">Select an object to edit its properties.</div><div id="object-fields"><div class="section-heading"><span>${icon('chevron-down')} Transform</span><button id="reset-transform" title="Reset transform" aria-label="Reset transform">${icon('undo-2')}</button></div>${['position','rotation','scale'].map((group) => `<div class="transform-group"><label>${group === 'position' ? 'Location' : group[0].toUpperCase()+group.slice(1)}</label><div class="vector-inputs">${['x','y','z'].map(axis => `<label class="axis-input ${axis}"><span>${axis.toUpperCase()}</span><input type="number" step="${group === 'rotation' ? 1 : 0.1}" data-transform="${group}" data-axis="${axis}" aria-label="${group} ${axis}" value="0"></label>`).join('')}</div></div>`).join('')}<div class="property-note">${icon('globe')} Local object transform · Rotation in degrees · Gimbal edits Euler channels directly</div><div class="section-heading border-top"><span>${icon('chevron-down')} Geometry</span></div><div id="primitive-fields" class="hidden"><div class="section-heading"><span>Primitive parameters</span><span class="count" id="primitive-kind"></span></div><div id="primitive-parameters"></div><button class="wide-button" id="primitive-apply">Apply primitive</button><p class="field-help">Increase segments before skin binding for denser weight vertices. Starting a topology edit automatically applies these parameters.</p></div><div class="geometry-stats"><div><span>Vertices</span><strong id="mesh-vertices">24</strong></div><div><span>Triangles</span><strong id="mesh-triangles">12</strong></div></div><div class="action-row"><button id="smooth">Shade smooth</button><button id="flat">Shade flat</button></div><label class="property-row">Extrusion distance<input id="extrude-distance" aria-label="Extrusion distance" type="number" min="0.0001" max="1000" step="0.1" value="0.5"></label><button class="wide-button" id="extrude-face">Extrude selected triangle</button><p class="field-help">Select a triangle face in Edit Mode. Extrusion follows its normal in local units.</p><button class="wide-button" id="mirror">${icon('copy')} Mirror geometry on X</button><p class="field-help">Mirror is applied to the mesh. Use Edit Mode to move vertices, edges or triangle faces.</p></div></div>
         <div id="panel-material" class="property-panel hidden"><div class="section-heading"><span>${icon('circle')} Surface material</span></div><div id="material-fields"><div class="material-swatch" id="material-preview"><span></span><small>STANDARD SURFACE</small></div><label class="property-row">Base color<input type="color" id="material-color" value="#b8b6b2"></label><label class="range-property">Roughness<output id="roughness-value">0.42</output><input type="range" id="roughness" min="0" max="1" step="0.01" value="0.42"></label><label class="range-property">Metallic<output id="metalness-value">0.12</output><input type="range" id="metalness" min="0" max="1" step="0.01" value="0.12"></label><p class="field-help">Edits the first standard material of the selected mesh. Lighting is provided by the studio environment.</p></div><div id="no-material" class="empty-state hidden">Select a mesh with a standard material.</div></div>
         <div id="panel-scene" class="property-panel hidden"><div class="section-heading"><span>${icon('settings-2')} Viewport settings</span></div><label class="property-row">Quality<select id="quality"><option value="low">Performance</option><option value="balanced" selected>Balanced</option><option value="high">High quality</option></select></label><label class="property-row">Background<input type="color" id="background" value="#25282e"></label><label class="range-property">Exposure<output id="exposure-value">1.30</output><input id="exposure" type="range" min="0.2" max="3" step="0.05" value="1.3"></label><div class="performance-card">${icon('activity')}<strong>Performance by design</strong><p>The viewport redraws only when something changes. Pixel density is capped to keep interaction responsive.</p></div><p class="field-help">Viewport settings are session-only. Projects store objects, materials and transform keyframes.</p><button class="wide-button" id="restore-local">${icon('folder-open')} Recover last local scene</button></div>
       </div></section><div class="sidebar-bottom">FORGE <span>EARLY ACCESS · 0.1</span></div>
@@ -448,6 +448,98 @@ function updateTransforms() {
     }
   });
 }
+const primitiveParameterDefinitions: Record<Primitive, Array<{ key: string; label: string; min: number; max: number; step: number }>> = {
+  cube: [
+    { key: 'width', label: 'Size X', min: 0.001, max: 1000, step: 0.1 },
+    { key: 'height', label: 'Size Y', min: 0.001, max: 1000, step: 0.1 },
+    { key: 'depth', label: 'Size Z', min: 0.001, max: 1000, step: 0.1 },
+    { key: 'widthSegments', label: 'Segments X', min: 1, max: 256, step: 1 },
+    { key: 'heightSegments', label: 'Segments Y', min: 1, max: 256, step: 1 },
+    { key: 'depthSegments', label: 'Segments Z', min: 1, max: 256, step: 1 },
+  ],
+  sphere: [
+    { key: 'radius', label: 'Radius', min: 0.001, max: 1000, step: 0.1 },
+    { key: 'widthSegments', label: 'Width segments', min: 3, max: 256, step: 1 },
+    { key: 'heightSegments', label: 'Height segments', min: 2, max: 256, step: 1 },
+  ],
+  cylinder: [
+    { key: 'radius', label: 'Radius', min: 0.001, max: 1000, step: 0.1 },
+    { key: 'height', label: 'Depth', min: 0.001, max: 1000, step: 0.1 },
+    { key: 'radialSegments', label: 'Radial segments', min: 3, max: 256, step: 1 },
+    { key: 'heightSegments', label: 'Height segments', min: 1, max: 256, step: 1 },
+  ],
+  cone: [
+    { key: 'radius', label: 'Radius', min: 0.001, max: 1000, step: 0.1 },
+    { key: 'height', label: 'Depth', min: 0.001, max: 1000, step: 0.1 },
+    { key: 'radialSegments', label: 'Radial segments', min: 3, max: 256, step: 1 },
+    { key: 'heightSegments', label: 'Height segments', min: 1, max: 256, step: 1 },
+  ],
+  torus: [
+    { key: 'radius', label: 'Major radius', min: 0.001, max: 1000, step: 0.1 },
+    { key: 'tube', label: 'Tube radius', min: 0.001, max: 1000, step: 0.05 },
+    { key: 'radialSegments', label: 'Radial segments', min: 3, max: 256, step: 1 },
+    { key: 'tubularSegments', label: 'Tubular segments', min: 3, max: 256, step: 1 },
+  ],
+  plane: [
+    { key: 'width', label: 'Size X', min: 0.001, max: 1000, step: 0.1 },
+    { key: 'height', label: 'Size Y', min: 0.001, max: 1000, step: 0.1 },
+    { key: 'widthSegments', label: 'Segments X', min: 1, max: 256, step: 1 },
+    { key: 'heightSegments', label: 'Segments Y', min: 1, max: 256, step: 1 },
+  ],
+  icosphere: [
+    { key: 'radius', label: 'Radius', min: 0.001, max: 1000, step: 0.1 },
+    { key: 'detail', label: 'Detail', min: 0, max: 6, step: 1 },
+  ],
+};
+
+let primitiveFieldsKind = '';
+function refreshPrimitiveFields() {
+  const settings = editor.primitiveSettings;
+  const fields = $('#primitive-fields');
+  fields.classList.toggle('hidden', !settings);
+  if (!settings) {
+    primitiveFieldsKind = '';
+    return;
+  }
+
+  $('#primitive-kind').textContent = settings.kind.toUpperCase();
+  const definitions = primitiveParameterDefinitions[settings.kind];
+  const container = $('#primitive-parameters');
+
+  if (primitiveFieldsKind !== settings.kind) {
+    primitiveFieldsKind = settings.kind;
+    container.replaceChildren(...definitions.map(definition => {
+      const label = document.createElement('label');
+      label.className = 'property-row';
+      label.textContent = definition.label;
+
+      const input = document.createElement('input');
+      input.type = 'number';
+      input.min = String(definition.min);
+      input.max = String(definition.max);
+      input.step = String(definition.step);
+      input.dataset.primitiveParameter = definition.key;
+      input.setAttribute('aria-label', `Primitive ${definition.label}`);
+      input.onchange = () => {
+        try {
+          editor.setPrimitiveParameter(definition.key, Number(input.value));
+        } catch (error) {
+          toast((error as Error).message);
+          refreshPrimitiveFields();
+        }
+      };
+      label.append(input);
+      return label;
+    }));
+  }
+
+  container.querySelectorAll<HTMLInputElement>('[data-primitive-parameter]').forEach(input => {
+    if (document.activeElement === input) return;
+    const value = (settings as unknown as Record<string, unknown>)[input.dataset.primitiveParameter!];
+    if (typeof value === 'number') input.value = String(value);
+  });
+}
+
 function updateUI() {
   const object = editor.selected;
   $('#project-name').setAttribute('title', editor.name);
@@ -461,6 +553,7 @@ function updateUI() {
   $<HTMLInputElement>('#object-name').value = object?.name ?? 'No selection';
   $<HTMLInputElement>('#object-name').disabled = !object;
   $('#object-type').textContent = object instanceof THREE.Bone ? 'BONE' : object instanceof THREE.SkinnedMesh ? 'SKIN' : object instanceof THREE.Mesh ? 'MESH' : object?.userData.forgeRig ? 'RIG' : object ? 'GROUP' : '';
+  refreshPrimitiveFields();
   updateTransforms();
   let vertices = 0, triangles = 0;
   object?.traverse(o => { if (o instanceof THREE.Mesh) { vertices += o.geometry.getAttribute('position')?.count ?? 0; triangles += (o.geometry.index?.count ?? o.geometry.getAttribute('position')?.count ?? 0) / 3; } });
@@ -1045,6 +1138,13 @@ function deleteSelection() {
 for (const id of ['delete','delete-outliner']) on(id, deleteSelection);
 on('menu-undo', () => editor.undo()); on('menu-redo', () => editor.redo());
 on('smooth', () => editor.smooth(false)); on('flat', () => editor.smooth(true));
+on('primitive-apply', () => {
+  try {
+    if (editor.applyPrimitive()) toast('Primitive parameters applied.');
+  } catch (error) {
+    toast((error as Error).message);
+  }
+});
 mountModelingUI(editor, toast);
 on('mirror', () => toast(editor.mirror() ? 'Mirrored mesh geometry on the local X axis.' : 'Select a mesh to mirror.'));
 on('add-outliner', () => { $('#add-menu').classList.toggle('hidden'); });
