@@ -10,6 +10,18 @@ async function selectGraphChannel(page: any, label: string) {
   await page.getByRole('button', { name: `Graph channel ${label}` }).click();
 }
 
+test('Graph editing controls are organized under the Key Inspector instead of the title row', async ({ page }) => {
+  const inspector = page.getByLabel('Graph key inspector');
+  await expect(inspector).toBeVisible();
+  await expect(inspector).toContainText('Key Inspector');
+  await expect(inspector.locator('#graph-key-interpolation')).toHaveCount(1);
+  await expect(inspector.locator('#graph-key-tangent')).toHaveCount(1);
+  await expect(inspector.locator('#graph-time-scale')).toHaveCount(1);
+  await expect(page.locator('.animation-graph-header #graph-key-interpolation')).toHaveCount(0);
+  await expect(page.locator('.animation-graph-header #graph-key-tangent')).toHaveCount(0);
+  await expect(page.locator('.animation-graph-header #graph-time-scale')).toHaveCount(0);
+});
+
 test('Graph Key Inspector edits one selected key Frame and Value in one undo step', async ({ page }) => {
   await page.evaluate(() => {
     const e = (window as any).__forge;
