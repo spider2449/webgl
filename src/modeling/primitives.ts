@@ -183,6 +183,8 @@ export function createPrimitiveGeometry(settings: PrimitiveSettings): THREE.Buff
     case 'icosphere':
       source = new THREE.IcosahedronGeometry(value.radius, value.detail);
       break;
+    default:
+      throw new Error('Unsupported primitive type.');
   }
 
   const geometry = new THREE.BufferGeometry().copy(source);
