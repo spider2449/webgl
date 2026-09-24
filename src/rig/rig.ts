@@ -133,6 +133,7 @@ export class RigSystem {
   }
   add(armature: THREE.Group = createNativeArmature()) {
     const rig = armature;
+    this.editRig = null;
     if (!isForgeArmature(rig)) throw new Error('The object is not a Forge armature.');
     if (!rigBones(rig).length) throw new Error('An armature must contain at least one bone.');
     rig.name = this.editor.uniqueName(rig.name || 'Armature');
@@ -156,7 +157,7 @@ export class RigSystem {
       this.editor.select(bone ?? rig);
       this.editor.commit();
     } else {
-      if (this.editRig === rig) this.editRig = null;
+      this.editRig = null;
       this.ikEnd = null;
       this.editor.emit();
       this.editor.invalidate();
