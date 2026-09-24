@@ -159,21 +159,27 @@ summary-frame interaction and does not create a second animation key model.
 The **Graph Editor is the sole detailed animation editing UI**. Select a channel
 from the rail, then use **Insert channel key** to author that scalar
 independently. Click a key for single selection or **Shift-click** to toggle
-multiple keys on the active channel. Drag empty Graph space to box-select keys;
-**Shift-drag** adds the boxed keys to the existing selection. Dragging any
-selected key moves the whole selection by one shared frame/value delta;
-**Alt-drag** shows copy ghosts and commits all copied keys only on pointer
-release. **Remove selected channel key** deletes the full selected set in one
-undoable action. The **Segment** control assigns Linear/Constant/Bezier to every
-selected key that owns an outbound segment, while **Tangent** assigns
-Free/Aligned/Auto to every selected key touching a Bezier segment. Mixed
-selections show a **Mixed** placeholder, and each batch assignment is one
-undoable action. **Time Scale** accepts a positive numeric factor for two or more
-selected keys and scales their frame spacing around the midpoint of the selected
-frame range. Resulting frames are rounded to integers; the whole operation is
-rejected if rounding collapses keys, a target leaves frames 1–250, or a target
-collides with an unselected key. Successful time scaling is one undoable action
-and keeps the retimed keys selected. Other channels keep their own timing.
+multiple keys on the active channel. A dedicated **Key Inspector** row shows the
+Graph selection count. With exactly one key selected it exposes precise
+**Frame** and **Value** fields; Apply or Enter commits both atomically in one
+undo step, while Escape discards uncommitted field edits. Rotation values are
+shown and entered in degrees, and precise retiming rejects same-channel
+collisions before changing the track. Multi-selection disables precise
+Frame/Value editing but keeps eligible batch controls available.
+
+Drag empty Graph space to box-select keys; **Shift-drag** adds the boxed keys to
+the existing selection. Dragging any selected key moves the whole selection by
+one shared frame/value delta; **Alt-drag** shows copy ghosts and commits all
+copied keys only on pointer release. **Remove selected channel key** deletes the
+full selected set in one undoable action. The Key Inspector row also contains
+the **Segment**, **Tangent**, and **Time Scale** batch controls: Segment assigns
+Linear/Constant/Bezier to selected outbound segments, Tangent assigns
+Free/Aligned/Auto to selected keys touching a Bezier segment, and Time Scale
+scales two or more selected key times around the midpoint of their frame range.
+Mixed selections show a **Mixed** placeholder. Time scaling rounds to integer
+frames and rejects collapse, frames outside 1–250, or collision with an
+unselected key. Successful batch operations remain one undoable action and keep
+the resulting keys selected. Other channels keep their own timing.
 
 Every segment is **Linear by default**. A key controls its outbound segment and
 can use:
