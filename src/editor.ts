@@ -926,10 +926,10 @@ export class Editor extends EventTarget {
   extrudeFace(distance: number, inset = false) {
     if (!this.editMode || this.componentMode !== 'face' || this.selectedFace === null || !(this.selected instanceof THREE.Mesh) || this.selected instanceof THREE.SkinnedMesh || this.playing) throw new Error('Select exactly one triangle face in Edit Mode first.');
     const mesh = this.selected, face = this.selectedFace;
-    this.markPrimitiveApplied(mesh);
     if (this.stats().vertices + 15 > 2_000_000) throw new Error('Triangle editing would exceed the scene vertex limit.');
     const original = mesh.geometry;
     const geometry = inset ? insetTriangle(original, face, distance) : extrudeTriangle(original, face, distance);
+    this.markPrimitiveApplied(mesh);
     this.setEditMode(false);
     mesh.geometry = geometry;
     let retained = false;
@@ -942,11 +942,11 @@ export class Editor extends EventTarget {
   extrudePlanarRegion(distance: number) {
     if (!this.editMode || this.componentMode !== 'face' || !this.selectedComponents.size || !(this.selected instanceof THREE.Mesh) || this.selected instanceof THREE.SkinnedMesh || this.playing || this.transform.dragging) throw new Error('Select connected coplanar triangle faces in Edit Mode and finish the current drag first.');
     const faces = [...this.selectedComponents], mesh = this.selected, original = mesh.geometry;
-    this.markPrimitiveApplied(mesh);
     const geometry = extrudeRegion(original, faces, distance);
     if (this.stats().vertices + geometry.getAttribute('position').count - original.getAttribute('position').count > 2_000_000) {
       geometry.dispose(); throw new Error('Region extrusion would exceed the scene vertex limit.');
     }
+    this.markPrimitiveApplied(mesh);
     this.setEditMode(false);
     mesh.geometry = geometry;
     let retained = false;
@@ -967,6 +967,7 @@ export class Editor extends EventTarget {
       geometry.dispose();
       throw new Error('Subdivision would exceed the scene vertex limit.');
     }
+    this.markPrimitiveApplied(mesh);
     this.setEditMode(false);
     mesh.geometry = geometry;
     let retained = false;
@@ -1024,6 +1025,7 @@ export class Editor extends EventTarget {
       if (![positions[i * 3] + delta.x, positions[i * 3 + 1] + delta.y, positions[i * 3 + 2] + delta.z].every(v => Number.isFinite(Math.fround(v)))) throw new Error('Snap would exceed mesh coordinate precision.');
       weights[i] = 1;
     }
+    this.markPrimitiveApplied(this.selected);
     this.componentDrag = { positions, weights, center: this.componentCenter.clone() };
     this.vertexProxy.position.copy(this.selected.localToWorld(target.clone()));
     this.updateVertex(target);
