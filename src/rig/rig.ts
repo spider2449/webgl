@@ -1,33 +1,48 @@
 import * as THREE from 'three';
 import type { Editor } from '../editor';
-import { SOMA77 } from './soma77';
+export type ForgeArmatureMetadata = {
+  type: 'armature';
+  version: 1;
+  preset?: string;
+  [key: string]: unknown;
+};
 
-export const RIG_SOURCE = 'https://github.com/nv-tlabs/kimodo/tree/1aece8c124d73d255ceff5086d983b844c9f4e94/kimodo/assets/skeletons/somaskel77';
-export function rigBones(rig: THREE.Object3D): THREE.Bone[] {
-  const byName = new Map<string, THREE.Bone>();
-  rig.traverse(o => { if (o instanceof THREE.Bone) byName.set(o.name, o); });
-  return SOMA77.map(j => byName.get(j.name)!).filter(Boolean);
+export function isForgeArmature(object: THREE.Object3D): boolean {
+  const metadata = object.userData.forgeRig as Record<string, unknown> | undefined;
+  return metadata?.type === 'armature' || typeof metadata?.skeleton === 'string';
 }
-export function createSomaRig(): THREE.Group {
+
+export function rigBones(rig: THREE.Object3D): THREE.Bone[] {
+  const bones: THREE.Bone[] = [];
+  rig.traverse(object => { if (object instanceof THREE.Bone) bones.push(object); });
+  return bones;
+}
+
+export function createArmature(name = 'Armature'): THREE.Group {
   const rig = new THREE.Group();
-  rig.name = 'Kimodo SOMA77';
-  rig.userData.forgeRig = { skeleton: 'somaskel77', source: RIG_SOURCE, units: 'meters', up: 'Y', rest: 'native-neutral', version: 1 };
-  const bones = new Map<string, THREE.Bone>();
-  const positions = new Map(SOMA77.map(j => [j.name, new THREE.Vector3(...j.position)]));
-  for (const joint of SOMA77) {
-    const bone = new THREE.Bone();
-    bone.name = joint.name;
-    bone.position.copy(positions.get(joint.name)!);
-    if (joint.parent) bone.position.sub(positions.get(joint.parent)!);
+  rig.name = name;
+  rig.userData.forgeRig = { type: 'armature', version: 1 } satisfies ForgeArmatureMetadata;
+  return rig;
+}
+
+export function captureRestPose(rig: THREE.Object3D) {
+  for (const bone of rigBones(rig)) {
     bone.userData.restPosition = bone.position.toArray();
     bone.userData.restQuaternion = bone.quaternion.toArray();
-    (joint.parent ? bones.get(joint.parent)! : rig).add(bone);
-    bones.set(joint.name, bone);
+    bone.userData.restScale = bone.scale.toArray();
   }
-  // Ground the display container without changing the model's zero Hips offset.
-  rig.position.y = -Math.min(...SOMA77.map(j => j.position[1]));
-  rig.updateMatrixWorld(true);
-  return rig;
+}
+
+function restTransform(bone: THREE.Bone) {
+  const position = bone.userData.restPosition;
+  const quaternion = bone.userData.restQuaternion;
+  const scale = bone.userData.restScale ?? [1, 1, 1];
+  if (
+    !Array.isArray(position) || position.length !== 3 || position.some(value => !Number.isFinite(value)) ||
+    !Array.isArray(quaternion) || quaternion.length !== 4 || quaternion.some(value => !Number.isFinite(value)) ||
+    !Array.isArray(scale) || scale.length !== 3 || scale.some(value => !Number.isFinite(value))
+  ) throw new Error(`Bone "${bone.name || bone.uuid}" has no valid Forge rest pose.`);
+  return { position, quaternion, scale };
 }
 
 type RigVisual = { root: THREE.Group; joints: THREE.InstancedMesh; lines: THREE.LineSegments; bones: THREE.Bone[] };
@@ -37,7 +52,7 @@ export class RigSystem {
   private ikEnd: THREE.Bone | null = null;
   private ikChain: THREE.Bone[] = [];
   private worker: Worker | null = null;
-  constructor(readonly editor: Editor) {
+  constructor(readonly editor: Editor, private readonly createDefaultArmature?: () => THREE.Group) {
     editor.scene.add(this.ikTarget);
     editor.beforeRender = () => this.updateVisuals();
     editor.pickOverride = raycaster => this.pick(raycaster);
@@ -48,15 +63,18 @@ export class RigSystem {
     });
     this.sync();
   }
-  get rigs() { return this.editor.content.children.filter(o => o.userData.forgeRig?.skeleton === 'somaskel77'); }
+  get rigs() { return this.editor.content.children.filter(isForgeArmature); }
   get activeRig(): THREE.Object3D | null {
     let node = this.editor.selected;
-    while (node) { if (node.userData.forgeRig?.skeleton === 'somaskel77') return node; node = node.parent; }
+    while (node) { if (isForgeArmature(node)) return node; node = node.parent; }
     return this.rigs[0] ?? null;
   }
-  add() {
-    const rig = createSomaRig();
-    rig.name = this.editor.uniqueName(rig.name);
+  add(armature?: THREE.Group) {
+    const rig = armature ?? this.createDefaultArmature?.();
+    if (!rig) throw new Error('No armature factory is configured.');
+    if (!isForgeArmature(rig)) throw new Error('The object is not a Forge armature.');
+    if (!rigBones(rig).length) throw new Error('An armature must contain at least one bone.');
+    rig.name = this.editor.uniqueName(rig.name || 'Armature');
     this.editor.content.add(rig);
     this.editor.select(rig);
     this.editor.commit();
@@ -79,7 +97,8 @@ export class RigSystem {
       joints.renderOrder = 21;
       joints.frustumCulled = false;
       const geometry = new THREE.BufferGeometry();
-      geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(Math.max(0, bones.length - 1) * 6), 3));
+      const edgeCount = bones.filter(bone => bone.parent instanceof THREE.Bone).length;
+      geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(edgeCount * 6), 3));
       const lines = new THREE.LineSegments(geometry, new THREE.LineBasicMaterial({ color: 0xaac9c7, depthTest: false, transparent: true, opacity: 0.85 }));
       lines.renderOrder = 20;
       lines.frustumCulled = false;
@@ -100,11 +119,11 @@ export class RigSystem {
       visual.bones.forEach((bone, i) => {
         bone.getWorldPosition(position);
         const selected = this.editor.selected === bone;
-        const radius = (bone.name.includes('Hand') && bone.name !== 'LeftHand' && bone.name !== 'RightHand' ? 0.009 : 0.017) * rigScale;
+        const radius = 0.017 * rigScale;
         matrix.makeScale(radius * (selected ? 1.5 : 1), radius * (selected ? 1.5 : 1), radius * (selected ? 1.5 : 1));
         matrix.setPosition(position);
         visual.joints.setMatrixAt(i, matrix);
-        visual.joints.setColorAt(i, new THREE.Color(selected ? 0xffc17b : bone.name.startsWith('Left') ? 0x91b6d3 : bone.name.startsWith('Right') ? 0xd89b96 : 0xc3c8bd));
+        visual.joints.setColorAt(i, new THREE.Color(selected ? 0xffc17b : 0xc3c8bd));
         if (bone.parent instanceof THREE.Bone) { bone.parent.getWorldPosition(parent); lines.setXYZ(line++, parent.x, parent.y, parent.z); lines.setXYZ(line++, position.x, position.y, position.z); }
       });
       visual.joints.instanceMatrix.needsUpdate = true;
@@ -123,28 +142,42 @@ export class RigSystem {
   }
   resetPose() {
     const rig = this.activeRig;
-    if (!rig) throw new Error('Create or select a Kimodo rig first.');
-    for (const bone of rigBones(rig)) { bone.position.fromArray(bone.userData.restPosition); bone.quaternion.fromArray(bone.userData.restQuaternion); bone.scale.set(1,1,1); }
+    if (!rig) throw new Error('Create or select an armature first.');
+    const bones = rigBones(rig);
+    const rest = bones.map(restTransform);
+    bones.forEach((bone, index) => {
+      bone.position.fromArray(rest[index].position);
+      bone.quaternion.fromArray(rest[index].quaternion);
+      bone.scale.fromArray(rest[index].scale);
+    });
     this.ikEnd = null;
     this.editor.select(rig);
     this.editor.commit();
   }
   keyPose() {
     const rig = this.activeRig;
-    if (!rig) throw new Error('Create a Kimodo rig first.');
+    if (!rig) throw new Error('Create or select an armature first.');
     const frame = Math.round(this.editor.frame);
     for (const bone of rigBones(rig)) this.editor.keyObjectTransform(bone, frame);
     this.editor.commit();
   }
-  enableIK(name: string) {
+  enableIK(end: THREE.Bone, chainLength = 2) {
     const rig = this.activeRig;
-    if (!rig) throw new Error('Create a Kimodo rig first.');
-    const end = rigBones(rig).find(b => b.name === name);
-    if (!end || !(end.parent instanceof THREE.Bone) || !(end.parent.parent instanceof THREE.Bone)) throw new Error('IK chain is unavailable.');
+    if (!rig) throw new Error('Create or select an armature first.');
+    const bones = rigBones(rig);
+    if (!bones.includes(end)) throw new Error('Choose an end bone from the active armature.');
+    if (!Number.isInteger(chainLength) || chainLength < 1) throw new Error('IK chain length must be a positive integer.');
+    const chain: THREE.Bone[] = [];
+    let parent = end.parent;
+    while (parent instanceof THREE.Bone && chain.length < chainLength) {
+      chain.push(parent);
+      parent = parent.parent;
+    }
+    if (!chain.length) throw new Error('IK chain is unavailable.');
     this.editor.playing = false;
     this.editor.select(end);
     this.ikEnd = end;
-    this.ikChain = [end.parent, end.parent.parent];
+    this.ikChain = chain;
     end.getWorldPosition(this.ikTarget.position);
     this.editor.transform.setMode('translate');
     this.editor.transform.setSpace('world');
@@ -179,9 +212,15 @@ export class RigSystem {
     const rig = this.activeRig;
     if (!(mesh instanceof THREE.Mesh) || mesh instanceof THREE.SkinnedMesh || mesh.parent !== this.editor.content) throw new Error('Select a standalone mesh to bind.');
     if (mesh.userData.modifierStack || this.editor.modelingBusy) throw new Error('Apply modifiers and finish modeling before skin binding.');
-    if (!rig) throw new Error('Create a Kimodo rig first.');
+    if (!rig) throw new Error('Create or select an armature first.');
     const bones = rigBones(rig);
-    if (bones.some(b => b.quaternion.angleTo(new THREE.Quaternion().fromArray(b.userData.restQuaternion)) > 1e-5 || b.position.distanceTo(new THREE.Vector3().fromArray(b.userData.restPosition)) > 1e-5 || b.scale.distanceTo(new THREE.Vector3(1,1,1)) > 1e-5)) throw new Error('Reset the rig to its rest pose before binding.');
+    if (!bones.length) throw new Error('The active armature has no bones.');
+    const rest = bones.map(restTransform);
+    if (bones.some((bone, index) =>
+      bone.quaternion.angleTo(new THREE.Quaternion().fromArray(rest[index].quaternion)) > 1e-5 ||
+      bone.position.distanceTo(new THREE.Vector3().fromArray(rest[index].position)) > 1e-5 ||
+      bone.scale.distanceTo(new THREE.Vector3().fromArray(rest[index].scale)) > 1e-5
+    )) throw new Error('Reset the armature to its rest pose before binding.');
     const attribute = mesh.geometry.getAttribute('position');
     if (attribute.count > 100_000) throw new Error('Automatic binding supports up to 100,000 vertices per mesh.');
     this.editor.setEditMode(false);
@@ -191,9 +230,23 @@ export class RigSystem {
     const point = new THREE.Vector3();
     for (let i = 0; i < attribute.count; i++) point.fromBufferAttribute(attribute,i).applyMatrix4(mesh.matrixWorld).toArray(positions,i*3);
     const segments: number[] = [];
-    for (const child of bones) if (child.parent instanceof THREE.Bone) {
-      const start = child.parent.getWorldPosition(new THREE.Vector3()), end = child.getWorldPosition(new THREE.Vector3());
-      segments.push(...start.toArray(), ...end.toArray(), bones.indexOf(child.parent));
+    const boneIndex = new Map(bones.map((bone, index) => [bone, index]));
+    for (const bone of bones) {
+      const children = bone.children.filter((child): child is THREE.Bone => child instanceof THREE.Bone);
+      if (children.length) {
+        const start = bone.getWorldPosition(new THREE.Vector3());
+        for (const child of children) {
+          const end = child.getWorldPosition(new THREE.Vector3());
+          segments.push(...start.toArray(), ...end.toArray(), boneIndex.get(bone)!);
+        }
+      } else if (bone.parent instanceof THREE.Bone) {
+        const start = bone.parent.getWorldPosition(new THREE.Vector3());
+        const end = bone.getWorldPosition(new THREE.Vector3());
+        segments.push(...start.toArray(), ...end.toArray(), boneIndex.get(bone)!);
+      } else {
+        const point = bone.getWorldPosition(new THREE.Vector3());
+        segments.push(...point.toArray(), ...point.toArray(), boneIndex.get(bone)!);
+      }
     }
     const segmentArray = new Float32Array(segments);
     this.worker = new Worker(new URL('./weights.worker.ts', import.meta.url), { type: 'module' });
@@ -222,37 +275,5 @@ export class RigSystem {
       return skinned;
     } finally { this.worker?.terminate(); this.worker = null; }
   }
-  addPreview() {
-    const rig = this.activeRig;
-    if (!rig) throw new Error('Create a Kimodo rig first.');
-    const bones = rigBones(rig);
-    if (bones.some(b => b.quaternion.angleTo(new THREE.Quaternion().fromArray(b.userData.restQuaternion)) > 1e-5)) throw new Error('Reset the rig before adding the preview.');
-    const positions: number[] = [], normals: number[] = [], indices: number[] = [], weights: number[] = [];
-    const inverse = rig.matrixWorld.clone().invert();
-    for (const child of bones) {
-      if (!(child.parent instanceof THREE.Bone) || /Hand|Eye|Jaw|HeadEnd|ToeEnd/.test(child.name)) continue;
-      const start = child.parent.getWorldPosition(new THREE.Vector3()).applyMatrix4(inverse);
-      const end = child.getWorldPosition(new THREE.Vector3()).applyMatrix4(inverse);
-      const direction = end.clone().sub(start);
-      const radius = /Leg|Shin/.test(child.name) ? 0.055 : /Spine|Chest/.test(child.name) ? 0.12 : 0.035;
-      const geometry = new THREE.CylinderGeometry(radius*0.8,radius,direction.length(),10,3).toNonIndexed();
-      geometry.applyQuaternion(new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0,1,0),direction.normalize()));
-      geometry.translate(...start.clone().add(end).multiplyScalar(0.5).toArray());
-      positions.push(...Array.from(geometry.getAttribute('position').array));
-      normals.push(...Array.from(geometry.getAttribute('normal').array));
-      const index = bones.indexOf(child.parent);
-      for (let i = 0; i < geometry.getAttribute('position').count; i++) { indices.push(index,0,0,0); weights.push(1,0,0,0); }
-      geometry.dispose();
-    }
-    const geometry = new THREE.BufferGeometry();
-    geometry.setAttribute('position',new THREE.Float32BufferAttribute(positions,3));
-    geometry.setAttribute('normal',new THREE.Float32BufferAttribute(normals,3));
-    geometry.setAttribute('skinIndex',new THREE.Uint16BufferAttribute(indices,4));
-    geometry.setAttribute('skinWeight',new THREE.Float32BufferAttribute(weights,4));
-    const mesh = new THREE.SkinnedMesh(geometry,new THREE.MeshStandardMaterial({color:0x697d82,roughness:0.55,metalness:0.2}));
-    mesh.name = 'Rig preview';
-    mesh.frustumCulled = false;
-    rig.add(mesh); rig.updateMatrixWorld(true); mesh.bind(new THREE.Skeleton(bones));
-    this.editor.commit();
-  }
+
 }

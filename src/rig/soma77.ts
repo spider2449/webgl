@@ -1,3 +1,8 @@
+import * as THREE from 'three';
+import { captureRestPose, createArmature, rigBones } from './rig';
+
+export const RIG_SOURCE = 'https://github.com/nv-tlabs/kimodo/tree/1aece8c124d73d255ceff5086d983b844c9f4e94/kimodo/assets/skeletons/somaskel77';
+
 // SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 // Converted to TypeScript from Kimodo definitions.py and joints.p; positions rounded to 9 decimals.
@@ -697,3 +702,82 @@ export const SOMA77 = [
     ]
   }
 ] as const;
+
+
+export function createSomaRig(): THREE.Group {
+  const rig = createArmature('Kimodo SOMA77');
+  rig.userData.forgeRig = {
+    type: 'armature',
+    version: 1,
+    preset: 'soma77',
+    skeleton: 'somaskel77',
+    source: RIG_SOURCE,
+    units: 'meters',
+    up: 'Y',
+    rest: 'native-neutral',
+  };
+  const bones = new Map<string, THREE.Bone>();
+  const positions = new Map(SOMA77.map(joint => [joint.name, new THREE.Vector3(...joint.position)]));
+  for (const joint of SOMA77) {
+    const bone = new THREE.Bone();
+    bone.name = joint.name;
+    bone.position.copy(positions.get(joint.name)!);
+    if (joint.parent) bone.position.sub(positions.get(joint.parent)!);
+    (joint.parent ? bones.get(joint.parent)! : rig).add(bone);
+    bones.set(joint.name, bone);
+  }
+  captureRestPose(rig);
+  // Ground the display container without changing the model's zero Hips offset.
+  rig.position.y = -Math.min(...SOMA77.map(joint => joint.position[1]));
+  rig.updateMatrixWorld(true);
+  return rig;
+}
+
+export function addSomaPreview(rig: THREE.Object3D): THREE.SkinnedMesh {
+  const bones = rigBones(rig);
+  if (!bones.length) throw new Error('The armature has no bones.');
+  if (bones.some(bone => {
+    const rest = bone.userData.restQuaternion;
+    return !Array.isArray(rest) || rest.length !== 4 ||
+      bone.quaternion.angleTo(new THREE.Quaternion().fromArray(rest)) > 1e-5;
+  })) throw new Error('Reset the armature before adding the SOMA preview.');
+
+  const positions: number[] = [];
+  const normals: number[] = [];
+  const indices: number[] = [];
+  const weights: number[] = [];
+  const inverse = rig.matrixWorld.clone().invert();
+  for (const child of bones) {
+    if (!(child.parent instanceof THREE.Bone) || /Hand|Eye|Jaw|HeadEnd|ToeEnd/.test(child.name)) continue;
+    const start = child.parent.getWorldPosition(new THREE.Vector3()).applyMatrix4(inverse);
+    const end = child.getWorldPosition(new THREE.Vector3()).applyMatrix4(inverse);
+    const direction = end.clone().sub(start);
+    const radius = /Leg|Shin/.test(child.name) ? 0.055 : /Spine|Chest/.test(child.name) ? 0.12 : 0.035;
+    const geometry = new THREE.CylinderGeometry(radius * 0.8, radius, direction.length(), 10, 3).toNonIndexed();
+    geometry.applyQuaternion(new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), direction.normalize()));
+    geometry.translate(...start.clone().add(end).multiplyScalar(0.5).toArray());
+    positions.push(...Array.from(geometry.getAttribute('position').array));
+    normals.push(...Array.from(geometry.getAttribute('normal').array));
+    const index = bones.indexOf(child.parent);
+    for (let i = 0; i < geometry.getAttribute('position').count; i++) {
+      indices.push(index, 0, 0, 0);
+      weights.push(1, 0, 0, 0);
+    }
+    geometry.dispose();
+  }
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geometry.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
+  geometry.setAttribute('skinIndex', new THREE.Uint16BufferAttribute(indices, 4));
+  geometry.setAttribute('skinWeight', new THREE.Float32BufferAttribute(weights, 4));
+  const mesh = new THREE.SkinnedMesh(
+    geometry,
+    new THREE.MeshStandardMaterial({ color: 0x697d82, roughness: 0.55, metalness: 0.2 }),
+  );
+  mesh.name = 'Rig preview';
+  mesh.frustumCulled = false;
+  rig.add(mesh);
+  rig.updateMatrixWorld(true);
+  mesh.bind(new THREE.Skeleton(bones));
+  return mesh;
+}
