@@ -132,10 +132,11 @@
 .graph-playhead.outside{opacity:.3;stroke-dasharray:3 3}
 .graph-value-label,.graph-frame-label{fill:var(--text-muted);font:9px var(--mono);pointer-events:none}
 @media(max-width:760px){
+  .timeline-key-toolbar{width:100%;max-width:100%;min-width:0;box-sizing:border-box;overflow-x:auto;overflow-y:hidden;padding-left:8px;padding-right:8px;scrollbar-width:thin}
+  .timeline-key-toolbar>*{flex-shrink:0}
   .animation-workspace .animation-graph{display:none}
   .animation-workspace .timeline{height:143px}
-  .animation-workspace .timeline-key-toolbar{display:flex;width:100%;max-width:100%;min-width:0;box-sizing:border-box;overflow-x:auto;overflow-y:hidden;padding-left:8px;padding-right:8px;scrollbar-width:thin}
-  .animation-workspace .timeline-key-toolbar>*{flex-shrink:0}
+  .animation-workspace .timeline-key-toolbar{display:flex}
   .animation-workspace .timeline-track{height:calc(100% - 66px)}
   .timeline-key-toolbar-hint{display:none}
 }
