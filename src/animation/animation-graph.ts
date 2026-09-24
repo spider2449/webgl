@@ -270,11 +270,11 @@ export class AnimationGraphView {
     if (!this.data) return false;
     const frameSpan = Math.max(1, this.data.frameMax - this.data.frameMin);
     const framePad = Math.max(2, frameSpan * 0.08);
-    const frameMin = Math.max(1, this.data.frameMin - framePad);
-    const frameMax = Math.min(250, this.data.frameMax + framePad);
+    const frameMin = Math.max(this.sceneFrameStart, this.data.frameMin - framePad);
+    const frameMax = Math.min(this.sceneFrameEnd, this.data.frameMax + framePad);
     return this.applyView({
-      frameMin: frameMax - frameMin < 4 ? Math.max(1, (frameMin + frameMax) / 2 - 2) : frameMin,
-      frameMax: frameMax - frameMin < 4 ? Math.min(250, (frameMin + frameMax) / 2 + 2) : frameMax,
+      frameMin: frameMax - frameMin < 4 ? Math.max(this.sceneFrameStart, (frameMin + frameMax) / 2 - 2) : frameMin,
+      frameMax: frameMax - frameMin < 4 ? Math.min(this.sceneFrameEnd, (frameMin + frameMax) / 2 + 2) : frameMax,
       valueMin: this.data.valueMin,
       valueMax: this.data.valueMax,
     });
@@ -291,16 +291,16 @@ export class AnimationGraphView {
     let valueMax = Math.max(...selected.map(key => key.value));
 
     if (selected.length === 1) {
-      frameMin = Math.max(1, frameMin - 10);
-      frameMax = Math.min(250, frameMax + 10);
+      frameMin = Math.max(this.sceneFrameStart, frameMin - 10);
+      frameMax = Math.min(this.sceneFrameEnd, frameMax + 10);
       const referenceSpan = Math.max(1e-6, this.data.valueMax - this.data.valueMin);
       const pad = Math.max(referenceSpan * 0.2, Math.abs(valueMin) * 0.05, 0.5);
       valueMin -= pad;
       valueMax += pad;
     } else {
       const framePad = Math.max(2, (frameMax - frameMin) * 0.12);
-      frameMin = Math.max(1, frameMin - framePad);
-      frameMax = Math.min(250, frameMax + framePad);
+      frameMin = Math.max(this.sceneFrameStart, frameMin - framePad);
+      frameMax = Math.min(this.sceneFrameEnd, frameMax + framePad);
       const valueSpan = valueMax - valueMin;
       const valuePad = Math.max(valueSpan * 0.18, Math.abs(valueMin + valueMax) * 0.025, 0.25);
       valueMin -= valuePad;
@@ -611,7 +611,8 @@ export class AnimationGraphView {
     let frameMin = Math.min(view.frameMin, view.frameMax);
     let frameMax = Math.max(view.frameMin, view.frameMax);
     const frameCenter = (frameMin + frameMax) / 2;
-    const frameSpan = THREE.MathUtils.clamp(frameMax - frameMin, 2, 1000);
+    const maxFrameSpan = Math.max(1000, this.sceneFrameEnd - this.sceneFrameStart + 1);
+    const frameSpan = THREE.MathUtils.clamp(frameMax - frameMin, 2, maxFrameSpan);
     frameMin = frameCenter - frameSpan / 2;
     frameMax = frameCenter + frameSpan / 2;
 
@@ -1004,7 +1005,8 @@ export class AnimationGraphView {
     const frameRatio = (x - 48) / 924;
     const valueRatio = (y - 18) / 144;
     const factor = Math.exp(THREE.MathUtils.clamp(event.deltaY, -240, 240) * 0.0025);
-    const frameSpan = THREE.MathUtils.clamp((view.frameMax - view.frameMin) * factor, 2, 1000);
+    const maxFrameSpan = Math.max(1000, this.sceneFrameEnd - this.sceneFrameStart + 1);
+    const frameSpan = THREE.MathUtils.clamp((view.frameMax - view.frameMin) * factor, 2, maxFrameSpan);
     const valueSpan = THREE.MathUtils.clamp(
       (view.valueMax - view.valueMin) * factor,
       Math.max(1e-6, Math.abs(valueAnchor) * 1e-6),
