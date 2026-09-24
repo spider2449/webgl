@@ -193,6 +193,7 @@ type PanDragState = {
   startClientX: number;
   startClientY: number;
   startView: GraphViewState;
+  startManual: boolean;
 };
 
 type GraphViewState = {
@@ -385,6 +386,7 @@ export class AnimationGraphView {
     this.svg.dataset.viewFrameMax = view ? String(view.frameMax) : '';
     this.svg.dataset.viewValueMin = view ? String(view.valueMin) : '';
     this.svg.dataset.viewValueMax = view ? String(view.valueMax) : '';
+    this.svg.dataset.viewManual = String(this.viewIsManual);
 
     if (!data) {
       this.title.textContent = 'Graph Editor';
@@ -685,6 +687,7 @@ export class AnimationGraphView {
         startClientX: event.clientX,
         startClientY: event.clientY,
         startView: { ...this.currentView() },
+        startManual: this.viewIsManual,
       };
       this.svg.classList.add('panning');
       this.svg.setPointerCapture(event.pointerId);
@@ -929,7 +932,17 @@ export class AnimationGraphView {
     if (!drag) return;
 
     if (drag.kind === 'pan') {
-      if (cancel) this.applyView(drag.startView);
+      if (cancel) {
+        this.view = this.normalizeView(drag.startView);
+        this.viewIsManual = drag.startManual;
+        const key = this.data ? this.viewKey(this.objectId, this.data.channel) : null;
+        if (key) {
+          if (drag.startManual) this.savedViews.set(key, { ...this.view });
+          else this.savedViews.delete(key);
+        }
+        this.renderStatic();
+        this.renderPlayhead(this.currentFrame);
+      }
       this.svg.classList.remove('panning');
       if (this.svg.hasPointerCapture(drag.pointerId)) this.svg.releasePointerCapture(drag.pointerId);
       this.drag = null;
