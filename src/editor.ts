@@ -4,7 +4,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { TransformControls } from 'three/addons/controls/TransformControls.js';
 import { GimbalControls } from './viewport/gimbal-controls';
 import { clone as cloneSkeleton } from 'three/addons/utils/SkeletonUtils.js';
-import { createGrid } from './viewport/grid';
+import { createGrid, setGridPlane } from './viewport/grid';
 import { extrudeTriangle, insetTriangle } from './modeling/extrude';
 import { buildTopology, type MeshTopology, type ComponentMode } from './modeling/topology';
 import { proportionalWeights } from './modeling/proportional';
@@ -566,6 +566,7 @@ export class Editor extends EventTarget {
     this.camera.up.copy(up);
     this.camera.position.copy(this.orbit.target).addScaledVector(direction, distance);
     this.camera.lookAt(this.orbit.target);
+    setGridPlane(this.grid, axis);
     this.orbit.update();
     this.invalidate();
     this.emit('view');
