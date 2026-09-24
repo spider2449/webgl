@@ -134,14 +134,20 @@ stores nine independent scalar tracks: **Location X/Y/Z**, **Rotation X/Y/Z**
 and **Scale X/Y/Z**. Each track owns its own key frames, values, interpolation
 and Bezier tangents.
 
-The Timeline header exposes a project **Start / End** animation range, defaulting
-to **1–250**. This range controls playback looping, Timeline ruler/scrubber
-mapping, First/Last playback buttons, and Graph **Scene Range** framing. It is a
-playback/view window, not a key-validity boundary: authored scalar keys remain
-valid on integer frames 1–250 even when they lie outside Start–End. Range-external
-keys stay saved and editable in the Graph Editor but are hidden from the Timeline.
-The current frame may also sit outside the playback range. Animation range is
-stored in new `.forge` snapshots; older projects without it load as 1–250.
+The Timeline header exposes the scene **Start / End Frame Range**, defaulting
+to **1–250**. Frame 250 is only the default end frame, not a hard animation
+limit: extend End to author longer animations (Forge currently applies a
+defensive 100,000-frame ceiling). The Timeline ruler, scrubber, current frame,
+playback loop, First/Last controls, Graph **Scene Range**, and all key retiming
+operations use this dynamic scene range. Shrinking the range is rejected if it
+would exclude an existing authored key, so range edits never silently delete or
+hide animation data. The range is stored in new `.forge` snapshots; older
+projects without it load as 1–250.
+
+A Blender-style **Preview Range** is a separate animation concept: it would
+temporarily limit playback to a subsection without changing the scene's Start /
+End. Forge does not add Preview Range in this package; it can be implemented as
+a separate capability later.
 
 The timeline header keeps the fast transform workflow: **Insert transform key**
 authors all nine scalar channels at the current frame, while **Remove current
