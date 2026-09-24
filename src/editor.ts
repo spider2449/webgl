@@ -12,8 +12,9 @@ import { subdivideEdges } from './modeling/subdivide';
 import { extrudeRegion } from './modeling/extrude-region';
 import { modelingJob, type ModelingOperation } from './modeling/modeling-worker-client';
 import { validateModifierStack, type Modifier, type ModifierStack } from './modeling/modifiers';
+import { createPrimitiveGeometry, defaultPrimitiveSettings, parsePrimitiveSettings, updatePrimitiveSetting, type Primitive, type PrimitiveSettings } from './modeling/primitives';
 
-export type Primitive = 'cube' | 'sphere' | 'cylinder' | 'cone' | 'torus' | 'plane' | 'icosphere';
+export type { Primitive } from './modeling/primitives';
 export type EulerOrder = 'XYZ' | 'YZX' | 'ZXY' | 'XZY' | 'YXZ' | 'ZYX';
 export type TransformOrientation = 'world' | 'local' | 'gimbal';
 export type ScalarAnimationChannel = 'position.x' | 'position.y' | 'position.z' | 'rotation.x' | 'rotation.y' | 'rotation.z' | 'scale.x' | 'scale.y' | 'scale.z';
@@ -343,19 +344,10 @@ export class Editor extends EventTarget {
   }
   add(kind: Primitive, commit = true) {
     this.setEditMode(false);
-    const geometries = {
-      cube: () => new THREE.BoxGeometry(2, 2, 2),
-      sphere: () => new THREE.SphereGeometry(1, 32, 20),
-      cylinder: () => new THREE.CylinderGeometry(1, 1, 2, 32),
-      cone: () => new THREE.ConeGeometry(1, 2, 32),
-      torus: () => new THREE.TorusGeometry(1, 0.32, 16, 48),
-      plane: () => new THREE.PlaneGeometry(4, 4),
-      icosphere: () => new THREE.IcosahedronGeometry(1.2, 2),
-    };
-    const primitiveGeometry = geometries[kind]();
-    const geometry = new THREE.BufferGeometry().copy(primitiveGeometry);
-    primitiveGeometry.dispose();
+    const settings = defaultPrimitiveSettings(kind);
+    const geometry = createPrimitiveGeometry(settings);
     const mesh = new THREE.Mesh(geometry, new THREE.MeshStandardMaterial({ color: 0xb8b6b2, roughness: 0.42, metalness: 0.12, side: THREE.DoubleSide }));
+    mesh.userData.forgePrimitive = settings;
     mesh.name = this.uniqueName(kind[0].toUpperCase() + kind.slice(1));
     mesh.position.y = kind === 'plane' ? 0 : kind === 'torus' ? 1.35 : kind === 'icosphere' ? 1.2 : 1;
     if (kind === 'plane') mesh.rotation.x = -Math.PI / 2;
@@ -363,6 +355,43 @@ export class Editor extends EventTarget {
     this.select(mesh);
     if (commit) this.commit();
     return mesh;
+  }
+  get primitiveSettings(): PrimitiveSettings | null {
+    if (!(this.selected instanceof THREE.Mesh) || this.selected instanceof THREE.SkinnedMesh) return null;
+    const value = this.selected.userData.forgePrimitive;
+    if (value === undefined) return null;
+    try { return parsePrimitiveSettings(value); } catch { return null; }
+  }
+  setPrimitiveParameter(key: string, value: number) {
+    if (!(this.selected instanceof THREE.Mesh) || this.selected instanceof THREE.SkinnedMesh || this.editMode || this.playing || this.selected.userData.modifierStack) {
+      throw new Error('Select an editable parametric primitive in Object Mode first.');
+    }
+    const current = this.primitiveSettings;
+    if (!current) throw new Error('The selected mesh is no longer parametric.');
+    const next = updatePrimitiveSetting(current, key, value);
+    const geometry = createPrimitiveGeometry(next);
+    const oldCount = this.selected.geometry.getAttribute('position').count;
+    const newCount = geometry.getAttribute('position').count;
+    if (this.stats().vertices - oldCount + newCount > 2_000_000) {
+      geometry.dispose();
+      throw new Error('Primitive subdivisions would exceed the scene vertex limit.');
+    }
+    this.replaceGeometry(this.selected, geometry);
+    this.selected.userData.forgePrimitive = next;
+    this.commit();
+    return next;
+  }
+  applyPrimitive() {
+    if (!(this.selected instanceof THREE.Mesh) || this.selected instanceof THREE.SkinnedMesh || this.editMode) {
+      throw new Error('Select a parametric primitive in Object Mode first.');
+    }
+    if (this.selected.userData.forgePrimitive === undefined) return false;
+    delete this.selected.userData.forgePrimitive;
+    this.commit();
+    return true;
+  }
+  private markPrimitiveApplied(mesh: THREE.Mesh) {
+    if (mesh.userData.forgePrimitive !== undefined) delete mesh.userData.forgePrimitive;
   }
   get collections(): THREE.Group[] {
     return this.content.children.filter((object): object is THREE.Group => object instanceof THREE.Group && object.userData.forgeCollection === true);
@@ -719,6 +748,7 @@ export class Editor extends EventTarget {
     if (!(this.selected instanceof THREE.Mesh)) return false;
     if (this.selected.userData.modifierStack) return false;
     this.setEditMode(false);
+    this.markPrimitiveApplied(this.selected);
     const geometry = this.selected.geometry;
     geometry.scale(-1, 1, 1);
     if (geometry.index) {
@@ -896,6 +926,7 @@ export class Editor extends EventTarget {
   extrudeFace(distance: number, inset = false) {
     if (!this.editMode || this.componentMode !== 'face' || this.selectedFace === null || !(this.selected instanceof THREE.Mesh) || this.selected instanceof THREE.SkinnedMesh || this.playing) throw new Error('Select exactly one triangle face in Edit Mode first.');
     const mesh = this.selected, face = this.selectedFace;
+    this.markPrimitiveApplied(mesh);
     if (this.stats().vertices + 15 > 2_000_000) throw new Error('Triangle editing would exceed the scene vertex limit.');
     const original = mesh.geometry;
     const geometry = inset ? insetTriangle(original, face, distance) : extrudeTriangle(original, face, distance);
@@ -911,6 +942,7 @@ export class Editor extends EventTarget {
   extrudePlanarRegion(distance: number) {
     if (!this.editMode || this.componentMode !== 'face' || !this.selectedComponents.size || !(this.selected instanceof THREE.Mesh) || this.selected instanceof THREE.SkinnedMesh || this.playing || this.transform.dragging) throw new Error('Select connected coplanar triangle faces in Edit Mode and finish the current drag first.');
     const faces = [...this.selectedComponents], mesh = this.selected, original = mesh.geometry;
+    this.markPrimitiveApplied(mesh);
     const geometry = extrudeRegion(original, faces, distance);
     if (this.stats().vertices + geometry.getAttribute('position').count - original.getAttribute('position').count > 2_000_000) {
       geometry.dispose(); throw new Error('Region extrusion would exceed the scene vertex limit.');
@@ -1047,6 +1079,7 @@ export class Editor extends EventTarget {
       const oldMode = this.componentMode, oldSelection = this.componentSelection;
       const midpoint = meshes[0].geometry.getAttribute('position').count;
       this.setEditMode(false);
+      meshes.forEach(mesh => this.markPrimitiveApplied(mesh));
       meshes.forEach((mesh, i) => this.replaceGeometry(mesh, results[i])); results.length = 0;
       if (editing) {
         this.setEditMode(true, topologies[0]);
@@ -1116,6 +1149,7 @@ export class Editor extends EventTarget {
   private beginComponentDrag() {
     this.componentDrag = null;
     if (!this.editMode || this.weightMode || !(this.selected instanceof THREE.Mesh) || !this.topology || !this.vertexIndices.length) return;
+    this.markPrimitiveApplied(this.selected);
     const attribute = this.selected.geometry.getAttribute('position');
     const positions = Array.from({ length: attribute.count }, (_, i) => [attribute.getX(i), attribute.getY(i), attribute.getZ(i)]).flat();
     const weights = this.proportionalEnabled ? proportionalWeights(positions, this.topology, this.vertexIndices, this.proportionalRadius, this.proportionalConnected) : new Float32Array(attribute.count);
@@ -1230,6 +1264,10 @@ export class Editor extends EventTarget {
       if (o.userData.modifierStack !== undefined) {
         if (!(o instanceof THREE.Mesh) || o instanceof THREE.SkinnedMesh) throw new Error('Only ordinary meshes support modifiers.');
         validateModifierStack(o.userData.modifierStack);
+      }
+      if (o.userData.forgePrimitive !== undefined) {
+        if (!(o instanceof THREE.Mesh) || o instanceof THREE.SkinnedMesh) throw new Error('Only ordinary meshes support primitive parameters.');
+        parsePrimitiveSettings(o.userData.forgePrimitive);
       }
       if ('animationInterpolation' in o.userData || 'animationChannelInterpolation' in o.userData || 'keyframes' in o.userData) {
         throw new Error('Legacy animation metadata is unsupported.');
