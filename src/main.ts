@@ -1087,7 +1087,7 @@ for (const key of ['roughness','metalness'] as const) {
 $<HTMLSelectElement>('#quality').onchange = e => editor.setQuality((e.target as HTMLSelectElement).value);
 $<HTMLInputElement>('#background').oninput = e => { (editor.scene.background as THREE.Color).set((e.target as HTMLInputElement).value); editor.invalidate(); };
 $<HTMLInputElement>('#exposure').oninput = e => { editor.renderer.toneMappingExposure = Number((e.target as HTMLInputElement).value); $('#exposure-value').textContent = editor.renderer.toneMappingExposure.toFixed(2); editor.invalidate(); };
-on('play', () => editor.togglePlayback());
+on('play', () => { if (editor.weightMode) toast('Finish Weight Mode before playback.'); else editor.togglePlayback(); });
 on('first-frame', () => editor.scrub(editor.playbackRange.start));
 on('last-frame', () => editor.scrub(editor.playbackRange.end));
 for (const [id, direction] of [['previous-key',-1],['next-key',1]] as const) on(id, () => {
@@ -2054,7 +2054,7 @@ document.addEventListener('keydown', e => {
     else void editor.enterEditMode(!editor.editMode).then(ok => { if (!ok) toast('Select a mesh and apply its modifiers first.'); tool('translate'); }).catch(error => toast(error.message));
   }
   if (key === 'i') insertKey();
-  if (key === ' ') { e.preventDefault(); editor.togglePlayback(); }
+  if (key === ' ') { e.preventDefault(); if (editor.weightMode) toast('Finish Weight Mode before playback.'); else editor.togglePlayback(); }
   if (key === '1') $('#axis-z').click(); if (key === '3') $('#axis-x').click(); if (key === '7') $('#axis-y').click(); if (key === '5') editor.toggleProjection();
   if (key === '/') { e.preventDefault(); $('#object-search').focus(); }
   if (key === 'escape') {
