@@ -1,6 +1,6 @@
 # Forge Studio
 
-A browser-based 3D editor inspired by Blender, built with TypeScript, Three.js and Vite. Includes a working NVIDIA Kimodo SOMA77 rigging foundation. This is an initial editor release, not Blender feature parity.
+A browser-based 3D editor inspired by Blender, built with TypeScript, Three.js and Vite. This is an initial editor release, not Blender feature parity.
 
 ## Run locally
 
@@ -20,7 +20,7 @@ npx playwright install chromium
 npm test
 ```
 
-The browser tests use port 5174. Production output is in `dist/`. No backend, account, model download or NVIDIA GPU is required for the editor and local rigging features. Google Fonts is the only external presentation dependency; system fonts are the fallback. Models and project data are processed locally.
+The browser tests use port 5174. Production output is in `dist/`. No backend, account or model download is required. Google Fonts is the only external presentation dependency; system fonts are the fallback. Models and project data are processed locally.
 
 ## Editor workflow
 
@@ -275,25 +275,12 @@ before quaternion export. This is an interchange approximation; arbitrary
 F-curves, weighted tangent types, curve modifiers, lasso selection, and
 cross-channel key selection remain future work.
 
-## Kimodo rigging
-
-1. Open **Rigging** and choose **Create SOMA77 armature**.
-2. Choose **Add skinned preview** for an immediately poseable, procedural body proxy. It is not the SOMA body mesh.
-3. Select a bone in the viewport or searchable joint list, then rotate it with the gizmo. The Object panel exposes precise bone transforms.
-4. For positional IK, choose a hand or foot and click **Move IK target**. Drag the target, then choose **Key full pose** to record all 77 bones. IK is solved to FK transforms; it is not a persistent animated constraint.
-5. Use **Rest pose** before binding. To bind a custom mesh, align a standalone mesh to the armature, select the mesh, then click **Bind selected mesh**. The first armature is used when selection is outside a rig. Distance-based weights are a starting point, not production-quality anatomical weights.
-6. Save a `.forge` project or export GLB to retain bones, skin weights and transform animation.
-
-The 77 joint names, parents, order and root-relative neutral positions come from official NVIDIA Kimodo revision `1aece8c124d73d255ceff5086d983b844c9f4e94`. `Hips` remains `(0,0,0)` in the rest pose. A separate armature container grounds the visible character. Coordinates are in meters, Y up, with +Z forward. This uses the native neutral skeleton, not an invented approximation or a T-pose with unaccounted rotation offsets.
-
-Sources: [official skeleton documentation](https://research.nvidia.com/labs/sil/projects/kimodo/docs/key_concepts/skeleton.html), [joint definitions](https://github.com/nv-tlabs/kimodo/blob/1aece8c124d73d255ceff5086d983b844c9f4e94/kimodo/skeleton/definitions.py), [neutral skeleton data](https://github.com/nv-tlabs/kimodo/blob/1aece8c124d73d255ceff5086d983b844c9f4e94/kimodo/assets/skeletons/somaskel77/joints.p). Attribution and license are in `THIRD_PARTY_NOTICES.md` and `licenses/`.
-
 ## Files and recovery
 
 | Format | Import | Export |
 | --- | --- | --- |
-| Forge JSON (`.forge`) | Full editable project | Objects, geometry, materials, rigs, skin weights, transform keys |
-| GLB | Embedded meshes, materials and skins | Meshes, materials, skins and authored transform animation |
+| Forge JSON (`.forge`) | Full editable project | Objects, geometry, materials and transform keys |
+| GLB | Embedded meshes, materials and existing skins | Meshes, materials, existing skins and authored transform animation |
 | OBJ | Geometry; external MTL/textures are not loaded | Geometry only |
 | PNG | — | Current viewport, including helpers |
 
@@ -304,9 +291,8 @@ Small scenes recover through browser local storage. Local storage has browser-sp
 ## Performance architecture
 
 - Demand-driven rendering: no persistent idle animation loop; continuous frames only during playback.
-- GPU-skinned meshes and instanced rig joint markers; a two-triangle derivative-based grid.
+- A two-triangle derivative-based viewport grid and resource-aware Three.js scene rendering.
 - Pixel-ratio caps: Performance 1.0, Balanced 1.5, High 2.0, bounded by device pixel ratio.
-- Auto skinning runs in a Web Worker, with four normalized influences per vertex and a 100k-vertex per-job cap. A changed scene invalidates an in-flight binding result.
 - Lazy GLB/OBJ import and export modules.
 - Undo history capped at 40 snapshots and 24 MiB of estimated UTF-16 storage. A single scene larger than that budget disables history. Snapshot serialization is synchronous; large-scene command-based history is future work.
 - Shared resource-aware GPU disposal and tab-hidden playback suspension.
@@ -316,6 +302,6 @@ The automated WebGL tests use Chromium's software renderer for repeatability. Th
 
 ## Current limits and next stages
 
-The editor does not yet include polygon face editing, curved-surface region extrusion or region inset, sculpting, weight painting, IK pole vectors/joint limits, retargeting, geometry nodes, physics, compositing or offline rendering. The modeling core includes bevel, loop cuts, UV editing, modifiers and mesh snapping within the supported limits documented above. Kimodo text-to-motion inference is not connected. The UI exposes only implemented local workflows and labels the basic rigging limitations.
+The editor does not yet include polygon face editing, curved-surface region extrusion or region inset, sculpting, native rigging/skinning, constraints, retargeting, geometry nodes, physics, compositing or offline rendering. The modeling core includes bevel, loop cuts, UV editing, modifiers and mesh snapping within the supported limits documented above. A new native rigging system will be designed independently rather than preserving the removed preset-specific implementation.
 
 The development plan is [docs/plans/2026-09-08-forge-studio.md](docs/plans/2026-09-08-forge-studio.md).
