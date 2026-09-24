@@ -2151,8 +2151,17 @@ export class Editor extends EventTarget {
     this.commit();
   }
 
-  scrub(frame: number) { this.frame = THREE.MathUtils.clamp(frame, this.frameStart, this.frameEnd); this.evaluateAnimation(); this.emit('frame'); this.emit('transform'); this.invalidate(); }
+  scrub(frame: number) {
+    if (this.weightMode) return false;
+    this.frame = THREE.MathUtils.clamp(frame, this.frameStart, this.frameEnd);
+    this.evaluateAnimation();
+    this.emit('frame');
+    this.emit('transform');
+    this.invalidate();
+    return true;
+  }
   togglePlayback() {
+    if (this.weightMode) return false;
     this.setEditMode(false);
     this.playing = !this.playing;
     const playback = this.playbackRange;
@@ -2161,6 +2170,7 @@ export class Editor extends EventTarget {
     this.playbackFrame = this.frame;
     this.emit('frame');
     this.invalidate();
+    return true;
   }
 
   evaluateAnimation() {
