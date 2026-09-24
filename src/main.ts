@@ -87,28 +87,39 @@ $('.workspace-tabs').insertAdjacentHTML('beforeend', '<button class="workspace-t
 $('.properties-tabs').insertAdjacentHTML('beforeend', `<button data-panel="rig">${icon('activity')} Rig</button>`);
 $('.properties-content').insertAdjacentHTML('beforeend', `
   <div id="panel-rig" class="property-panel hidden">
-    <div class="section-heading"><span>${icon('activity')} Kimodo Rig</span><span class="count">SOMA77</span></div>
-    <p class="field-help">Official 77-joint hierarchy and native rest positions. Meters · Y up · +Z forward.</p>
-    <button class="wide-button" id="create-rig">${icon('plus')} Create SOMA77 armature</button>
+    <div class="section-heading"><span>${icon('activity')} Armature</span><span class="count" id="rig-status">Native</span></div>
+    <p class="field-help">Build a Forge-native bone hierarchy, then switch to Pose mode for FK, IK and animation.</p>
+    <button class="wide-button" id="create-rig">${icon('plus')} Create armature</button>
+    <button class="wide-button" id="create-soma-rig">${icon('activity')} Add SOMA77 preset</button>
     <div class="rig-active-fields hidden" id="rig-active-fields">
       <label class="property-row">Armature<select id="rig-select" aria-label="Active armature"></select></label>
-      <div class="section-heading border-top"><span>${icon('chevron-down')} Pose controls</span></div>
-      <div class="action-row"><button id="rig-reset">Rest pose</button><button id="rig-key">Key full pose</button></div>
-      <label class="property-row">Limb IK<select id="ik-limb" aria-label="IK limb"><option value="LeftHand">Left hand</option><option value="RightHand">Right hand</option><option value="LeftFoot">Left foot</option><option value="RightFoot">Right foot</option></select></label>
-      <button class="wide-button" id="enable-ik">${icon('move')} Move IK target</button>
-      <p class="field-help">Drag the target to solve the limb. Select a joint for FK rotation. IK is positional; pole controls and anatomical limits are planned.</p>
+      <label class="property-row">Mode<select id="rig-mode" aria-label="Armature mode"><option value="edit">Edit</option><option value="pose">Pose</option></select></label>
+      <div id="rig-edit-controls">
+        <div class="section-heading border-top"><span>${icon('chevron-down')} Edit skeleton</span></div>
+        <div class="action-row"><button id="rig-add-root">Add root</button><button id="rig-extrude">Extrude</button></div>
+        <label class="property-row">Parent<select id="rig-parent" aria-label="Bone parent"></select></label>
+        <button class="wide-button" id="rig-reparent">Reparent selected bone</button>
+        <p class="field-help">Move or rotate bones to author the rest skeleton. Hierarchy editing is locked after skin binding or bone keys are authored.</p>
+      </div>
+      <div id="rig-pose-controls">
+        <div class="section-heading border-top"><span>${icon('chevron-down')} Pose controls</span></div>
+        <div class="action-row"><button id="rig-reset">Rest pose</button><button id="rig-key">Key full pose</button></div>
+        <label class="property-row">IK chain<input id="ik-chain" aria-label="IK chain length" type="number" min="1" max="64" step="1" value="2"></label>
+        <button class="wide-button" id="enable-ik">${icon('move')} IK selected bone</button>
+        <p class="field-help">Select an end bone, then move the IK target. IK is positional and bakes into ordinary FK transforms.</p>
+      </div>
       <div class="section-heading border-top"><span>${icon('chevron-down')} Skin binding</span></div>
-      <button class="wide-button" id="rig-preview">${icon('box')} Add skinned preview</button>
+      <button class="wide-button hidden" id="rig-preview">${icon('box')} Add SOMA skinned preview</button>
       <button class="wide-button" id="rig-bind">${icon('layers')} Bind selected mesh</button>
-      <p class="field-help">Align a standalone mesh with the rest skeleton, select it, then bind. Four distance-based influences per vertex; up to 100k vertices. Weight painting is planned.</p>
-      <div class="section-heading border-top"><span>${icon('chevron-down')} Joints <span class="count">77</span></span></div>
-      <input id="bone-search" class="bone-search" placeholder="Filter joints…" aria-label="Filter joints">
+      <p class="field-help">Finish the rest skeleton, switch to Pose mode, align a standalone mesh, then bind. Four distance-based influences per vertex; up to 100k vertices.</p>
+      <div class="section-heading border-top"><span>${icon('chevron-down')} Bones <span class="count" id="rig-joint-count">0</span></span></div>
+      <input id="bone-search" class="bone-search" placeholder="Filter bones…" aria-label="Filter bones">
       <div class="bone-list" id="bone-list"></div>
-      <a class="rig-source" href="${RIG_SOURCE}" target="_blank" rel="noreferrer">NVIDIA Kimodo skeleton source ↗</a>
+      <a class="rig-source hidden" id="rig-source" href="${RIG_SOURCE}" target="_blank" rel="noreferrer">NVIDIA Kimodo skeleton source ↗</a>
     </div>
   </div>`);
-$('#add-menu').insertAdjacentHTML('beforeend', `<hr><button id="add-rig-menu">${icon('activity')}Kimodo SOMA77 rig</button>`);
-$('.dialog-note').textContent = 'This release supports vertex, edge and triangle face editing, modeling-core tools, scene collections, Kimodo SOMA77 FK/IK posing and basic skinning. Polygon modeling, sculpting, physics and native .blend files are planned.';
+$('#add-menu').insertAdjacentHTML('beforeend', `<hr><button id="add-rig-menu">${icon('activity')}Armature</button><button id="add-soma-rig-menu">${icon('activity')}SOMA77 preset</button>`);
+$('.dialog-note').textContent = 'This release supports vertex, edge and triangle face editing, modeling-core tools, scene collections, Forge-native armature editing, FK/IK posing and basic skinning. Polygon modeling, sculpting, physics and native .blend files are planned.';
 $('#material-fields').insertAdjacentHTML('beforeend', `<details class="painting-section" open><summary>Texture paint</summary><canvas id="paint-view" width="256" height="256" aria-label="Texture paint canvas"></canvas><p class="field-help">Paints an embedded 256×256 texture in the mesh UV layout. Mesh geometry and UV coordinates stay unchanged.</p><button class="wide-button" id="paint-enable">Enable texture painting</button><button class="wide-button" id="texture-import">Import PNG / JPEG / WebP</button><button class="wide-button" id="texture-export">Export texture PNG</button><input id="texture-input" type="file" accept="image/png,image/jpeg,image/webp" hidden><label class="property-row">Brush color<input id="paint-color" aria-label="Brush color" type="color" value="#e08050"></label><label class="property-row">Brush size<input id="paint-size" aria-label="Brush size" type="number" min="1" max="128" step="1" value="16"></label><button class="wide-button" id="paint-clear">Clear texture</button></details>`);
 refreshIcons();
 applyTheme(themeMode, false);
@@ -195,38 +206,107 @@ on('texture-export', () => {
     canvas.toBlob(blob => { if (blob) { download(blob, `${editor.name}-texture.png`, 'image/png'); toast('Texture PNG downloaded.'); } else toast('Texture export failed.'); }, 'image/png');
   } catch (error) { toast((error as Error).message); }
 });
-const rigSystem = new RigSystem(editor, createSomaRig);
+const rigSystem = new RigSystem(editor);
 function rigAction(action: () => void) { try { action(); } catch (error) { toast((error as Error).message); } }
 function refreshRig() {
   const active = rigSystem.activeRig;
   $('#rig-active-fields').classList.toggle('hidden', !active);
   const select = $<HTMLSelectElement>('#rig-select');
-  select.replaceChildren(...rigSystem.rigs.map(rig => { const option = new Option(rig.name,rig.uuid); option.selected = rig === active; return option; }));
+  select.replaceChildren(...rigSystem.rigs.map(rig => { const option = new Option(rig.name, rig.uuid); option.selected = rig === active; return option; }));
   const list = $('#bone-list'); list.replaceChildren();
   if (!active) return;
+  const bones = rigBones(active);
+  const editing = rigSystem.mode === 'edit';
+  const preset = active.userData.forgeRig?.preset === 'soma77';
+  $('#rig-status').textContent = preset ? 'SOMA77 preset' : 'Native';
+  $('#rig-joint-count').textContent = String(bones.length);
+  $<HTMLSelectElement>('#rig-mode').value = rigSystem.mode;
+  $('#rig-edit-controls').classList.toggle('hidden', !editing);
+  $('#rig-pose-controls').classList.toggle('hidden', editing);
+  $('#rig-preview').classList.toggle('hidden', !preset);
+  $('#rig-source').classList.toggle('hidden', !preset);
+
+  const selectedBone = editor.selected instanceof THREE.Bone && bones.includes(editor.selected) ? editor.selected : null;
+  $<HTMLButtonElement>('#rig-extrude').disabled = !editing || !selectedBone;
+  $<HTMLButtonElement>('#rig-reparent').disabled = !editing || !selectedBone;
+  const parentSelect = $<HTMLSelectElement>('#rig-parent');
+  const invalidParents = new Set<THREE.Object3D>();
+  selectedBone?.traverse(object => { if (object instanceof THREE.Bone) invalidParents.add(object); });
+  const parentOptions = [new Option('Armature root', '')];
+  for (const bone of bones) if (!invalidParents.has(bone)) parentOptions.push(new Option(bone.name, bone.uuid));
+  parentSelect.replaceChildren(...parentOptions);
+  if (selectedBone?.parent instanceof THREE.Bone) parentSelect.value = selectedBone.parent.uuid;
+
   const query = $<HTMLInputElement>('#bone-search').value.toLowerCase();
-  for (const bone of rigBones(active)) {
+  for (const bone of bones) {
     if (!bone.name.toLowerCase().includes(query)) continue;
     const button = document.createElement('button');
     button.className = `bone-button ${editor.selected === bone ? 'active' : ''}`;
     button.textContent = bone.name;
-    button.title = `Select ${bone.name} for FK posing`;
+    button.title = editing ? `Select ${bone.name} for rest-skeleton editing` : `Select ${bone.name} for FK posing`;
     button.style.paddingLeft = `${Math.min(5, boneDepth(bone)) * 9 + 8}px`;
-    button.onclick = () => { editor.select(bone); tool('rotate'); };
+    button.onclick = () => { editor.select(bone); tool(editing ? 'translate' : 'rotate'); };
     list.append(button);
   }
 }
 function boneDepth(bone: THREE.Object3D): number { return bone.parent instanceof THREE.Bone ? 1 + boneDepth(bone.parent) : 0; }
-for (const id of ['create-rig','add-rig-menu']) on(id, () => rigAction(() => { rigSystem.add(); panel('rig'); toast('Official Kimodo SOMA77 armature created.'); }));
+const createNativeRig = () => rigAction(() => {
+  rigSystem.add();
+  rigSystem.setMode('edit');
+  panel('rig');
+  tool('translate');
+  toast('Forge armature created in Edit mode.');
+});
+for (const id of ['create-rig', 'add-rig-menu']) on(id, createNativeRig);
+const createSomaPreset = () => rigAction(() => {
+  rigSystem.add(createSomaRig());
+  panel('rig');
+  toast('SOMA77 preset armature created.');
+});
+for (const id of ['create-soma-rig', 'add-soma-rig-menu']) on(id, createSomaPreset);
+$<HTMLSelectElement>('#rig-mode').onchange = event => rigAction(() => {
+  rigSystem.setMode((event.target as HTMLSelectElement).value as 'edit' | 'pose');
+  tool(rigSystem.mode === 'edit' ? 'translate' : 'rotate');
+});
+on('rig-add-root', () => rigAction(() => { rigSystem.addRootBone(); tool('translate'); toast('Root bone added.'); }));
+on('rig-extrude', () => rigAction(() => { rigSystem.extrudeSelectedBone(); tool('translate'); toast('Bone extruded.'); }));
+on('rig-reparent', () => rigAction(() => {
+  const active = rigSystem.activeRig;
+  if (!active) throw new Error('Create or select an armature first.');
+  const value = $<HTMLSelectElement>('#rig-parent').value;
+  const parent = value ? rigBones(active).find(bone => bone.uuid === value) ?? null : null;
+  if (value && !parent) throw new Error('Choose a valid parent bone.');
+  rigSystem.reparentSelectedBone(parent);
+  toast(parent ? `Bone parented to ${parent.name}.` : 'Bone moved to the armature root.');
+}));
 on('rig-reset', () => rigAction(() => rigSystem.resetPose()));
-on('rig-key', () => rigAction(() => { rigSystem.keyPose(); toast(`All 77 joints keyed at frame ${Math.round(editor.frame)}.`); }));
-on('rig-preview', () => rigAction(() => { const rig = rigSystem.activeRig; if (!rig) throw new Error('Create or select an armature first.'); addSomaPreview(rig); editor.commit(); toast('Skinned preview added. Rotate a joint to deform it.'); }));
-on('enable-ik', () => rigAction(() => { const rig = rigSystem.activeRig; const end = rig ? rigBones(rig).find(bone => bone.name === $<HTMLSelectElement>('#ik-limb').value) : null; if (!end) throw new Error('Choose a supported SOMA limb on the active armature.'); rigSystem.enableIK(end); toast('Drag the move gizmo to pose the limb, then Key full pose.'); }));
+on('rig-key', () => rigAction(() => {
+  const count = rigSystem.activeRig ? rigBones(rigSystem.activeRig).length : 0;
+  rigSystem.keyPose();
+  toast(`${count} bone${count === 1 ? '' : 's'} keyed at frame ${Math.round(editor.frame)}.`);
+}));
+on('rig-preview', () => rigAction(() => {
+  const rig = rigSystem.activeRig;
+  if (!rig || rig.userData.forgeRig?.preset !== 'soma77') throw new Error('The procedural preview is only available for the SOMA77 preset.');
+  addSomaPreview(rig);
+  editor.commit();
+  toast('SOMA skinned preview added.');
+}));
+on('enable-ik', () => rigAction(() => {
+  const rig = rigSystem.activeRig;
+  const end = editor.selected instanceof THREE.Bone && rig && rigBones(rig).includes(editor.selected) ? editor.selected : null;
+  if (!end) throw new Error('Select an end bone first.');
+  rigSystem.enableIK(end, Number($<HTMLInputElement>('#ik-chain').value));
+  toast('Drag the move gizmo to pose the IK chain, then key the pose.');
+}));
 on('rig-bind', () => {
   const button = $<HTMLButtonElement>('#rig-bind'); button.disabled = true; toast('Computing skin weights in a worker…');
   void rigSystem.bindSelected().then(() => toast('Mesh bound. Select a bone to test the deformation.')).catch(error => toast(error.message)).finally(() => button.disabled = false);
 });
-$<HTMLSelectElement>('#rig-select').onchange = e => { editor.select(editor.content.getObjectByProperty('uuid',(e.target as HTMLSelectElement).value) ?? null); refreshRig(); };
+$<HTMLSelectElement>('#rig-select').onchange = event => {
+  editor.select(editor.content.getObjectByProperty('uuid', (event.target as HTMLSelectElement).value) ?? null);
+  refreshRig();
+};
 $<HTMLInputElement>('#bone-search').oninput = refreshRig;
 editor.addEventListener('change', refreshRig);
 function closeMenus() { document.querySelectorAll('.menu').forEach(menu => menu.classList.add('hidden')); }

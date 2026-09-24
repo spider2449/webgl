@@ -275,18 +275,18 @@ before quaternion export. This is an interchange approximation; arbitrary
 F-curves, weighted tangent types, curve modifiers, lasso selection, and
 cross-channel key selection remain future work.
 
-## Kimodo rigging
+## Armature rigging
 
-1. Open **Rigging** and choose **Create SOMA77 armature**.
-2. Choose **Add skinned preview** for an immediately poseable, procedural body proxy. It is not the SOMA body mesh.
-3. Select a bone in the viewport or searchable joint list, then rotate it with the gizmo. The Object panel exposes precise bone transforms.
-4. For positional IK, choose a hand or foot and click **Move IK target**. Drag the target, then choose **Key full pose** to record all 77 bones. IK is solved to FK transforms; it is not a persistent animated constraint.
-5. Use **Rest pose** before binding. To bind a custom mesh, align a standalone mesh to the armature, select the mesh, then click **Bind selected mesh**. The first armature is used when selection is outside a rig. Distance-based weights are a starting point, not production-quality anatomical weights.
-6. Save a `.forge` project or export GLB to retain bones, skin weights and transform animation.
+1. Open **Rigging** and choose **Create armature**. Forge creates a native editable armature with one root bone and enters **Edit** mode.
+2. In Edit mode, use **Extrude** to create child bones, **Add root** for another root chain, and **Reparent selected bone** to change hierarchy while preserving the bone's world transform. Move or rotate bones to author the rest skeleton.
+3. Switch to **Pose** mode before binding or animating. Select a bone in the viewport or searchable bone list for FK posing. The existing scalar Timeline and Graph channels animate bone position, rotation and scale like any other transform target.
+4. For positional IK, select an end bone, choose the chain length, and click **IK selected bone**. Drag the target, then choose **Key full pose**. IK is solved into ordinary FK transforms rather than stored as a persistent constraint.
+5. To bind a custom mesh, leave the armature at its rest pose, select a standalone mesh, then click **Bind selected mesh**. Four distance-based influences per vertex are generated in a worker as a starting point.
+6. Save a `.forge` project or export GLB to retain the generic bone hierarchy, skin weights and transform animation.
 
-The 77 joint names, parents, order and root-relative neutral positions come from official NVIDIA Kimodo revision `1aece8c124d73d255ceff5086d983b844c9f4e94`. `Hips` remains `(0,0,0)` in the rest pose. A separate armature container grounds the visible character. Coordinates are in meters, Y up, with +Z forward. This uses the native neutral skeleton, not an invented approximation or a T-pose with unaccounted rotation offsets.
+Rest-skeleton editing is intentionally locked after a skin is bound or bone animation keys exist. This keeps the current skin indices, inverse bind matrices and authored scalar animation from silently becoming inconsistent. More advanced post-bind rig editing will require an explicit rebind/remap workflow.
 
-Sources: [official skeleton documentation](https://research.nvidia.com/labs/sil/projects/kimodo/docs/key_concepts/skeleton.html), [joint definitions](https://github.com/nv-tlabs/kimodo/blob/1aece8c124d73d255ceff5086d983b844c9f4e94/kimodo/skeleton/definitions.py), [neutral skeleton data](https://github.com/nv-tlabs/kimodo/blob/1aece8c124d73d255ceff5086d983b844c9f4e94/kimodo/assets/skeletons/somaskel77/joints.p). Attribution and license are in `THIRD_PARTY_NOTICES.md` and `licenses/`.
+**SOMA77 preset:** **Add SOMA77 preset** remains available temporarily as a pose-only compatibility preset with its procedural preview. The 77 joint names, hierarchy and native neutral positions come from NVIDIA Kimodo revision `1aece8c124d73d255ceff5086d983b844c9f4e94`. Attribution and license remain in `THIRD_PARTY_NOTICES.md` and `licenses/`.
 
 ## Files and recovery
 

@@ -1,5 +1,7 @@
 import * as THREE from 'three';
 import type { Editor } from '../editor';
+export type ArmatureMode = 'edit' | 'pose';
+
 export type ForgeArmatureMetadata = {
   type: 'armature';
   version: 1;
@@ -25,12 +27,23 @@ export function createArmature(name = 'Armature'): THREE.Group {
   return rig;
 }
 
+function captureBoneRest(bone: THREE.Bone) {
+  bone.userData.restPosition = bone.position.toArray();
+  bone.userData.restQuaternion = bone.quaternion.toArray();
+  bone.userData.restScale = bone.scale.toArray();
+}
+
 export function captureRestPose(rig: THREE.Object3D) {
-  for (const bone of rigBones(rig)) {
-    bone.userData.restPosition = bone.position.toArray();
-    bone.userData.restQuaternion = bone.quaternion.toArray();
-    bone.userData.restScale = bone.scale.toArray();
-  }
+  for (const bone of rigBones(rig)) captureBoneRest(bone);
+}
+
+export function createNativeArmature(): THREE.Group {
+  const rig = createArmature();
+  const root = new THREE.Bone();
+  root.name = 'Bone';
+  rig.add(root);
+  captureRestPose(rig);
+  return rig;
 }
 
 function restTransform(bone: THREE.Bone) {
@@ -52,7 +65,8 @@ export class RigSystem {
   private ikEnd: THREE.Bone | null = null;
   private ikChain: THREE.Bone[] = [];
   private worker: Worker | null = null;
-  constructor(readonly editor: Editor, private readonly createDefaultArmature?: () => THREE.Group) {
+  private editRig: THREE.Object3D | null = null;
+  constructor(readonly editor: Editor) {
     editor.scene.add(this.ikTarget);
     editor.beforeRender = () => this.updateVisuals();
     editor.pickOverride = raycaster => this.pick(raycaster);
@@ -60,6 +74,10 @@ export class RigSystem {
     editor.addEventListener('change', () => {
       if (editor.transform.object !== this.ikTarget) this.ikEnd = null;
       this.sync();
+    });
+    editor.addEventListener('transform', () => {
+      const bone = editor.selected;
+      if (!editor.playing && bone instanceof THREE.Bone && this.editRig && this.rigFor(bone) === this.editRig) captureBoneRest(bone);
     });
     this.sync();
   }
@@ -69,9 +87,52 @@ export class RigSystem {
     while (node) { if (isForgeArmature(node)) return node; node = node.parent; }
     return this.rigs[0] ?? null;
   }
-  add(armature?: THREE.Group) {
-    const rig = armature ?? this.createDefaultArmature?.();
-    if (!rig) throw new Error('No armature factory is configured.');
+  get mode(): ArmatureMode {
+    return this.activeRig && this.activeRig === this.editRig ? 'edit' : 'pose';
+  }
+  private rigFor(object: THREE.Object3D | null): THREE.Object3D | null {
+    let node = object;
+    while (node) {
+      if (isForgeArmature(node)) return node;
+      node = node.parent;
+    }
+    return null;
+  }
+  private rigHasSkin(rig: THREE.Object3D) {
+    let found = false;
+    rig.traverse(object => { if (object instanceof THREE.SkinnedMesh) found = true; });
+    return found;
+  }
+  private rigHasAnimation(rig: THREE.Object3D) {
+    return rigBones(rig).some(bone => {
+      const tracks = bone.userData.animationTracks as Record<string, unknown> | undefined;
+      return !!tracks && Object.values(tracks).some(track => Array.isArray(track) && track.length > 0);
+    });
+  }
+  private assertEditableRig(rig: THREE.Object3D) {
+    const metadata = rig.userData.forgeRig as ForgeArmatureMetadata | undefined;
+    if (metadata?.preset) throw new Error('Preset armatures are pose-only. Create a Forge armature to edit its hierarchy.');
+    if (this.rigHasSkin(rig)) throw new Error('Armature Edit mode is unavailable after skin binding. Edit the rest skeleton before binding.');
+    if (this.rigHasAnimation(rig)) throw new Error('Armature Edit mode is unavailable after bone animation is authored. Edit the rest skeleton before keying poses.');
+  }
+  private applyRestPose(rig: THREE.Object3D) {
+    const bones = rigBones(rig);
+    const rest = bones.map(restTransform);
+    bones.forEach((bone, index) => {
+      bone.position.fromArray(rest[index].position);
+      bone.quaternion.fromArray(rest[index].quaternion);
+      bone.scale.fromArray(rest[index].scale);
+    });
+  }
+  private uniqueBoneName(rig: THREE.Object3D, base = 'Bone') {
+    const names = new Set(rigBones(rig).map(bone => bone.name));
+    if (!names.has(base)) return base;
+    let index = 1;
+    while (names.has(`${base}.${String(index).padStart(3, '0')}`)) index++;
+    return `${base}.${String(index).padStart(3, '0')}`;
+  }
+  add(armature: THREE.Group = createNativeArmature()) {
+    const rig = armature;
     if (!isForgeArmature(rig)) throw new Error('The object is not a Forge armature.');
     if (!rigBones(rig).length) throw new Error('An armature must contain at least one bone.');
     rig.name = this.editor.uniqueName(rig.name || 'Armature');
@@ -81,8 +142,81 @@ export class RigSystem {
     this.editor.focus();
     return rig;
   }
+  setMode(mode: ArmatureMode) {
+    const rig = this.activeRig;
+    if (!rig) throw new Error('Create or select an armature first.');
+    if (mode === 'edit') {
+      this.assertEditableRig(rig);
+      this.editor.playing = false;
+      this.applyRestPose(rig);
+      this.editRig = rig;
+      this.ikEnd = null;
+      const selected = this.editor.selected;
+      const bone = selected instanceof THREE.Bone && this.rigFor(selected) === rig ? selected : rigBones(rig)[0];
+      this.editor.select(bone ?? rig);
+      this.editor.commit();
+    } else {
+      if (this.editRig === rig) this.editRig = null;
+      this.ikEnd = null;
+      this.editor.emit();
+      this.editor.invalidate();
+    }
+  }
+  addRootBone() {
+    const rig = this.activeRig;
+    if (!rig || this.editRig !== rig) throw new Error('Switch the active armature to Edit mode first.');
+    this.assertEditableRig(rig);
+    const roots = rigBones(rig).filter(bone => !(bone.parent instanceof THREE.Bone));
+    const bone = new THREE.Bone();
+    bone.name = this.uniqueBoneName(rig);
+    bone.position.set(roots.length, 0, 0);
+    rig.add(bone);
+    captureBoneRest(bone);
+    this.editor.select(bone);
+    this.editor.commit();
+    return bone;
+  }
+  extrudeSelectedBone(length = 1) {
+    const rig = this.activeRig;
+    if (!rig || this.editRig !== rig) throw new Error('Switch the active armature to Edit mode first.');
+    this.assertEditableRig(rig);
+    const parent = this.editor.selected;
+    if (!(parent instanceof THREE.Bone) || this.rigFor(parent) !== rig) throw new Error('Select a bone to extrude.');
+    if (!Number.isFinite(length) || length <= 0) throw new Error('Bone extrusion length must be positive.');
+    const bone = new THREE.Bone();
+    bone.name = this.uniqueBoneName(rig);
+    bone.position.set(0, length, 0);
+    parent.add(bone);
+    captureBoneRest(bone);
+    this.editor.select(bone);
+    this.editor.commit();
+    return bone;
+  }
+  reparentSelectedBone(parent: THREE.Bone | null) {
+    const rig = this.activeRig;
+    if (!rig || this.editRig !== rig) throw new Error('Switch the active armature to Edit mode first.');
+    this.assertEditableRig(rig);
+    const bone = this.editor.selected;
+    if (!(bone instanceof THREE.Bone) || this.rigFor(bone) !== rig) throw new Error('Select a bone to reparent.');
+    const bones = rigBones(rig);
+    if (parent && !bones.includes(parent)) throw new Error('Choose a parent bone from the active armature.');
+    let node: THREE.Object3D | null = parent;
+    while (node) {
+      if (node === bone) throw new Error('A bone cannot be parented to itself or one of its descendants.');
+      node = node.parent;
+    }
+    const target: THREE.Object3D = parent ?? rig;
+    if (bone.parent === target) return bone;
+    this.editor.content.updateMatrixWorld(true);
+    target.attach(bone);
+    captureBoneRest(bone);
+    this.editor.select(bone);
+    this.editor.commit();
+    return bone;
+  }
   sync() {
     const current = new Set(this.rigs);
+    if (this.editRig && !current.has(this.editRig)) this.editRig = null;
     const disposeVisual = (rig: THREE.Object3D, visual: RigVisual) => {
       visual.root.removeFromParent();
       this.editor.disposeObject(visual.root);
@@ -147,13 +281,7 @@ export class RigSystem {
   resetPose() {
     const rig = this.activeRig;
     if (!rig) throw new Error('Create or select an armature first.');
-    const bones = rigBones(rig);
-    const rest = bones.map(restTransform);
-    bones.forEach((bone, index) => {
-      bone.position.fromArray(rest[index].position);
-      bone.quaternion.fromArray(rest[index].quaternion);
-      bone.scale.fromArray(rest[index].scale);
-    });
+    this.applyRestPose(rig);
     this.ikEnd = null;
     this.editor.select(rig);
     this.editor.commit();
@@ -161,6 +289,7 @@ export class RigSystem {
   keyPose() {
     const rig = this.activeRig;
     if (!rig) throw new Error('Create or select an armature first.');
+    if (this.editRig === rig) throw new Error('Switch to Pose mode before keying the armature.');
     const frame = Math.round(this.editor.frame);
     for (const bone of rigBones(rig)) this.editor.keyObjectTransform(bone, frame);
     this.editor.commit();
@@ -168,6 +297,7 @@ export class RigSystem {
   enableIK(end: THREE.Bone, chainLength = 2) {
     const rig = this.activeRig;
     if (!rig) throw new Error('Create or select an armature first.');
+    if (this.editRig === rig) throw new Error('Switch to Pose mode before using IK.');
     const bones = rigBones(rig);
     if (!bones.includes(end)) throw new Error('Choose an end bone from the active armature.');
     if (!Number.isInteger(chainLength) || chainLength < 1) throw new Error('IK chain length must be a positive integer.');
@@ -217,6 +347,7 @@ export class RigSystem {
     if (!(mesh instanceof THREE.Mesh) || mesh instanceof THREE.SkinnedMesh || mesh.parent !== this.editor.content) throw new Error('Select a standalone mesh to bind.');
     if (mesh.userData.modifierStack || this.editor.modelingBusy) throw new Error('Apply modifiers and finish modeling before skin binding.');
     if (!rig) throw new Error('Create or select an armature first.');
+    if (this.editRig === rig) throw new Error('Switch to Pose mode before binding a mesh.');
     const bones = rigBones(rig);
     if (!bones.length) throw new Error('The active armature has no bones.');
     const rest = bones.map(restTransform);

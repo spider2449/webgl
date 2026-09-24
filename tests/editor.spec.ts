@@ -11,36 +11,16 @@ async function createGenericThreeBoneArmature(page: Page) {
     const e = (window as any).__forge;
     const r = (window as any).__rig;
     const rig = r.add();
-    const root = rig.getObjectByName('Hips');
-    const mid = rig.getObjectByName('Spine1');
-    const tip = rig.getObjectByName('Spine2');
-    if (!root?.isBone || !mid?.isBone || !tip?.isBone) throw new Error('SOMA fixture could not seed generic armature bones.');
-
-    const keep = new Set([root, mid, tip]);
-    const bones: any[] = [];
-    rig.traverse((object: any) => { if (object.isBone) bones.push(object); });
-    for (const bone of bones.reverse()) if (!keep.has(bone)) bone.removeFromParent();
-
+    r.setMode('edit');
+    const root = e.selected;
     root.name = 'Root';
+    const mid = r.extrudeSelectedBone();
     mid.name = 'Mid';
+    const tip = r.extrudeSelectedBone();
     tip.name = 'Tip';
-    rig.name = 'Generic Armature';
-    rig.position.set(0, 0, 0);
-    rig.userData.forgeRig = { type: 'armature', version: 1 };
-    root.position.set(0, 0, 0);
-    mid.position.set(0, 1, 0);
-    tip.position.set(0, 1, 0);
-    for (const bone of [root, mid, tip]) {
-      bone.quaternion.identity();
-      bone.scale.set(1, 1, 1);
-      bone.userData.restPosition = bone.position.toArray();
-      bone.userData.restQuaternion = bone.quaternion.toArray();
-      bone.userData.restScale = bone.scale.toArray();
-    }
-    rig.updateMatrixWorld(true);
-    e.select(rig);
     e.commit();
-    r.sync();
+    r.setMode('pose');
+    e.select(rig);
   });
 }
 
@@ -116,9 +96,54 @@ test('round trips edited geometry, transforms and materials', async ({ page }) =
   expect(result.color).toBe('e08050');
 });
 
-test('creates exact SOMA77 hierarchy and supports FK and full-pose keys', async ({ page }) => {
+test('creates and edits a Forge-native armature hierarchy through rig controls', async ({ page }) => {
   await page.locator('[data-workspace="rigging"]').click();
   await page.locator('#create-rig').click();
+  await expect(page.locator('#rig-mode')).toHaveValue('edit');
+  await expect(page.locator('.bone-button')).toHaveCount(1);
+  await page.locator('#rig-extrude').click();
+  await page.locator('#rig-extrude').click();
+  await page.locator('#rig-add-root').click();
+  await expect(page.locator('.bone-button')).toHaveCount(4);
+
+  const before = await page.evaluate(() => {
+    const e = (window as any).__forge, r = (window as any).__rig;
+    const rig = r.activeRig;
+    const target = rig.getObjectByName('Bone.001');
+    const selected = e.selected;
+    return {
+      target: target.uuid,
+      world: selected.getWorldPosition(selected.position.clone()).toArray(),
+      names: (() => { const names: string[] = []; rig.traverse((o: any) => { if (o.isBone) names.push(o.name); }); return names; })(),
+    };
+  });
+  expect(before.names).toEqual(['Bone', 'Bone.001', 'Bone.002', 'Bone.003']);
+  await page.locator('#rig-parent').selectOption(before.target);
+  await page.locator('#rig-reparent').click();
+  const after = await page.evaluate(() => {
+    const e = (window as any).__forge;
+    const selected = e.selected;
+    return { parent: selected.parent.name, world: selected.getWorldPosition(selected.position.clone()).toArray(), rest: selected.userData.restPosition };
+  });
+  expect(after.parent).toBe('Bone.001');
+  before.world.forEach((value: number, index: number) => expect(after.world[index]).toBeCloseTo(value, 6));
+  expect(after.rest).toHaveLength(3);
+});
+
+test('locks rest-skeleton editing after bone animation is authored', async ({ page }) => {
+  await createGenericThreeBoneArmature(page);
+  const message = await page.evaluate(() => {
+    const e = (window as any).__forge, r = (window as any).__rig;
+    e.select(r.activeRig.getObjectByName('Mid'));
+    r.keyPose();
+    try { r.setMode('edit'); return ''; } catch (error) { return (error as Error).message; }
+  });
+  expect(message).toContain('after bone animation is authored');
+});
+
+test('creates exact SOMA77 hierarchy and supports FK and full-pose keys', async ({ page }) => {
+  await page.locator('[data-workspace="rigging"]').click();
+  await page.locator('#create-soma-rig').click();
   await expect(page.locator('.bone-button')).toHaveCount(77);
   const result = await page.evaluate(() => {
     const e = (window as any).__forge, r = (window as any).__rig;
@@ -240,12 +265,15 @@ test('worker skin binding supports arbitrary roots and leaf bones with normalize
     rig.updateMatrixWorld(true); bound.skeleton.update(); bound.getVertexPosition(100, vertex); const before = vertex.toArray();
     rig.getObjectByName('Root').rotation.z = 0.2;
     rig.updateMatrixWorld(true); bound.skeleton.update(); bound.getVertexPosition(100, vertex);
-    return { maxError, before, after: vertex.toArray(), bones: bound.skeleton.bones.length, used: [...used].sort() };
+    let editLock = '';
+    try { r.setMode('edit'); } catch (error) { editLock = (error as Error).message; }
+    return { maxError, before, after: vertex.toArray(), bones: bound.skeleton.bones.length, used: [...used].sort(), editLock };
   });
   expect(result.maxError).toBeLessThan(1e-6);
   expect(result.bones).toBe(3);
   expect(result.used).toContain(2);
   expect(result.before).not.toEqual(result.after);
+  expect(result.editLock).toContain('after skin binding');
 });
 
 test('GLB export includes generic skin and bone animation and reimports', async ({ page }) => {
@@ -296,8 +324,9 @@ test('rig workspace screenshot', async ({ page }) => {
   await page.evaluate(() => { const e=(window as any).__forge;e.select(e.content.children[0]);e.remove(); });
   await page.locator('[data-workspace="rigging"]').click();
   await page.locator('#create-rig').click();
-  await page.locator('#rig-preview').click();
-  await page.evaluate(() => { const e=(window as any).__forge,r=(window as any).__rig; r.activeRig.getObjectByName('LeftArm').rotation.z=0.5;e.commit();e.focus(true); });
+  await page.locator('#rig-extrude').click();
+  await page.locator('#rig-extrude').click();
+  await page.evaluate(() => { const e=(window as any).__forge; e.focus(true); });
   await page.waitForTimeout(250);
   await page.screenshot({path:'test-results/rig.png'});
 });
