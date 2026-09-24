@@ -8,6 +8,11 @@ Upgrade Forge Studio's Graph Editor from a fixed full-scene view into a navigabl
 
 Blender Graph Editor navigation is the UX reference:
 
+- https://docs.blender.org/manual/en/5.2/editors/graph_editor/introduction.html
+- https://docs.blender.org/manual/en/4.5/editors/graph_editor/introduction.html
+
+Relevant navigation semantics:
+
 - MMB pans the view.
 - Mouse wheel zooms.
 - Home frames all keys.
