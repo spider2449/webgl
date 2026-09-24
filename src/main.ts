@@ -1128,7 +1128,7 @@ const timelineMarkers = $('#keyframe-markers');
 
 function timelinePercent(frame: number) {
   return THREE.MathUtils.clamp(
-    (frame - editor.frameStart) / (editor.frameEnd - editor.frameStart) * 100,
+    (frame - timelineViewStart) / (timelineViewEnd - timelineViewStart) * 100,
     0,
     100,
   );
@@ -1136,9 +1136,9 @@ function timelinePercent(frame: number) {
 
 function timelineFrameAt(clientX: number) {
   const rect = timelineTrack.getBoundingClientRect();
-  if (rect.width <= 0) return editor.frameStart;
-  const frame = editor.frameStart + (clientX - rect.left) / rect.width * (editor.frameEnd - editor.frameStart);
-  return THREE.MathUtils.clamp(Math.round(frame), editor.frameStart, editor.frameEnd);
+  if (rect.width <= 0) return Math.round(timelineViewStart);
+  const frame = timelineViewStart + (clientX - rect.left) / rect.width * (timelineViewEnd - timelineViewStart);
+  return THREE.MathUtils.clamp(Math.round(frame), Math.ceil(timelineViewStart), Math.floor(timelineViewEnd));
 }
 
 function timelineTrackX(clientX: number) {
@@ -1161,7 +1161,7 @@ function timelineFramesInBox(startX: number, currentX: number) {
   const right = Math.max(startX, currentX);
   const tracks = editor.selected?.userData.animationTracks as AnimationTrackMap | undefined;
   return allAnimationFrames(tracks).filter(frame => {
-    if (frame < editor.frameStart || frame > editor.frameEnd) return false;
+    if (frame < timelineViewStart || frame > timelineViewEnd) return false;
     const x = timelinePercent(frame) / 100 * rect.width;
     return x >= left && x <= right;
   });
