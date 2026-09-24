@@ -1,4 +1,4 @@
-import { allAnimationFrames, animationChannels, animationTracks, effectiveSegmentInterpolation, sampleAnimationChannel, trackKeys } from './animation/animation';
+import { allAnimationFrames, animationChannels, animationTracks, effectiveBezierHandle, effectiveSegmentInterpolation, sampleAnimationChannel, trackKeys } from './animation/animation';
 import { AnimationGraphView, animationChannelLabel } from './animation/animation-graph';
 import './style.css';
 import * as THREE from 'three';
@@ -37,7 +37,7 @@ $('#app').innerHTML = `
         <div class="viewport-caption"><span class="caption-mark"></span><span id="mode-hint">Build something extraordinary.</span></div>
         <div class="viewport-badge">${icon('activity')}<span id="draw-status">ON DEMAND</span></div>
       </div>
-      <section class="timeline" aria-label="Animation timeline"><div class="timeline-header"><span class="panel-title">${icon('diamond')} Timeline</span><span class="timeline-selection" id="timeline-object">Cube</span><div class="playback">${button('first-frame','chevron-first','First frame')}${button('previous-key','skip-back','Previous keyframe')}${button('play','play','Play / pause (Space)')}${button('next-key','skip-forward','Next keyframe')}${button('last-frame','chevron-last','Last frame')}</div><div class="frame-settings"><input id="current-frame" aria-label="Current frame" type="number" min="1" max="250" value="1"><span>/ 250</span><span class="fps">24 fps</span>${button('insert-key','diamond','Insert transform keyframe (I)')}${button('remove-key','x','Remove current keyframe')}</div></div><div class="animation-graph"><div class="animation-graph-header"><span id="animation-graph-title">Graph Editor</span><span id="animation-graph-detail">Insert channel keys to display a curve.</span>${button('insert-channel-key','diamond','Insert key on selected channel')}${button('remove-channel-key','x','Remove selected channel key')}<span class="graph-editor-badge" title="Box-select keys · Shift adds · Drag selected keys to move · Alt-drag to copy · Key Inspector edits one selected key precisely">KEY CURVES</span></div><div class="graph-key-toolbar" aria-label="Graph key inspector"><span class="graph-key-toolbar-label">Key Inspector</span><span id="graph-selection-count">0 selected</span><label>Frame<input id="graph-key-frame" aria-label="Selected Graph key frame" type="number" min="1" max="250" step="1"></label><label>Value<input id="graph-key-value" aria-label="Selected Graph key value" type="number" step="0.1"></label><span id="graph-key-value-unit" class="graph-key-unit"></span><button id="apply-graph-key-inspector" class="text-button graph-key-apply" type="button" aria-label="Apply Graph key Frame and Value">Apply</button><label class="graph-segment-control">Segment<select id="graph-key-interpolation" aria-label="Selected key interpolation"><option value="mixed" disabled>Mixed</option><option value="linear">Linear</option><option value="constant">Constant</option><option value="bezier">Bezier</option></select></label><label class="graph-tangent-control">Tangent<select id="graph-key-tangent" aria-label="Selected key tangent mode"><option value="mixed" disabled>Mixed</option><option value="free">Free</option><option value="aligned">Aligned</option><option value="auto">Auto</option></select></label><label class="graph-time-scale-control">Time<input id="graph-time-scale" aria-label="Selected key time scale" type="number" min="0.01" step="0.1" value="1"></label><button id="apply-graph-time-scale" class="text-button graph-time-scale-button" type="button">Scale</button></div><div class="animation-graph-body"><nav class="graph-channels" aria-label="Graph channels">${(['position','rotation','scale'] as const).map(property => `<div class="graph-channel-group"><span>${property === 'position' ? 'Location' : property[0].toUpperCase()+property.slice(1)}</span>${animationChannels.filter(channel => channel.startsWith(property + '.')).map(channel => `<button type="button" data-graph-channel="${channel}" aria-label="Graph channel ${animationChannelLabel(channel)}"><span>${channel.at(-1)!.toUpperCase()}</span><small>LIN</small></button>`).join('')}</div>`).join('')}</nav><svg id="animation-graph" aria-label="Animation graph editor" role="img" viewBox="0 0 1000 180" preserveAspectRatio="none"></svg></div></div><div class="timeline-key-toolbar" aria-label="Timeline key editing controls"><span class="timeline-key-toolbar-label">Summary Keys</span><span id="timeline-selection-count">0 selected</span>${button('remove-timeline-selected','trash-2','Remove selected Timeline keys')}<label>Time Scale<input id="timeline-time-scale" aria-label="Selected Timeline key time scale" type="number" min="0.01" step="0.1" value="1"></label><button id="apply-timeline-time-scale" class="text-button" type="button" aria-label="Scale selected Timeline keys">Scale</button><span class="timeline-key-toolbar-hint">Shift-select · Alt-drag copy · Delete removes</span></div><div class="timeline-track" id="timeline-track"><div class="timeline-ruler">${[1,25,50,75,100,125,150,175,200,225,250].map(n => `<span style="left:${(n-1)/249*100}%">${n}</span>`).join('')}</div><div id="timeline-selection-box" aria-hidden="true"></div><div id="keyframe-markers"></div><div class="playhead" id="playhead"><span>1</span></div><input type="range" id="scrubber" aria-label="Timeline frame" min="1" max="250" value="1"></div></section>
+      <section class="timeline" aria-label="Animation timeline"><div class="timeline-header"><span class="panel-title">${icon('diamond')} Timeline</span><span class="timeline-selection" id="timeline-object">Cube</span><div class="playback">${button('first-frame','chevron-first','First frame')}${button('previous-key','skip-back','Previous keyframe')}${button('play','play','Play / pause (Space)')}${button('next-key','skip-forward','Next keyframe')}${button('last-frame','chevron-last','Last frame')}</div><div class="frame-settings"><input id="current-frame" aria-label="Current frame" type="number" min="1" max="250" value="1"><span>/ 250</span><span class="fps">24 fps</span>${button('insert-key','diamond','Insert transform keyframe (I)')}${button('remove-key','x','Remove current keyframe')}</div></div><div class="animation-graph"><div class="animation-graph-header"><span id="animation-graph-title">Graph Editor</span><span id="animation-graph-detail">Insert channel keys to display a curve.</span>${button('insert-channel-key','diamond','Insert key on selected channel')}${button('remove-channel-key','x','Remove selected channel key')}<span class="graph-editor-badge" title="Box-select keys · Shift adds · Drag selected keys to move · Alt-drag to copy · Key Inspector edits one selected key precisely">KEY CURVES</span></div><div class="graph-key-toolbar" aria-label="Graph key inspector"><span class="graph-key-toolbar-label">Key Inspector</span><span id="graph-selection-count">0 selected</span><label>Frame<input id="graph-key-frame" aria-label="Selected Graph key frame" type="number" min="1" max="250" step="1"></label><label>Value<input id="graph-key-value" aria-label="Selected Graph key value" type="number" step="0.1"></label><span id="graph-key-value-unit" class="graph-key-unit"></span><button id="apply-graph-key-inspector" class="text-button graph-key-apply" type="button" aria-label="Apply Graph key Frame and Value">Apply</button><label class="graph-segment-control">Segment<select id="graph-key-interpolation" aria-label="Selected key interpolation"><option value="mixed" disabled>Mixed</option><option value="linear">Linear</option><option value="constant">Constant</option><option value="bezier">Bezier</option></select></label><label class="graph-tangent-control">Tangent<select id="graph-key-tangent" aria-label="Selected key tangent mode"><option value="mixed" disabled>Mixed</option><option value="free">Free</option><option value="aligned">Aligned</option><option value="auto">Auto</option></select></label><label class="graph-time-scale-control">Time<input id="graph-time-scale" aria-label="Selected key time scale" type="number" min="0.01" step="0.1" value="1"></label><button id="apply-graph-time-scale" class="text-button graph-time-scale-button" type="button">Scale</button></div><div class="graph-handle-toolbar" aria-label="Bezier handle inspector"><span class="graph-handle-toolbar-label">Bezier Handles</span><span id="graph-handle-mode">—</span><label>Side<select id="graph-handle-side" aria-label="Selected Bezier handle side"><option value="left">Left</option><option value="right">Right</option></select></label><label>Frame<input id="graph-handle-frame" aria-label="Selected Bezier handle frame" type="number" step="0.01"></label><label>Value<input id="graph-handle-value" aria-label="Selected Bezier handle value" type="number" step="0.1"></label><span id="graph-handle-value-unit" class="graph-key-unit"></span><button id="apply-graph-handle" class="text-button graph-handle-apply" type="button" aria-label="Apply Bezier handle Frame and Value">Apply</button><span id="graph-handle-hint" class="graph-handle-hint">Select one Bezier key</span></div><div class="animation-graph-body"><nav class="graph-channels" aria-label="Graph channels">${(['position','rotation','scale'] as const).map(property => `<div class="graph-channel-group"><span>${property === 'position' ? 'Location' : property[0].toUpperCase()+property.slice(1)}</span>${animationChannels.filter(channel => channel.startsWith(property + '.')).map(channel => `<button type="button" data-graph-channel="${channel}" aria-label="Graph channel ${animationChannelLabel(channel)}"><span>${channel.at(-1)!.toUpperCase()}</span><small>LIN</small></button>`).join('')}</div>`).join('')}</nav><svg id="animation-graph" aria-label="Animation graph editor" role="img" viewBox="0 0 1000 180" preserveAspectRatio="none"></svg></div></div><div class="timeline-key-toolbar" aria-label="Timeline key editing controls"><span class="timeline-key-toolbar-label">Summary Keys</span><span id="timeline-selection-count">0 selected</span>${button('remove-timeline-selected','trash-2','Remove selected Timeline keys')}<label>Time Scale<input id="timeline-time-scale" aria-label="Selected Timeline key time scale" type="number" min="0.01" step="0.1" value="1"></label><button id="apply-timeline-time-scale" class="text-button" type="button" aria-label="Scale selected Timeline keys">Scale</button><span class="timeline-key-toolbar-hint">Shift-select · Alt-drag copy · Delete removes</span></div><div class="timeline-track" id="timeline-track"><div class="timeline-ruler">${[1,25,50,75,100,125,150,175,200,225,250].map(n => `<span style="left:${(n-1)/249*100}%">${n}</span>`).join('')}</div><div id="timeline-selection-box" aria-hidden="true"></div><div id="keyframe-markers"></div><div class="playhead" id="playhead"><span>1</span></div><input type="range" id="scrubber" aria-label="Timeline frame" min="1" max="250" value="1"></div></section>
     </section>
     <aside class="sidebar">
       <section class="outliner"><div class="panel-heading"><span class="panel-title">${icon('layers')} Scene Collection</span><span class="count" id="object-count">1</span>${button('add-outliner','plus','Add mesh')}</div><div class="search-field">${icon('search')}<input id="object-search" placeholder="Search objects…" aria-label="Search objects"><kbd>/</kbd></div><div class="collection-row">${icon('chevron-down')}${icon('folder-open')}<span>Scene Collection</span>${button('add-collection','plus','Create collection')}</div><div id="object-list" class="object-list"></div><div class="outliner-footer"><span id="selection-count">1 object selected</span>${button('delete-outliner','trash-2','Delete selected object')}<input id="collection-name" aria-label="New collection name" value="Collection" maxlength="100"><select id="collection-target" aria-label="Target collection"><option value="">Move selected to…</option></select>${button('move-to-collection','folder-open','Move selected to collection')}${button('unlink-collection','log-out','Unlink from collection')}${button('delete-collection','trash-2','Delete empty collection')}</div></section>
@@ -439,6 +439,53 @@ function updateTimeline() {
     ? `Apply tangent mode to ${selectedTangentIndices.length} selected Bezier key${selectedTangentIndices.length === 1 ? '' : 's'}`
     : 'Selected key tangent mode';
 
+  const graphHandleSide = $<HTMLSelectElement>('#graph-handle-side');
+  const graphHandleFrame = $<HTMLInputElement>('#graph-handle-frame');
+  const graphHandleValue = $<HTMLInputElement>('#graph-handle-value');
+  const graphHandleApply = $<HTMLButtonElement>('#apply-graph-handle');
+  const singleGraphIndex = singleGraphKey ? activeKeys.findIndex(key => key.frame === singleGraphKey.frame) : -1;
+  const hasLeftHandle = singleGraphIndex > 0 && effectiveSegmentInterpolation(activeKeys[singleGraphIndex - 1]) === 'bezier';
+  const hasRightHandle = singleGraphIndex >= 0 && singleGraphIndex < activeKeys.length - 1 && effectiveSegmentInterpolation(activeKeys[singleGraphIndex]) === 'bezier';
+  graphHandleSide.options[0].disabled = !hasLeftHandle;
+  graphHandleSide.options[1].disabled = !hasRightHandle;
+  if ((graphHandleSide.value === 'left' && !hasLeftHandle) || (graphHandleSide.value === 'right' && !hasRightHandle)) {
+    graphHandleSide.value = hasLeftHandle ? 'left' : 'right';
+  }
+  const handleSide = graphHandleSide.value as 'left' | 'right';
+  const canInspectHandle = singleGraphKey !== null && (hasLeftHandle || hasRightHandle) && !editor.editMode && !editor.playing;
+  graphHandleSide.disabled = !canInspectHandle;
+  graphHandleFrame.disabled = !canInspectHandle;
+  graphHandleValue.disabled = !canInspectHandle;
+  graphHandleApply.disabled = !canInspectHandle;
+  const tangentMode = singleGraphKey?.tangent ?? 'free';
+  $('#graph-handle-mode').textContent = !canInspectHandle
+    ? '—'
+    : tangentMode === 'auto'
+      ? 'AUTO · edit → ALIGNED'
+      : tangentMode === 'aligned'
+        ? 'ALIGNED · linked'
+        : 'FREE · independent';
+  $('#graph-handle-mode').dataset.mode = canInspectHandle ? tangentMode : '';
+  const effectiveHandle = canInspectHandle ? effectiveBezierHandle(activeKeys, singleGraphIndex, handleSide) : null;
+  const handleAbsoluteFrame = effectiveHandle && singleGraphKey ? singleGraphKey.frame + effectiveHandle[0] : null;
+  const handleAbsoluteValueNative = effectiveHandle && singleGraphKey ? singleGraphKey.value + effectiveHandle[1] : null;
+  const handleValueFactor = graphChannel.startsWith('rotation.') ? 180 / Math.PI : 1;
+  graphHandleValue.step = graphChannel.startsWith('rotation.') ? '1' : '0.1';
+  $('#graph-handle-value-unit').textContent = graphChannel.startsWith('rotation.') ? '°' : '';
+  if (document.activeElement !== graphHandleFrame) {
+    graphHandleFrame.value = handleAbsoluteFrame === null ? '' : String(Number(handleAbsoluteFrame.toFixed(6)));
+  }
+  if (document.activeElement !== graphHandleValue) {
+    graphHandleValue.value = handleAbsoluteValueNative === null ? '' : String(Number((handleAbsoluteValueNative * handleValueFactor).toFixed(6)));
+  }
+  $('#graph-handle-hint').textContent = !canInspectHandle
+    ? 'Select one Bezier key'
+    : tangentMode === 'auto'
+      ? 'Dragging or applying a manual handle converts Auto to Aligned'
+      : tangentMode === 'aligned'
+        ? 'Opposite handle stays collinear and keeps its own length'
+        : 'Each handle moves independently';
+
   const timeScale = $<HTMLInputElement>('#graph-time-scale');
   const applyTimeScale = $<HTMLButtonElement>('#apply-graph-time-scale');
   const canScaleTime = selectedGraphFrames.length >= 2 && !editor.editMode && !editor.playing;
@@ -689,6 +736,43 @@ for (const id of ['graph-key-frame','graph-key-value']) {
     if (event.key === 'Enter') {
       event.preventDefault();
       applyGraphKeyInspector();
+    } else if (event.key === 'Escape') {
+      event.preventDefault();
+      (event.currentTarget as HTMLInputElement).blur();
+      updateTimeline();
+    }
+  });
+}
+
+function applyGraphHandleInspector() {
+  const keyFrame = animationGraph.selectedKeyFrame;
+  if (keyFrame === null) return false;
+  const side = $<HTMLSelectElement>('#graph-handle-side').value as 'left' | 'right';
+  const targetFrame = Number($<HTMLInputElement>('#graph-handle-frame').value);
+  const value = Number($<HTMLInputElement>('#graph-handle-value').value);
+  try {
+    const edited = editor.editAnimationHandle(keyFrame, graphChannel, side, targetFrame, value);
+    if (!edited) {
+      toast('Bezier handle Frame / Value is unchanged.');
+      updateTimeline();
+      return false;
+    }
+    toast(`${animationChannelLabel(graphChannel)} ${side} handle updated.`);
+    updateTimeline();
+    return true;
+  } catch (error) {
+    toast((error as Error).message);
+    updateTimeline();
+    return false;
+  }
+}
+on('apply-graph-handle', applyGraphHandleInspector);
+$<HTMLSelectElement>('#graph-handle-side').addEventListener('change', updateTimeline);
+for (const id of ['graph-handle-frame','graph-handle-value']) {
+  $<HTMLInputElement>(`#${id}`).addEventListener('keydown', event => {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      applyGraphHandleInspector();
     } else if (event.key === 'Escape') {
       event.preventDefault();
       (event.currentTarget as HTMLInputElement).blur();
