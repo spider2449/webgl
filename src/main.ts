@@ -96,7 +96,7 @@ $('.properties-content').insertAdjacentHTML('beforeend', `
       <label class="property-row">Mode<select id="rig-mode" aria-label="Armature mode"><option value="edit">Edit</option><option value="pose">Pose</option></select></label>
       <div id="rig-edit-controls">
         <div class="section-heading border-top"><span>${icon('chevron-down')} Edit skeleton</span></div>
-        <div class="action-row"><button id="rig-add-root">Add root</button><button id="rig-extrude">Extrude</button></div>
+        <div class="action-row"><button id="rig-add-root">Add bone</button><button id="rig-extrude">Extrude</button></div>
         <label class="property-row">Parent<select id="rig-parent" aria-label="Bone parent"></select></label>
         <button class="wide-button" id="rig-reparent">Reparent selected bone</button>
         <p class="field-help">Move or rotate bones to author the rest skeleton. Hierarchy editing is locked after skin binding or bone keys are authored.</p>
@@ -207,7 +207,7 @@ on('texture-export', () => {
   } catch (error) { toast((error as Error).message); }
 });
 const rigSystem = new RigSystem(editor);
-function rigAction(action: () => void) { try { action(); } catch (error) { toast((error as Error).message); } }
+function rigAction(action: () => void) { try { action(); } catch (error) { toast((error as Error).message); refreshRig(); } }
 function refreshRig() {
   const active = rigSystem.activeRig;
   $('#rig-active-fields').classList.toggle('hidden', !active);
@@ -304,6 +304,7 @@ on('rig-bind', () => {
   void rigSystem.bindSelected().then(() => toast('Mesh bound. Select a bone to test the deformation.')).catch(error => toast(error.message)).finally(() => button.disabled = false);
 });
 $<HTMLSelectElement>('#rig-select').onchange = event => {
+  if (rigSystem.mode === 'edit') rigSystem.setMode('pose');
   editor.select(editor.content.getObjectByProperty('uuid', (event.target as HTMLSelectElement).value) ?? null);
   refreshRig();
 };
