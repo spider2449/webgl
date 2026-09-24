@@ -48,10 +48,10 @@
 .graph-key-toolbar>label{display:flex;align-items:center;gap:5px;text-transform:uppercase}
 .graph-key-toolbar #graph-key-frame{width:46px}
 .graph-key-toolbar #graph-key-value{width:64px}
-.graph-key-toolbar #graph-key-frame,.graph-key-toolbar #graph-key-value{height:22px;padding:1px 5px;border:1px solid #3b414b;background:#191b20;color:#aab2bf;border-radius:3px;font:9px var(--mono)}
+.graph-key-toolbar #graph-key-frame,.graph-key-toolbar #graph-key-value{height:22px;padding:1px 5px;border:1px solid var(--border-strong);background:var(--input-bg);color:var(--text-secondary);border-radius:3px;font:9px var(--mono)}
 .graph-key-toolbar #graph-key-frame:disabled,.graph-key-toolbar #graph-key-value:disabled{opacity:.45}
-.graph-key-unit{min-width:8px;color:#8e97a6}
-.graph-key-apply{height:22px;padding:2px 7px;font:8px var(--mono);letter-spacing:.4px;text-transform:uppercase;border:1px solid #3b414b;border-radius:3px}
+.graph-key-unit{min-width:8px;color:var(--text-secondary)}
+.graph-key-apply{height:22px;padding:2px 7px;font:8px var(--mono);letter-spacing:.4px;text-transform:uppercase;border:1px solid var(--border-strong);border-radius:3px}
 .graph-key-apply:disabled{opacity:.4}
 .graph-handle-toolbar{height:30px;display:flex;align-items:center;gap:7px;padding:0 22px;border-bottom:1px solid var(--border);background:var(--graph-bg);font:8px var(--mono);letter-spacing:.35px;color:var(--text-muted)}
 .graph-handle-toolbar-label{color:#c6a77e;text-transform:uppercase;letter-spacing:.7px}
@@ -60,30 +60,30 @@
 #graph-handle-mode[data-mode="aligned"]{color:#c5a1d6}
 #graph-handle-mode[data-mode="auto"]{color:#d5bb78}
 .graph-handle-toolbar>label{display:flex;align-items:center;gap:5px;text-transform:uppercase}
-.graph-handle-toolbar select,.graph-handle-toolbar input{height:22px;padding:1px 5px;border:1px solid #3b414b;background:#191b20;color:#aab2bf;border-radius:3px;font:9px var(--mono)}
+.graph-handle-toolbar select,.graph-handle-toolbar input{height:22px;padding:1px 5px;border:1px solid var(--border-strong);background:var(--input-bg);color:var(--text-secondary);border-radius:3px;font:9px var(--mono)}
 .graph-handle-toolbar select{min-width:64px}
 #graph-handle-frame{width:58px}
 #graph-handle-value{width:68px}
 .graph-handle-toolbar select:disabled,.graph-handle-toolbar input:disabled{opacity:.45}
-.graph-handle-apply{height:22px;padding:2px 7px;font:8px var(--mono);letter-spacing:.4px;text-transform:uppercase;border:1px solid #3b414b;border-radius:3px}
+.graph-handle-apply{height:22px;padding:2px 7px;font:8px var(--mono);letter-spacing:.4px;text-transform:uppercase;border:1px solid var(--border-strong);border-radius:3px}
 .graph-handle-apply:disabled{opacity:.4}
 .graph-handle-hint{margin-left:auto;color:var(--text-faint);white-space:nowrap}
 .graph-segment-control{margin-left:auto}
-.graph-segment-control,.graph-tangent-control,.graph-time-scale-control{display:flex;align-items:center;gap:5px;font:8px var(--mono);letter-spacing:.5px;text-transform:uppercase;color:#6f7886}
-.graph-segment-control select,.graph-tangent-control select,.graph-time-scale-control input{height:22px;font:9px var(--mono);padding:1px 5px;border:1px solid #3b414b;background:#191b20;color:#aab2bf;border-radius:3px}
+.graph-segment-control,.graph-tangent-control,.graph-time-scale-control{display:flex;align-items:center;gap:5px;font:8px var(--mono);letter-spacing:.5px;text-transform:uppercase;color:var(--text-muted)}
+.graph-segment-control select,.graph-tangent-control select,.graph-time-scale-control input{height:22px;font:9px var(--mono);padding:1px 5px;border:1px solid var(--border-strong);background:var(--input-bg);color:var(--text-secondary);border-radius:3px}
 .graph-segment-control select,.graph-tangent-control select{min-width:88px}
 .graph-time-scale-control input{width:54px;min-width:54px}
 .graph-segment-control select:disabled,.graph-tangent-control select:disabled,.graph-time-scale-control input:disabled{opacity:.45}
-.graph-time-scale-button{height:22px;padding:2px 7px;font:8px var(--mono);letter-spacing:.4px;text-transform:uppercase;border:1px solid #3b414b;border-radius:3px}
+.graph-time-scale-button{height:22px;padding:2px 7px;font:8px var(--mono);letter-spacing:.4px;text-transform:uppercase;border:1px solid var(--border-strong);border-radius:3px}
 .graph-time-scale-button:disabled{opacity:.4}
 .graph-editor-badge{font:8px var(--mono)!important;letter-spacing:.8px;color:#8a806e!important;border:1px solid #4b4337;border-radius:3px;padding:2px 5px}
 .timeline-key-toolbar{height:28px;display:flex;align-items:center;gap:7px;padding:0 23px;border-bottom:1px solid var(--border);background:var(--surface-soft);font:8px var(--mono);letter-spacing:.35px;color:var(--text-muted)}
 .timeline-key-toolbar-label{color:#c6a77e;text-transform:uppercase;letter-spacing:.7px}
 .timeline-key-toolbar>span:nth-child(2){min-width:54px}
-.timeline-key-toolbar .icon-button{width:22px;height:22px;color:#8b92a0}
+.timeline-key-toolbar .icon-button{width:22px;height:22px;color:var(--text-muted)}
 .timeline-key-toolbar label{display:flex;align-items:center;gap:5px;text-transform:uppercase}
-.timeline-key-toolbar input{width:50px;height:21px;text-align:center;background:#181a20;color:#d6b68d;border:1px solid #3b414b;border-radius:3px}
-.timeline-key-toolbar .text-button{height:22px;padding:1px 7px;font:8px var(--mono);letter-spacing:.4px;text-transform:uppercase;border:1px solid #3b414b;border-radius:3px}
+.timeline-key-toolbar input{width:50px;height:21px;text-align:center;background:var(--input-bg);color:var(--accent-strong);border:1px solid var(--border-strong);border-radius:3px}
+.timeline-key-toolbar .text-button{height:22px;padding:1px 7px;font:8px var(--mono);letter-spacing:.4px;text-transform:uppercase;border:1px solid var(--border-strong);border-radius:3px}
 .timeline-key-toolbar button:disabled,.timeline-key-toolbar input:disabled{opacity:.38}
 .timeline-key-toolbar-hint{margin-left:auto;color:var(--text-faint)}
 .animation-graph-body{display:grid;grid-template-columns:132px minmax(0,1fr);height:182px}
