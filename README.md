@@ -134,10 +134,26 @@ stores nine independent scalar tracks: **Location X/Y/Z**, **Rotation X/Y/Z**
 and **Scale X/Y/Z**. Each track owns its own key frames, values, interpolation
 and Bezier tangents.
 
+The Timeline header exposes the scene **Start / End Frame Range**, defaulting
+to **1–250**. Frame 250 is only the default end frame, not a hard animation
+limit: extend End to author longer animations (Forge currently applies a
+defensive 100,000-frame ceiling). The Timeline ruler, scrubber, current frame,
+playback loop, First/Last controls, Graph **Scene Range**, and all key retiming
+operations use this dynamic scene range. Shrinking the range is rejected if it
+would exclude an existing authored key, so range edits never silently delete or
+hide animation data. The range is stored in new `.forge` snapshots; older
+projects without it load as 1–250.
+
+A Blender-style **Preview Range** is a separate animation concept: it would
+temporarily limit playback to a subsection without changing the scene's Start /
+End. Forge does not add Preview Range in this package; it can be implemented as
+a separate capability later.
+
 The timeline header keeps the fast transform workflow: **Insert transform key**
 authors all nine scalar channels at the current frame, while **Remove current
 key** removes any channel keys at that frame. Timeline markers and previous/next
-navigation use the union of key frames across all channels. Drag a timeline
+navigation use the union of key frames across all channels inside the active
+Start–End window. Drag a timeline
 marker horizontally to retime every scalar-channel key authored at that summary
 frame. **Shift-click** summary markers to build a Timeline selection, or
 **Shift-drag empty Timeline space** to add every summary marker inside the
