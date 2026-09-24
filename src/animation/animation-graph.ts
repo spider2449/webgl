@@ -929,6 +929,7 @@ export class AnimationGraphView {
     if (!drag) return;
 
     if (drag.kind === 'pan') {
+      if (cancel) this.applyView(drag.startView);
       this.svg.classList.remove('panning');
       if (this.svg.hasPointerCapture(drag.pointerId)) this.svg.releasePointerCapture(drag.pointerId);
       this.drag = null;
