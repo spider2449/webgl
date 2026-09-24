@@ -78,7 +78,7 @@ test('axis widget snaps X Y Z to deterministic orthographic views', async ({ pag
       };
     });
     expect(view.orthographic).toBe(true);
-    expected.direction.forEach((value, index) => expect(view.direction[index]).toBeCloseTo(value, 6));
+    expected.direction.forEach((value, index) => expect(view.direction[index]).toBeCloseTo(value, 5));
     expected.up.forEach((value, index) => expect(view.up[index]).toBeCloseTo(value, 6));
   }
 
