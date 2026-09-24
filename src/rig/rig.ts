@@ -83,15 +83,19 @@ export class RigSystem {
   }
   sync() {
     const current = new Set(this.rigs);
-    for (const [rig, visual] of this.visuals) if (!current.has(rig)) {
+    const disposeVisual = (rig: THREE.Object3D, visual: RigVisual) => {
       visual.root.removeFromParent();
       this.editor.disposeObject(visual.root);
       visual.lines.geometry.dispose();
       (visual.lines.material as THREE.Material).dispose();
       this.visuals.delete(rig);
-    }
-    for (const rig of current) if (!this.visuals.has(rig)) {
+    };
+    for (const [rig, visual] of this.visuals) if (!current.has(rig)) disposeVisual(rig, visual);
+    for (const rig of current) {
       const bones = rigBones(rig);
+      const previous = this.visuals.get(rig);
+      if (previous && previous.bones.length === bones.length && previous.bones.every((bone, index) => bone === bones[index])) continue;
+      if (previous) disposeVisual(rig, previous);
       const root = new THREE.Group();
       const joints = new THREE.InstancedMesh(new THREE.SphereGeometry(1, 8, 6), new THREE.MeshBasicMaterial({ depthTest: false, transparent: true, opacity: 0.9 }), bones.length);
       joints.renderOrder = 21;
@@ -230,7 +234,7 @@ export class RigSystem {
     const point = new THREE.Vector3();
     for (let i = 0; i < attribute.count; i++) point.fromBufferAttribute(attribute,i).applyMatrix4(mesh.matrixWorld).toArray(positions,i*3);
     const segments: number[] = [];
-    const boneIndex = new Map(bones.map((bone, index) => [bone, index]));
+    const boneIndex = new Map<THREE.Bone, number>(bones.map((bone, index) => [bone, index] as const));
     for (const bone of bones) {
       const children = bone.children.filter((child): child is THREE.Bone => child instanceof THREE.Bone);
       if (children.length) {

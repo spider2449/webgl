@@ -1,10 +1,10 @@
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 import * as THREE from 'three';
 import { captureRestPose, createArmature, rigBones } from './rig';
 
 export const RIG_SOURCE = 'https://github.com/nv-tlabs/kimodo/tree/1aece8c124d73d255ceff5086d983b844c9f4e94/kimodo/assets/skeletons/somaskel77';
 
-// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-// SPDX-License-Identifier: Apache-2.0
 // Converted to TypeScript from Kimodo definitions.py and joints.p; positions rounded to 9 decimals.
 // Source revision: 1aece8c124d73d255ceff5086d983b844c9f4e94. Units: meters, Y up, root-relative.
 export const SOMA77 = [
