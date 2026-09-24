@@ -248,7 +248,7 @@ function updateUI() {
   $('#object-fields').classList.toggle('hidden', !object);
   $<HTMLInputElement>('#object-name').value = object?.name ?? 'No selection';
   $<HTMLInputElement>('#object-name').disabled = !object;
-  $('#object-type').textContent = object instanceof THREE.Bone ? 'BONE' : object instanceof THREE.SkinnedMesh ? 'SKIN' : object instanceof THREE.Mesh ? 'MESH' : object?.userData.forgeRig ? 'RIG' : object ? 'GROUP' : '';
+  $('#object-type').textContent = object instanceof THREE.Bone ? 'BONE' : object instanceof THREE.SkinnedMesh ? 'SKIN' : object instanceof THREE.Mesh ? 'MESH' : object ? 'GROUP' : '';
   updateTransforms();
   let vertices = 0, triangles = 0;
   object?.traverse(o => { if (o instanceof THREE.Mesh) { vertices += o.geometry.getAttribute('position')?.count ?? 0; triangles += (o.geometry.index?.count ?? o.geometry.getAttribute('position')?.count ?? 0) / 3; } });
