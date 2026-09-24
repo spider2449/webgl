@@ -44,13 +44,8 @@ export function validScalarKey(value: unknown): value is ScalarKey {
   return true;
 }
 
-export function validAnimationTracks(
-  value: unknown,
-  frameStart = 1,
-  frameEnd = 250,
-): value is AnimationTrackMap {
+export function validAnimationTracks(value: unknown): value is AnimationTrackMap {
   if (value === undefined) return true;
-  if (!Number.isInteger(frameStart) || !Number.isInteger(frameEnd) || frameStart < 1 || frameEnd <= frameStart) return false;
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
   return Object.entries(value).every(([channel, keys]) => {
     if (!validAnimationChannel(channel) || !Array.isArray(keys)) return false;
@@ -58,8 +53,8 @@ export function validAnimationTracks(
     const frames = keys.map(key => (key as ScalarKey).frame);
     return frames.every((frame, index) =>
       Number.isInteger(frame) &&
-      frame >= frameStart &&
-      frame <= frameEnd &&
+      frame >= 1 &&
+      frame <= 250 &&
       (index === 0 || frame > frames[index - 1])
     );
   });
