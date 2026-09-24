@@ -124,7 +124,7 @@ test('Delete removes selected Timeline summary keys without deleting the active 
   expect(restored['position.z'].map((key: any) => key.frame)).toEqual([70]);
 });
 
-test('Timeline batch controls stay beside the summary-key track in every workspace and remain distinct from Graph controls', async ({ page }) => {
+test('Timeline batch controls stay beside the summary-key track and remain distinct from Graph Key Inspector controls', async ({ page }) => {
   const toolbar = page.getByLabel('Timeline key editing controls');
   await expect(toolbar).toBeVisible();
   await expect(toolbar).toContainText('Summary Keys');
@@ -134,8 +134,13 @@ test('Timeline batch controls stay beside the summary-key track in every workspa
 
   await page.getByRole('button', { name: 'Animation', exact: true }).click();
   await expect(toolbar).toBeVisible();
-  await expect(page.locator('.animation-graph-header #graph-time-scale')).toHaveCount(1);
-  await expect(page.locator('.animation-graph-header #apply-graph-time-scale')).toHaveCount(1);
+
+  const graphInspector = page.getByLabel('Graph key inspector');
+  await expect(graphInspector).toBeVisible();
+  await expect(graphInspector.locator('#graph-time-scale')).toHaveCount(1);
+  await expect(graphInspector.locator('#apply-graph-time-scale')).toHaveCount(1);
+  await expect(page.locator('.animation-graph-header #graph-time-scale')).toHaveCount(0);
+  await expect(page.locator('.animation-graph-header #apply-graph-time-scale')).toHaveCount(0);
 });
 
 test('Timeline Time Scale retimes selected summary frames across channels in one undo step', async ({ page }) => {

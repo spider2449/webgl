@@ -1856,6 +1856,41 @@ export class Editor extends EventTarget {
     return true;
   }
 
+  editChannelKey(channel: ScalarAnimationChannel, sourceFrame: number, targetFrame: number, displayValue: number) {
+    if (!validAnimationChannel(channel) || !Number.isInteger(sourceFrame) || !Number.isInteger(targetFrame) || targetFrame < 1 || targetFrame > 250 || !Number.isFinite(displayValue)) {
+      throw new Error('Enter an integer frame from 1 to 250 and a finite key value.');
+    }
+    if (!this.selected || this.editMode || this.playing || this.animationKeyDrag || this.animationHandleDrag) return false;
+
+    const keys = trackKeys(this.selected.userData.animationTracks as AnimationTrackMap | undefined, channel).map(cloneScalarKey);
+    const sourceIndex = keys.findIndex(key => key.frame === sourceFrame);
+    if (sourceIndex < 0) throw new Error('Choose one authored channel key first.');
+    if (targetFrame !== sourceFrame && keys.some((key, index) => index !== sourceIndex && key.frame === targetFrame)) {
+      throw new Error(`The target frame already has a key on ${channel}.`);
+    }
+
+    const targetValue = channel.startsWith('rotation.') ? THREE.MathUtils.degToRad(displayValue) : displayValue;
+    const source = keys[sourceIndex];
+    const frameChanged = targetFrame !== sourceFrame;
+    const valueChanged = Math.abs(targetValue - source.value) > 1e-12;
+    if (!frameChanged && !valueChanged) return false;
+
+    const edited = cloneScalarKey(source);
+    edited.frame = targetFrame;
+    edited.value = targetValue;
+    keys[sourceIndex] = edited;
+    this.setAnimationTrack(this.selected, channel, keys);
+
+    this.frame = targetFrame;
+    this.evaluateAnimation();
+    this.emit('frame');
+    this.emit('animation');
+    this.emit('transform');
+    this.invalidate();
+    this.commit();
+    return { frame: targetFrame, value: displayValue };
+  }
+
   editKeyChannel(channel: ScalarAnimationChannel, displayValue: number) {
     if (!Number.isFinite(displayValue)) throw new Error('Enter a finite channel value.');
     if (!this.selected || this.editMode || this.playing) throw new Error('Select an object in Object Mode and pause playback first.');
