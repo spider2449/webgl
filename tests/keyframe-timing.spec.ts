@@ -96,7 +96,7 @@ test('invalid channel timing requests preserve scene, frame and history', async 
       };
     };
 
-    const invalid = [0, 251, 1.5, NaN, Infinity, 1].map(target => check(target));
+    const invalid = [0, 100001, 1.5, NaN, Infinity, 1].map(target => check(target));
     invalid.push(check(25, true));
     const noop = check(25);
 
@@ -117,6 +117,21 @@ test('invalid channel timing requests preserve scene, frame and history', async 
 
   expect(result.invalid.every((item: any) => item.rejected && item.unchanged)).toBe(true);
   expect(result.noop).toEqual({ rejected: false, unchanged: true });
+});
+
+test('channel retime may move an authored key outside the Scene Frame Range', async ({ page }) => {
+  const result = await page.evaluate(() => {
+    const e = (window as any).__forge;
+    e.scrub(25);
+    e.retimeChannelKey('position.x', 251);
+    return {
+      sceneRange: e.animationRange,
+      frames: e.selected.userData.animationTracks['position.x'].map((key: any) => key.frame),
+    };
+  });
+
+  expect(result.sceneRange).toEqual({ start: 1, end: 250 });
+  expect(result.frames).toEqual([1, 251]);
 });
 
 test('Graph Editor moves and Alt-drags only the active channel while GLB uses union timing', async ({ page }) => {

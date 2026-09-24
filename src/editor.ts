@@ -29,7 +29,7 @@ export type ScalarKey = {
 };
 export type AnimationTrackMap = Partial<Record<ScalarAnimationChannel, ScalarKey[]>>;
 export type AnimationRange = { start: number; end: number };
-export type Project = { format: 'forge-studio'; version: 1; name: string; animationRange?: AnimationRange; scene: ReturnType<THREE.Group['toJSON']> };
+export type Project = { format: 'forge-studio'; version: 1; name: string; animationRange?: AnimationRange; previewRange?: AnimationRange; scene: ReturnType<THREE.Group['toJSON']> };
 const MAX_HISTORY_BYTES = 24 * 1024 * 1024;
 const MAX_ANIMATION_FRAME = 100_000;
 const cloneScalarKey = (key: ScalarKey): ScalarKey => ({
@@ -67,6 +67,8 @@ export class Editor extends EventTarget {
   frame = 1;
   frameStart = 1;
   frameEnd = 250;
+  previewStart: number | null = null;
+  previewEnd: number | null = null;
   playing = false;
   renderedFrames = 0;
   editMode = false;
@@ -293,9 +295,10 @@ export class Editor extends EventTarget {
     requestAnimationFrame(time => {
       this.pending = false;
       if (this.playing) {
-        const span = this.frameEnd - this.frameStart + 1;
-        const phase = (this.playbackFrame - this.frameStart + (time - this.playbackStart) / 1000 * 24) % span;
-        this.frame = this.frameStart + Math.min(phase, this.frameEnd - this.frameStart);
+        const playback = this.playbackRange;
+        const span = playback.end - playback.start + 1;
+        const phase = (this.playbackFrame - playback.start + (time - this.playbackStart) / 1000 * 24) % span;
+        this.frame = playback.start + Math.min(phase, playback.end - playback.start);
         this.evaluateAnimation();
         this.emit('frame');
         this.emit('transform');
@@ -1112,7 +1115,14 @@ export class Editor extends EventTarget {
     this.content.traverse(o => { if (o instanceof THREE.Mesh && !o.geometry.boundingSphere) o.geometry.computeBoundingSphere(); });
     const points = this.vertexPoints;
     points?.removeFromParent();
-    try { return JSON.stringify({ format: 'forge-studio', version: 1, name: this.name, animationRange: { start: this.frameStart, end: this.frameEnd }, scene: this.content.toJSON() } satisfies Project); }
+    try { return JSON.stringify({
+      format: 'forge-studio',
+      version: 1,
+      name: this.name,
+      animationRange: { start: this.frameStart, end: this.frameEnd },
+      ...(this.previewRange ? { previewRange: this.previewRange } : {}),
+      scene: this.content.toJSON(),
+    } satisfies Project); }
     finally { if (points && this.selected) this.selected.add(points); }
   }
   commit() {
@@ -1153,6 +1163,14 @@ export class Editor extends EventTarget {
       range.end > MAX_ANIMATION_FRAME ||
       range.end <= range.start
     ) throw new Error(`Animation range must use integer frames from 1 to ${MAX_ANIMATION_FRAME} with Start before End.`);
+    const preview = project.previewRange;
+    if (preview !== undefined && (
+      !Number.isInteger(preview.start) ||
+      !Number.isInteger(preview.end) ||
+      preview.start < range.start ||
+      preview.end > range.end ||
+      preview.end <= preview.start
+    )) throw new Error('Preview range must stay inside the Scene Frame Range with Start before End.');
     const text = JSON.stringify(project);
     if (text.length > 32 * 1024 * 1024) throw new Error('Project exceeds the 32 MB limit.');
     let storedVertices = 0;
@@ -1180,7 +1198,7 @@ export class Editor extends EventTarget {
       if ('animationInterpolation' in o.userData || 'animationChannelInterpolation' in o.userData || 'keyframes' in o.userData) {
         throw new Error('Legacy animation metadata is unsupported.');
       }
-      if (!validAnimationTracks(o.userData.animationTracks, range.start, range.end)) throw new Error('Invalid animation tracks for the project frame range.');
+      if (!validAnimationTracks(o.userData.animationTracks, 1, MAX_ANIMATION_FRAME)) throw new Error('Invalid animation tracks.');
     }); } catch (error) { this.disposeObject(root); throw error; }
     if (vertices > 2_000_000) { this.disposeObject(root); throw new Error('Scene exceeds the 2 million vertex limit.'); }
     this.playing = false;
@@ -1191,8 +1209,10 @@ export class Editor extends EventTarget {
     this.name = typeof project.name === 'string' ? project.name.slice(0, 100) : 'Untitled scene';
     this.frameStart = range.start;
     this.frameEnd = range.end;
+    this.previewStart = preview?.start ?? null;
+    this.previewEnd = preview?.end ?? null;
     this.frame = THREE.MathUtils.clamp(this.frame, this.frameStart, this.frameEnd);
-    this.playbackFrame = this.frame;
+    this.playbackFrame = THREE.MathUtils.clamp(this.frame, this.playbackRange.start, this.playbackRange.end);
     this.select(this.content.children[0] ?? null);
     this.evaluateAnimation();
     this.emit('range');
@@ -1207,23 +1227,35 @@ export class Editor extends EventTarget {
     this.name = 'Untitled scene';
     this.frameStart = 1;
     this.frameEnd = 250;
+    this.previewStart = null;
+    this.previewEnd = null;
     this.frame = 1;
     this.playbackFrame = 1;
     this.seed();
   }
 
   get animationRange(): AnimationRange { return { start: this.frameStart, end: this.frameEnd }; }
+  get previewRange(): AnimationRange | null {
+    return this.previewStart !== null && this.previewEnd !== null
+      ? { start: this.previewStart, end: this.previewEnd }
+      : null;
+  }
+  get playbackRange(): AnimationRange { return this.previewRange ?? this.animationRange; }
 
   private authoredFrame(frame: number) {
-    return Number.isInteger(frame) && frame >= this.frameStart && frame <= this.frameEnd;
+    return Number.isInteger(frame) && frame >= 1 && frame <= MAX_ANIMATION_FRAME;
   }
 
   private frameInRange(frame: number) {
-    return this.authoredFrame(frame);
+    return Number.isInteger(frame) && frame >= this.frameStart && frame <= this.frameEnd;
   }
 
   private animationRangeLabel() {
     return `${this.frameStart}–${this.frameEnd}`;
+  }
+
+  private authoredFrameLabel() {
+    return `1–${MAX_ANIMATION_FRAME}`;
   }
 
   setAnimationRange(start: number, end: number) {
@@ -1237,20 +1269,18 @@ export class Editor extends EventTarget {
     if (this.playing || this.animationKeyDrag || this.animationHandleDrag) throw new Error('Pause playback and finish animation editing before changing the time range.');
     if (start === this.frameStart && end === this.frameEnd) return false;
 
-    let outside: number | null = null;
-    this.content.traverse(object => {
-      if (outside !== null) return;
-      const frames = allAnimationFrames(object.userData.animationTracks as AnimationTrackMap | undefined);
-      outside = frames.find(frame => frame < start || frame > end) ?? null;
-    });
-    if (outside !== null) {
-      throw new Error(`Scene frame range ${start}–${end} would exclude authored key frame ${outside}. Move or remove that key first.`);
-    }
-
     this.frameStart = start;
     this.frameEnd = end;
+    if (
+      this.previewStart !== null &&
+      this.previewEnd !== null &&
+      (this.previewStart < start || this.previewEnd > end)
+    ) {
+      this.previewStart = null;
+      this.previewEnd = null;
+    }
     this.frame = THREE.MathUtils.clamp(this.frame, start, end);
-    this.playbackFrame = this.frame;
+    this.playbackFrame = THREE.MathUtils.clamp(this.frame, this.playbackRange.start, this.playbackRange.end);
     this.evaluateAnimation();
     this.emit('range');
     this.emit('frame');
@@ -1259,6 +1289,43 @@ export class Editor extends EventTarget {
     this.commit();
     return true;
   }
+  setPreviewRange(start: number, end: number) {
+    if (
+      !Number.isInteger(start) ||
+      !Number.isInteger(end) ||
+      start < this.frameStart ||
+      end > this.frameEnd ||
+      end <= start
+    ) throw new Error(`Preview range must stay inside ${this.animationRangeLabel()} with Start before End.`);
+    if (this.playing || this.animationKeyDrag || this.animationHandleDrag) {
+      throw new Error('Pause playback and finish animation editing before changing the Preview Range.');
+    }
+    if (this.previewStart === start && this.previewEnd === end) return false;
+
+    this.previewStart = start;
+    this.previewEnd = end;
+    this.playbackFrame = THREE.MathUtils.clamp(this.frame, start, end);
+    this.emit('range');
+    this.emit('frame');
+    this.commit();
+    return true;
+  }
+
+  clearPreviewRange() {
+    if (this.previewStart === null || this.previewEnd === null) return false;
+    if (this.playing || this.animationKeyDrag || this.animationHandleDrag) {
+      throw new Error('Pause playback and finish animation editing before clearing the Preview Range.');
+    }
+
+    this.previewStart = null;
+    this.previewEnd = null;
+    this.playbackFrame = this.frame;
+    this.emit('range');
+    this.emit('frame');
+    this.commit();
+    return true;
+  }
+
   private channelNativeValue(object: THREE.Object3D, channel: ScalarAnimationChannel) {
     const [property, axis] = channel.split('.') as ['position' | 'rotation' | 'scale', 'x' | 'y' | 'z'];
     return object[property][axis];
@@ -1945,7 +2012,7 @@ export class Editor extends EventTarget {
     const pivot = (uniqueFrames[0] + uniqueFrames[uniqueFrames.length - 1]) / 2;
     const targetFrames = uniqueFrames.map(frame => Math.round(pivot + (frame - pivot) * factor));
     if (targetFrames.some(frame => !this.authoredFrame(frame))) {
-      throw new Error(`Scaled keys would leave the ${this.animationRangeLabel()} frame range.`);
+      throw new Error(`Scaled keys would leave the supported ${this.authoredFrameLabel()} frame domain.`);
     }
     if (new Set(targetFrames).size !== targetFrames.length) {
       throw new Error('Scaled keys would collapse onto the same frame.');
@@ -1989,7 +2056,7 @@ export class Editor extends EventTarget {
 
   editChannelKey(channel: ScalarAnimationChannel, sourceFrame: number, targetFrame: number, displayValue: number) {
     if (!validAnimationChannel(channel) || !Number.isInteger(sourceFrame) || !this.authoredFrame(targetFrame) || !Number.isFinite(displayValue)) {
-      throw new Error(`Enter an integer frame within ${this.animationRangeLabel()} and a finite key value.`);
+      throw new Error(`Enter an integer frame within ${this.authoredFrameLabel()} and a finite key value.`);
     }
     if (!this.selected || this.editMode || this.playing || this.animationKeyDrag || this.animationHandleDrag) return false;
 
@@ -2039,7 +2106,7 @@ export class Editor extends EventTarget {
 
   retimeChannelKey(channel: ScalarAnimationChannel, targetFrame: number, copy = false) {
     if (!validAnimationChannel(channel) || !this.authoredFrame(targetFrame)) {
-      throw new Error(`Choose a supported channel and integer frame within ${this.animationRangeLabel()}.`);
+      throw new Error(`Choose a supported channel and integer frame within ${this.authoredFrameLabel()}.`);
     }
     if (!this.selected || this.editMode || this.playing) throw new Error('Select an object in Object Mode and pause playback first.');
     const keys = trackKeys(this.selected.userData.animationTracks as AnimationTrackMap | undefined, channel).map(cloneScalarKey);
@@ -2072,7 +2139,8 @@ export class Editor extends EventTarget {
   togglePlayback() {
     this.setEditMode(false);
     this.playing = !this.playing;
-    this.frame = THREE.MathUtils.clamp(this.frame, this.frameStart, this.frameEnd);
+    const playback = this.playbackRange;
+    this.frame = THREE.MathUtils.clamp(this.frame, playback.start, playback.end);
     this.playbackStart = performance.now();
     this.playbackFrame = this.frame;
     this.emit('frame');

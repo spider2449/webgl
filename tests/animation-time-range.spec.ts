@@ -109,39 +109,44 @@ test('current frame and Graph key editing work beyond frame 250 after extending 
   )).toEqual([950]);
 });
 
-test('shrinking Scene Frame Range rejects authored keys that would fall outside it', async ({ page }) => {
+test('shrinking Scene Frame Range preserves authored keys outside it without warning', async ({ page }) => {
   const result = await page.evaluate(() => {
     const e = (window as any).__forge;
     e.setAnimationRange(1, 1000);
-    e.scrub(900);
-    e.selected.position.x = 5;
-    e.insertChannelKey('position.x');
+    e.scrub(100); e.selected.position.x = 1; e.insertChannelKey('position.x');
+    e.scrub(900); e.selected.position.x = 5; e.insertChannelKey('position.x');
 
-    const before = {
-      snapshot: e.snapshot(),
-      range: e.animationRange,
-      frame: e.frame,
-      historyIndex: e.historyIndex,
-    };
+    e.setAnimationRange(1, 500);
+    const snapshot = e.snapshot();
 
-    let message = '';
-    try { e.setAnimationRange(1, 500); }
-    catch (error) { message = (error as Error).message; }
+    e.newProject();
+    e.load(JSON.parse(snapshot));
 
     return {
-      message,
-      before,
-      after: {
-        snapshot: e.snapshot(),
-        range: e.animationRange,
-        frame: e.frame,
-        historyIndex: e.historyIndex,
-      },
+      range: e.animationRange,
+      frame: e.frame,
+      keys: e.selected.userData.animationTracks['position.x'].map((key: any) => key.frame),
     };
   });
 
-  expect(result.message).toContain('authored key frame 900');
-  expect(result.after).toEqual(result.before);
+  expect(result).toEqual({
+    range: { start: 1, end: 500 },
+    frame: 1,
+    keys: [100, 900],
+  });
+
+  await expect(page.locator('#keyframe-markers .key-marker')).toHaveCount(1);
+  await expect(page.locator('#keyframe-markers .key-marker').first()).toHaveAttribute('data-frame', '100');
+
+  await page.getByRole('button', { name: 'Animation', exact: true }).click();
+  const graph = page.getByLabel('Animation graph editor');
+  await page.getByRole('button', { name: 'Frame all Graph keys (Home)' }).click();
+  const view = await graph.evaluate((element: SVGSVGElement) => ({
+    min: Number(element.dataset.viewFrameMin),
+    max: Number(element.dataset.viewFrameMax),
+  }));
+  expect(view.min).toBeLessThan(100);
+  expect(view.max).toBeGreaterThan(900);
 });
 
 test('playback loops inside the configured Scene Frame Range', async ({ page }) => {
