@@ -1377,7 +1377,14 @@ export class Editor extends EventTarget {
     const originalValue = key.value + originalHandle[1];
     const changed = Math.abs(clampedFrame - originalFrame) > 1e-9 || Math.abs(targetValue - originalValue) > 1e-9;
     drag.changed = changed;
-    if (!changed) return { frame: clampedFrame, value: displayValue };
+    if (!changed) {
+      this.setAnimationTrack(drag.object, drag.channel, drag.originalTrack);
+      this.evaluateAnimation();
+      this.emit('animation');
+      this.emit('transform');
+      this.invalidate();
+      return { frame: clampedFrame, value: displayValue };
+    }
 
     if ((key.tangent ?? 'free') === 'auto') {
       key.tangent = 'aligned';
