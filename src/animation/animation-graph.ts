@@ -273,6 +273,8 @@ export class AnimationGraphView {
     return this.applyView({
       frameMin: frameMax - frameMin < 4 ? Math.max(1, (frameMin + frameMax) / 2 - 2) : frameMin,
       frameMax: frameMax - frameMin < 4 ? Math.min(250, (frameMin + frameMax) / 2 + 2) : frameMax,
+      valueMin: this.data.valueMin,
+      valueMax: this.data.valueMax,
     });
   }
 
