@@ -1190,8 +1190,8 @@ export class Editor extends EventTarget {
     this.name = typeof project.name === 'string' ? project.name.slice(0, 100) : 'Untitled scene';
     this.frameStart = range.start;
     this.frameEnd = range.end;
-    this.frame = THREE.MathUtils.clamp(this.frame, this.frameStart, this.frameEnd);
-    this.playbackFrame = this.frame;
+    this.frame = THREE.MathUtils.clamp(this.frame, 1, MAX_ANIMATION_FRAME);
+    this.playbackFrame = THREE.MathUtils.clamp(this.frame, this.frameStart, this.frameEnd);
     this.select(this.content.children[0] ?? null);
     this.evaluateAnimation();
     this.emit('range');
