@@ -538,3 +538,12 @@ export function animationTracks(object: THREE.Object3D): THREE.KeyframeTrack[] {
 
   return output;
 }
+
+export function sceneAnimationClip(
+  root: THREE.Object3D,
+  name = 'ForgeSceneAction',
+): THREE.AnimationClip | null {
+  const tracks: THREE.KeyframeTrack[] = [];
+  root.traverse(object => tracks.push(...animationTracks(object)));
+  return tracks.length ? new THREE.AnimationClip(name, -1, tracks) : null;
+}
