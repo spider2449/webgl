@@ -37,6 +37,7 @@ Skin index and weight attributes remain ordinary serializable `BufferAttribute` 
 - It does not alter armature hierarchy, inverse bind matrices or mesh topology.
 - Scene-object deletion is blocked while Weight Mode is active.
 - Moving/rotating/scaling selected skin vertices is disabled.
+- Playback and timeline scrubbing are blocked so the rest-pose vertex overlay cannot drift away from the skinned surface.
 
 ## Non-goals
 
