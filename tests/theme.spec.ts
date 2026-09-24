@@ -25,7 +25,6 @@ async function contrastRatio(page: any, foregroundSelector: string, backgroundSe
 }
 
 test.beforeEach(async ({ page }) => {
-  await page.addInitScript(() => localStorage.removeItem('forge-theme'));
   await page.goto('/');
   await page.waitForFunction(() => (window as any).__forge?.selected);
 });
