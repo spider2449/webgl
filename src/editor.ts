@@ -1222,8 +1222,15 @@ export class Editor extends EventTarget {
   redo() { if (this.canRedo) this.restoreHistory(++this.historyIndex); }
   private restoreHistory(index: number) {
     const id = this.selected?.uuid;
+    const restoreEditMode = this.editMode && !this.weightMode;
+    const componentMode = this.componentMode;
     this.load(JSON.parse(this.history[index]), false);
-    this.select(this.content.getObjectByProperty('uuid', id ?? '') ?? this.content.children[0] ?? null);
+    const selected = this.content.getObjectByProperty('uuid', id ?? '') ?? this.content.children[0] ?? null;
+    this.select(selected);
+    if (restoreEditMode && selected instanceof THREE.Mesh && !(selected instanceof THREE.SkinnedMesh) && !selected.userData.modifierStack) {
+      this.setEditMode(true);
+      if (this.componentMode !== componentMode) this.setComponentMode(componentMode);
+    }
     this.emit('commit');
   }
   load(project: Project, commit = true) {
