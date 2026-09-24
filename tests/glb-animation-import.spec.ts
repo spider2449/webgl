@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 import * as THREE from 'three';
 import { GLTFExporter } from 'three/addons/exporters/GLTFExporter.js';
-import { importAnimationClip } from '../src/animation/animation';
+import { importAnimationClip, sceneAnimationClip } from '../src/animation/animation';
 
 const rad = (degrees: number) => degrees * Math.PI / 180;
 const deg = (radians: number) => radians * 180 / Math.PI;
@@ -45,6 +45,38 @@ async function makeAnimatedGlb(clips: THREE.AnimationClip[]) {
     mesh.material.dispose();
   }
 }
+
+test('Forge scene animation exports as one clip across multiple animated objects', () => {
+  const root = new THREE.Group();
+  const a = new THREE.Object3D();
+  const b = new THREE.Object3D();
+  a.name = 'A';
+  b.name = 'B';
+  root.add(a, b);
+
+  a.userData.animationTracks = {
+    'position.x': [
+      { frame: 1, value: 0 },
+      { frame: 25, value: 2 },
+    ],
+  };
+  b.userData.animationTracks = {
+    'rotation.z': [
+      { frame: 1, value: 0 },
+      { frame: 25, value: Math.PI },
+    ],
+  };
+
+  const clip = sceneAnimationClip(root);
+
+  expect(clip).not.toBeNull();
+  expect(clip!.name).toBe('ForgeSceneAction');
+  expect(clip!.tracks).toHaveLength(2);
+  expect(clip!.tracks.map(track => track.name).sort()).toEqual([
+    `${a.uuid}.position`,
+    `${b.uuid}.quaternion`,
+  ].sort());
+});
 
 test('GLB vector animation bakes to editable 24 fps scalar tracks', () => {
   const root = new THREE.Group();
