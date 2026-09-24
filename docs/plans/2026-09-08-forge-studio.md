@@ -17,17 +17,18 @@ Build a web-based 3D application inspired by Blender, prioritizing responsive in
 - Demand rendering, capped device pixel ratio, geometry/material disposal, bounded history and renderer statistics.
 - Production build and browser interaction tests with actual WebGL.
 
-## Phase 1 extension: Kimodo rig system
+## Phase 1 extension: Generic armature system
 
-User requested an integrated rig system based on NVIDIA Kimodo. Use the official public SOMA77 joint order, hierarchy and native neutral joint coordinates from upstream revision `1aece8c124d73d255ceff5086d983b844c9f4e94`. Keep Hips at zero local rest translation and ground the separate display container. Preserve source attribution and the Apache-2.0 license.
+Forge rigging uses arbitrary bone hierarchies rather than a fixed humanoid skeleton.
 
-- Create and inspect all 77 joints, select joints in the viewport or searchable hierarchy, and edit FK transforms.
-- Positional hand/foot IK with two-joint CCD chains; anatomical limits, pole vectors and IK/FK animation switching are future work.
-- Full-pose keyframes and bone animation playback using the existing timeline.
-- GPU-skinned preview and worker-based nearest-segment binding with four normalized influences per vertex. Limit each binding job to 100k vertices.
-- Persist bones, bind matrices, weights and animation in Forge JSON; export to GLB.
-- Verify official hierarchy, Hips root semantics, FK/IK motion, actual skinned vertex deformation, worker weight normalization, project recovery and rig duplication independence.
-- Kimodo inference, motion retargeting and SOMA body-model inference are not included in this local rig editor.
+- Create a Forge armature with a root bone and grow it with child bones.
+- Detect imported armatures from actual `THREE.Bone` hierarchies without relying on skeleton names or joint-name conventions.
+- Select bones in the viewport or searchable hierarchy and edit FK transforms.
+- Provide generic positional two-bone IK from the selected end bone; anatomical limits, pole vectors and persistent constraints are future work.
+- Capture a Forge rest pose, restore it, and key the full armature using the existing scalar animation timeline.
+- Use worker-based nearest-segment skin binding with four normalized influences per vertex and a 100k-vertex per-job cap.
+- Persist bones, rest-pose metadata, bind matrices, weights and animation in Forge JSON; export through GLB interchange.
+- Keep rig semantics independent from any external humanoid skeleton standard; retargeting and Action/NLA clip systems are separate future work.
 
 ## Phase 2: Modeling core
 
@@ -51,7 +52,7 @@ Verify project round trips, undo/redo, material and geometry editing, animation,
 
 ## Continuation: Phase 2 topology and component selection (2026-09-08)
 
-The initial editor and local SOMA77 rigging foundation are implemented. The next bounded increment establishes triangle connectivity and component translation before topology-changing operations.
+The initial editor and generic armature foundation are implemented. The next bounded increment establishes triangle connectivity and component translation before topology-changing operations.
 
 - Implemented an independent topology model with logical vertices, unique edges, triangle faces and rendering-buffer mappings for indexed and non-indexed meshes.
 - Exact coincident positions share a logical vertex, including normal and UV seams. Connectivity remains stable during an edit session and is rebuilt when re-entering Edit Mode.
