@@ -1,6 +1,6 @@
 # Forge Studio
 
-A browser-based 3D editor inspired by Blender, built with TypeScript, Three.js and Vite. Includes a working NVIDIA Kimodo SOMA77 rigging foundation. This is an initial editor release, not Blender feature parity.
+A browser-based 3D editor inspired by Blender, built with TypeScript, Three.js and Vite. Includes a generic Forge armature, animation, modeling and skinning foundation. This is an initial editor release, not Blender feature parity.
 
 ## Run locally
 
@@ -275,18 +275,19 @@ before quaternion export. This is an interchange approximation; arbitrary
 F-curves, weighted tangent types, curve modifiers, lasso selection, and
 cross-channel key selection remain future work.
 
-## Kimodo rigging
+## Forge armatures
 
-1. Open **Rigging** and choose **Create SOMA77 armature**.
-2. Choose **Add skinned preview** for an immediately poseable, procedural body proxy. It is not the SOMA body mesh.
-3. Select a bone in the viewport or searchable joint list, then rotate it with the gizmo. The Object panel exposes precise bone transforms.
-4. For positional IK, choose a hand or foot and click **Move IK target**. Drag the target, then choose **Key full pose** to record all 77 bones. IK is solved to FK transforms; it is not a persistent animated constraint.
-5. Use **Rest pose** before binding. To bind a custom mesh, align a standalone mesh to the armature, select the mesh, then click **Bind selected mesh**. The first armature is used when selection is outside a rig. Distance-based weights are a starting point, not production-quality anatomical weights.
-6. Save a `.forge` project or export GLB to retain bones, skin weights and transform animation.
+Forge armatures are arbitrary `THREE.Bone` hierarchies rather than a fixed humanoid skeleton.
 
-The 77 joint names, parents, order and root-relative neutral positions come from official NVIDIA Kimodo revision `1aece8c124d73d255ceff5086d983b844c9f4e94`. `Hips` remains `(0,0,0)` in the rest pose. A separate armature container grounds the visible character. Coordinates are in meters, Y up, with +Z forward. This uses the native neutral skeleton, not an invented approximation or a T-pose with unaccounted rotation offsets.
+1. Open **Rigging** and choose **Create armature**. A new armature starts with one `Root` bone.
+2. Select a bone and choose **Add child bone** to grow the hierarchy. New bones use a simple local Y offset and can then be positioned or rotated with normal transform controls.
+3. Choose **Set rest pose** when the hierarchy and neutral transforms are ready. **Rest pose** restores those stored Forge transforms.
+4. Select an end bone with a parent and grandparent, then choose **IK selected bone** for a generic two-bone positional IK solve. IK writes FK transforms; pole controls and joint limits are not implemented yet.
+5. **Key full pose** records transform keys for every bone in the active armature at the current frame.
+6. To bind a standalone mesh, select the intended armature first, set/reset its rest pose, then select the mesh and choose **Bind selected mesh**. The worker assigns up to four distance-based bone influences per vertex, capped at 100k vertices per job.
+7. Save a `.forge` project or export GLB to retain bone hierarchy, skin weights and transform animation.
 
-Sources: [official skeleton documentation](https://research.nvidia.com/labs/sil/projects/kimodo/docs/key_concepts/skeleton.html), [joint definitions](https://github.com/nv-tlabs/kimodo/blob/1aece8c124d73d255ceff5086d983b844c9f4e94/kimodo/skeleton/definitions.py), [neutral skeleton data](https://github.com/nv-tlabs/kimodo/blob/1aece8c124d73d255ceff5086d983b844c9f4e94/kimodo/assets/skeletons/somaskel77/joints.p). Attribution and license are in `THIRD_PARTY_NOTICES.md` and `licenses/`.
+Armatures are detected from actual bone hierarchies, so imported GLB skeletons and Forge-created skeletons use the same rigging path. Bone names have no built-in left/right, hand/foot, or humanoid semantics. Forge does not currently provide bone deletion, reparenting, pole vectors, weight painting, humanoid retargeting or an Action/NLA system.
 
 ## Files and recovery
 
@@ -316,6 +317,6 @@ The automated WebGL tests use Chromium's software renderer for repeatability. Th
 
 ## Current limits and next stages
 
-The editor does not yet include polygon face editing, curved-surface region extrusion or region inset, sculpting, weight painting, IK pole vectors/joint limits, retargeting, geometry nodes, physics, compositing or offline rendering. The modeling core includes bevel, loop cuts, UV editing, modifiers and mesh snapping within the supported limits documented above. Kimodo text-to-motion inference is not connected. The UI exposes only implemented local workflows and labels the basic rigging limitations.
+The editor does not yet include polygon face editing, curved-surface region extrusion or region inset, sculpting, weight painting, bone deletion/reparenting, IK pole vectors/joint limits, humanoid retargeting, Action/NLA clips, geometry nodes, physics, compositing or offline rendering. The modeling core includes bevel, loop cuts, UV editing, modifiers and mesh snapping within the supported limits documented above. The UI exposes only implemented local workflows and labels the basic rigging limitations.
 
 The development plan is [docs/plans/2026-09-08-forge-studio.md](docs/plans/2026-09-08-forge-studio.md).
