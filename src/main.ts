@@ -1819,6 +1819,7 @@ $<HTMLInputElement>('#model-input').onchange = async e => {
     root.name = editor.uniqueName(file.name.replace(/\.[^.]+$/, ''));
     editor.importObject(root, importedAnimation?.frameEnd);
     added = true;
+    if (importedAnimation?.firstTarget) editor.select(importedAnimation.firstTarget);
     editor.focus();
 
     if (importedAnimation?.scalarKeys) {
