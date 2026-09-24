@@ -134,10 +134,20 @@ stores nine independent scalar tracks: **Location X/Y/Z**, **Rotation X/Y/Z**
 and **Scale X/Y/Z**. Each track owns its own key frames, values, interpolation
 and Bezier tangents.
 
+The Timeline header exposes a project **Start / End** animation range, defaulting
+to **1–250**. This range controls playback looping, Timeline ruler/scrubber
+mapping, First/Last playback buttons, and Graph **Scene Range** framing. It is a
+playback/view window, not a key-validity boundary: authored scalar keys remain
+valid on integer frames 1–250 even when they lie outside Start–End. Range-external
+keys stay saved and editable in the Graph Editor but are hidden from the Timeline.
+The current frame may also sit outside the playback range. Animation range is
+stored in new `.forge` snapshots; older projects without it load as 1–250.
+
 The timeline header keeps the fast transform workflow: **Insert transform key**
 authors all nine scalar channels at the current frame, while **Remove current
 key** removes any channel keys at that frame. Timeline markers and previous/next
-navigation use the union of key frames across all channels. Drag a timeline
+navigation use the union of key frames across all channels inside the active
+Start–End window. Drag a timeline
 marker horizontally to retime every scalar-channel key authored at that summary
 frame. **Shift-click** summary markers to build a Timeline selection, or
 **Shift-drag empty Timeline space** to add every summary marker inside the
