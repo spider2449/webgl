@@ -878,9 +878,10 @@ document.querySelectorAll<HTMLInputElement>('[data-transform]').forEach(input =>
   if (!Number.isFinite(value) || Math.abs(value) > 10000 || (property === 'scale' && Math.abs(value) < 0.001)) { toast('Enter a finite value within ±10,000; scale cannot be zero.'); input.blur(); updateTransforms(); return; }
   if (property === 'rotation') value *= Math.PI / 180;
   editor.selected[property][axis] = value;
+  rigSystem.captureEditedRest();
   editor.commit();
 });
-on('reset-transform', () => { if (editor.selected) { editor.selected.position.set(0,0,0); editor.selected.rotation.set(0,0,0); editor.selected.scale.set(1,1,1); editor.commit(); } });
+on('reset-transform', () => { if (editor.selected) { editor.selected.position.set(0,0,0); editor.selected.rotation.set(0,0,0); editor.selected.scale.set(1,1,1); rigSystem.captureEditedRest(); editor.commit(); } });
 on('extrude-face', async () => { try { if (!editor.editMode || editor.componentMode !== 'face' || editor.componentSelection.length !== 1) throw new Error('Select exactly one triangle face in Edit Mode first.'); await editor.runModeling({kind:'extrude',face:editor.componentSelection[0],distance:Number($<HTMLInputElement>('#extrude-distance').value)}); toast('Triangle extruded. Move the selected cap or extrude again.'); } catch (error) { toast((error as Error).message); } });
 $('#extrude-face').insertAdjacentHTML('afterend', '<button class="wide-button" id="extrude-region">Extrude planar region</button><p class="field-help">Shift-select connected coplanar triangle faces. Uses Extrusion distance and adds walls only along the region boundary.</p>');
 on('extrude-region', async () => { try { if (!editor.editMode || editor.componentMode !== 'face' || !editor.componentSelection.length) throw new Error('Select connected coplanar triangle faces in Edit Mode first.'); await editor.runModeling({kind:'region',faces:editor.componentSelection,distance:Number($<HTMLInputElement>('#extrude-distance').value)}); toast('Planar region extruded. The cap faces remain selected.'); } catch (error) { toast((error as Error).message); } });
