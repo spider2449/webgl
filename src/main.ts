@@ -99,7 +99,8 @@ $('.properties-content').insertAdjacentHTML('beforeend', `
         <div class="action-row"><button id="rig-add-root">Add bone</button><button id="rig-extrude">Extrude</button></div>
         <label class="property-row">Parent<select id="rig-parent" aria-label="Bone parent"></select></label>
         <button class="wide-button" id="rig-reparent">Reparent selected bone</button>
-        <p class="field-help">Move or rotate bones to author the rest skeleton. Hierarchy editing is locked after skin binding or bone keys are authored.</p>
+        <button class="wide-button" id="rig-delete-bone">Delete selected bone</button>
+        <p class="field-help">Move or rotate bones to author the rest skeleton. Deleting a bone preserves its children by moving them to the deleted bone's parent. Hierarchy editing is locked after skin binding or bone keys are authored.</p>
       </div>
       <div id="rig-pose-controls">
         <div class="section-heading border-top"><span>${icon('chevron-down')} Pose controls</span></div>
@@ -229,6 +230,7 @@ function refreshRig() {
   const selectedBone = editor.selected instanceof THREE.Bone && bones.includes(editor.selected) ? editor.selected : null;
   $<HTMLButtonElement>('#rig-extrude').disabled = !editing || !selectedBone;
   $<HTMLButtonElement>('#rig-reparent').disabled = !editing || !selectedBone;
+  $<HTMLButtonElement>('#rig-delete-bone').disabled = !editing || !selectedBone || bones.length <= 1;
   const parentSelect = $<HTMLSelectElement>('#rig-parent');
   const invalidParents = new Set<THREE.Object3D>();
   selectedBone?.traverse(object => { if (object instanceof THREE.Bone) invalidParents.add(object); });
@@ -278,6 +280,10 @@ on('rig-reparent', () => rigAction(() => {
   if (value && !parent) throw new Error('Choose a valid parent bone.');
   rigSystem.reparentSelectedBone(parent);
   toast(parent ? `Bone parented to ${parent.name}.` : 'Bone moved to the armature root.');
+}));
+on('rig-delete-bone', () => rigAction(() => {
+  rigSystem.deleteSelectedBone();
+  toast('Bone deleted; child bones kept in place.');
 }));
 on('rig-reset', () => rigAction(() => rigSystem.resetPose()));
 on('rig-key', () => rigAction(() => {
@@ -936,7 +942,12 @@ for (const [id, axis] of [['axis-x','right'],['axis-y','top'],['axis-z','front']
 on('projection', () => editor.toggleProjection());
 for (const id of ['duplicate','duplicate-rail']) on(id, () => editor.duplicate());
 on('duplicate-linked', () => toast(editor.duplicateLinked() ? 'Created linked duplicate.' : 'Linked duplicate requires an ordinary mesh without modifiers.'));
-for (const id of ['delete','delete-outliner']) on(id, () => editor.remove());
+function deleteSelection() {
+  if (editor.selected instanceof THREE.Bone && rigSystem.mode === 'edit') {
+    rigAction(() => { rigSystem.deleteSelectedBone(); toast('Bone deleted; child bones kept in place.'); });
+  } else editor.remove();
+}
+for (const id of ['delete','delete-outliner']) on(id, deleteSelection);
 on('menu-undo', () => editor.undo()); on('menu-redo', () => editor.redo());
 on('smooth', () => editor.smooth(false)); on('flat', () => editor.smooth(true));
 mountModelingUI(editor, toast);
@@ -1944,7 +1955,7 @@ document.addEventListener('keydown', e => {
   if (key === 'f') editor.focus();
   if (key === 'd' && e.shiftKey) { e.preventDefault(); editor.duplicate(); }
   else if (key === 'd' && e.altKey) { e.preventDefault(); if (!editor.duplicateLinked()) toast('Linked duplicate requires an ordinary mesh without modifiers.'); }
-  if (key === 'delete' || key === 'backspace') { e.preventDefault(); editor.remove(); }
+  if (key === 'delete' || key === 'backspace') { e.preventDefault(); deleteSelection(); }
   if (key === 'tab') { e.preventDefault(); if (e.shiftKey) snap(); else { if (editor.modelingBusy) editor.cancelModeling(); else void editor.enterEditMode(!editor.editMode).then(ok => { if (!ok) toast('Select a mesh and apply its modifiers first.'); tool('translate'); }).catch(error => toast(error.message)); } }
   if (key === 'i') insertKey();
   if (key === ' ') { e.preventDefault(); editor.togglePlayback(); }

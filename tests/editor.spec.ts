@@ -135,6 +135,52 @@ test('creates and edits a Forge-native armature hierarchy through rig controls',
   expect(after.parent).toBe('Bone.001');
   before.world.forEach((value: number, index: number) => expect(after.world[index]).toBeCloseTo(value, 6));
   expect(after.rest).toHaveLength(3);
+
+  const deleteSetup = await page.evaluate(() => {
+    const e = (window as any).__forge, r = (window as any).__rig;
+    const rig = r.activeRig;
+    const middle = rig.getObjectByName('Bone.001');
+    const child = rig.getObjectByName('Bone.002');
+    e.select(middle);
+    return {
+      child: child.uuid,
+      childWorld: child.getWorldPosition(child.position.clone()).toArray(),
+    };
+  });
+  await page.locator('#rig-delete-bone').click();
+  const deleted = await page.evaluate(({ child }) => {
+    const e = (window as any).__forge, r = (window as any).__rig;
+    const rig = r.activeRig;
+    const survivor = rig.getObjectByProperty('uuid', child);
+    const names: string[] = [];
+    rig.traverse((object: any) => { if (object.isBone) names.push(object.name); });
+    return {
+      names,
+      parent: survivor.parent.name,
+      world: survivor.getWorldPosition(survivor.position.clone()).toArray(),
+      rest: survivor.userData.restPosition,
+      selected: e.selected.name,
+    };
+  }, deleteSetup);
+  expect(deleted.names).toEqual(['Bone', 'Bone.002', 'Bone.003']);
+  expect(deleted.parent).toBe('Bone');
+  deleteSetup.childWorld.forEach((value: number, index: number) => expect(deleted.world[index]).toBeCloseTo(value, 6));
+  expect(deleted.rest).toHaveLength(3);
+  expect(deleted.selected).toBe('Bone');
+});
+
+test('keeps at least one bone and routes Delete through armature Edit mode', async ({ page }) => {
+  await page.locator('[data-workspace="rigging"]').click();
+  await page.locator('#create-rig').click();
+  await expect(page.locator('.bone-button')).toHaveCount(1);
+  await page.keyboard.press('Delete');
+  await expect(page.locator('.bone-button')).toHaveCount(1);
+  await expect(page.locator('#toast')).toContainText('at least one bone');
+
+  await page.locator('#rig-extrude').click();
+  await expect(page.locator('.bone-button')).toHaveCount(2);
+  await page.keyboard.press('Delete');
+  await expect(page.locator('.bone-button')).toHaveCount(1);
 });
 
 test('locks rest-skeleton editing after bone animation is authored', async ({ page }) => {
