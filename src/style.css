@@ -190,6 +190,20 @@
 :root[data-theme="light"] .graph-key-toolbar .text-button,
 :root[data-theme="light"] .graph-handle-toolbar .text-button,
 :root[data-theme="light"] .timeline-key-toolbar .text-button{border-color:#c5ccd6;color:#4c5664}
+:root[data-theme="light"] .animation-graph-header>span:first-child,
+:root[data-theme="light"] .graph-key-toolbar-label,
+:root[data-theme="light"] .graph-handle-toolbar-label,
+:root[data-theme="light"] .timeline-key-toolbar-label{color:#754719}
+:root[data-theme="light"] #graph-handle-mode[data-mode="free"]{color:#4f5d6d}
+:root[data-theme="light"] #graph-handle-mode[data-mode="aligned"]{color:#744887}
+:root[data-theme="light"] #graph-handle-mode[data-mode="auto"]{color:#755b1e}
+:root[data-theme="light"] .playback #play{color:#754719}
+:root[data-theme="light"] .menu-label,
+:root[data-theme="light"] .object-type,
+:root[data-theme="light"] .outliner-footer,
+:root[data-theme="light"] .sidebar-bottom,
+:root[data-theme="light"] .field-help,
+:root[data-theme="light"] .empty-state{color:var(--text-muted)}
 :root[data-theme="light"] .graph-editor-badge{color:#6f5739!important;border-color:#b9a78f}
 :root[data-theme="light"] .graph-channel-group button.active{border-color:#986128;background:#98612812;color:#754719}
 :root[data-theme="light"] .graph-channel-group button.active>small{color:#754719}
