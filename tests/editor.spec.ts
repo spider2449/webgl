@@ -161,24 +161,61 @@ test('parametric cube subdivisions regenerate geometry and survive project reloa
   await expect(page.getByLabel('Primitive Segments X')).toHaveValue('4');
 });
 
-test('topology modeling applies primitive parameters and preserves generated density', async ({ page }) => {
+test('topology modeling applies primitive parameters and Undo keeps Edit Mode', async ({ page }) => {
   await page.getByLabel('Primitive Segments X').fill('3');
   await page.getByLabel('Primitive Segments X').press('Enter');
+  await page.locator('#mode').selectOption('edit');
+  await page.getByLabel('Mesh component').selectOption('edge');
 
   const result = await page.evaluate(async () => {
     const e = (window as any).__forge;
     const before = e.selected.geometry.getAttribute('position').count;
     await e.runModeling({ kind: 'subdivide-all' });
+    const after = e.selected.geometry.getAttribute('position').count;
     return {
       before,
-      after: e.selected.geometry.getAttribute('position').count,
+      after,
       primitive: e.selected.userData.forgePrimitive,
+      editMode: e.editMode,
+      componentMode: e.componentMode,
     };
   });
 
   expect(result.after).toBeGreaterThan(result.before);
   expect(result.primitive).toBeUndefined();
+  expect(result.editMode).toBe(true);
+  expect(result.componentMode).toBe('edge');
   await expect(page.locator('#primitive-fields')).toHaveClass(/hidden/);
+
+  await page.keyboard.press('Control+z');
+  const undone = await page.evaluate(() => {
+    const e = (window as any).__forge;
+    return {
+      editMode: e.editMode,
+      componentMode: e.componentMode,
+      vertices: e.selected.geometry.getAttribute('position').count,
+      primitive: e.selected.userData.forgePrimitive,
+    };
+  });
+  expect(undone.editMode).toBe(true);
+  expect(undone.componentMode).toBe('edge');
+  expect(undone.vertices).toBe(result.before);
+  expect(undone.primitive.widthSegments).toBe(3);
+
+  await page.keyboard.press('Control+Shift+z');
+  const redone = await page.evaluate(() => {
+    const e = (window as any).__forge;
+    return {
+      editMode: e.editMode,
+      componentMode: e.componentMode,
+      vertices: e.selected.geometry.getAttribute('position').count,
+      primitive: e.selected.userData.forgePrimitive,
+    };
+  });
+  expect(redone.editMode).toBe(true);
+  expect(redone.componentMode).toBe('edge');
+  expect(redone.vertices).toBe(result.after);
+  expect(redone.primitive).toBeUndefined();
 });
 
 test('primitive parameter validation rejects unsafe segment counts without replacing geometry', async ({ page }) => {
