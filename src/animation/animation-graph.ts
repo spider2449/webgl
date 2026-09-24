@@ -419,6 +419,55 @@ export class AnimationGraphView {
     }
   }
 
+  private syncSelectedHandleVisuals() {
+    const data = this.data;
+    const selectedFrame = this.selectedKeyFrame;
+    if (!data || selectedFrame === null) return;
+    const index = data.sourceKeys.findIndex(key => key.frame === selectedFrame);
+    if (index < 0) return;
+    const key = data.sourceKeys[index];
+    const keyValue = animationChannelValue(key, data.channel);
+    const tangent = key.tangent ?? 'free';
+
+    const sync = (side: 'left' | 'right', handleFrame: number, handleValue: number) => {
+      const marker = this.curveLayer.querySelector<SVGCircleElement>(`.graph-handle[data-handle="${side}"][data-key-frame="${selectedFrame}"]`);
+      const line = this.curveLayer.querySelector<SVGLineElement>(`.graph-handle-line[data-handle-line="${side}"][data-key-frame="${selectedFrame}"]`);
+      if (!marker || !line) return;
+      const x = this.frameX(handleFrame);
+      const y = this.valueY(data, handleValue);
+      marker.setAttribute('cx', String(x));
+      marker.setAttribute('cy', String(y));
+      marker.dataset.handleFrame = String(handleFrame);
+      marker.dataset.handleValue = String(handleValue);
+      marker.dataset.tangent = tangent;
+      marker.classList.remove('free', 'aligned', 'auto');
+      marker.classList.add(tangent);
+      line.setAttribute('x1', String(this.frameX(key.frame)));
+      line.setAttribute('y1', String(this.valueY(data, keyValue)));
+      line.setAttribute('x2', String(x));
+      line.setAttribute('y2', String(y));
+      line.classList.remove('free', 'aligned', 'auto');
+      line.classList.add(tangent);
+      const tooltip = marker.querySelector('title');
+      if (tooltip) {
+        tooltip.textContent = tangent === 'auto'
+          ? `Auto ${side} tangent · drag to convert to Aligned`
+          : tangent === 'aligned'
+            ? `Aligned ${side} tangent · opposite handle stays collinear`
+            : `Free ${side} tangent · independent handle`;
+      }
+    };
+
+    if (index > 0 && effectiveSegmentInterpolation(data.sourceKeys[index - 1]) === 'bezier') {
+      const controls = bezierControlPoints(data.sourceKeys, index - 1);
+      sync('left', controls.x2, displayNative(data.channel, controls.y2));
+    }
+    if (index < data.sourceKeys.length - 1 && effectiveSegmentInterpolation(key) === 'bezier') {
+      const controls = bezierControlPoints(data.sourceKeys, index);
+      sync('right', controls.x1, displayNative(data.channel, controls.y1));
+    }
+  }
+
   private renderPlayhead(frame: number) {
     const data = this.data;
     if (!data) return;
@@ -626,14 +675,7 @@ export class AnimationGraphView {
       const targetValue = Math.round(rawValue / precision) * precision;
       const applied = this.edits.previewHandle(targetFrame, targetValue);
       if (!applied) return;
-      const x = this.frameX(applied.frame);
-      const y = this.valueY(data, applied.value);
-      drag.marker.setAttribute('cx', String(x));
-      drag.marker.setAttribute('cy', String(y));
-      drag.line.setAttribute('x2', String(x));
-      drag.line.setAttribute('y2', String(y));
-      drag.marker.dataset.handleFrame = String(applied.frame);
-      drag.marker.dataset.handleValue = String(applied.value);
+      this.syncSelectedHandleVisuals();
       this.detail.textContent = `Tangent · F${this.formatFrame(applied.frame)} · ${this.format(applied.value)}`;
       event.preventDefault();
       return;
