@@ -1299,7 +1299,7 @@ export class Editor extends EventTarget {
   }
 
   setKeyInterpolations(frames: number[], channel: ScalarAnimationChannel, mode: KeyInterpolation) {
-    if (!validAnimationChannel(channel) || !validKeyInterpolation(mode) || frames.some(frame => !Number.isInteger(frame) || frame < 1 || frame > 250)) {
+    if (!validAnimationChannel(channel) || !validKeyInterpolation(mode) || frames.some(frame => !this.frameInRange(frame))) {
       throw new Error('Invalid key interpolation.');
     }
     if (!this.selected || this.editMode || this.playing || this.animationKeyDrag || this.animationHandleDrag) return false;
@@ -1336,7 +1336,7 @@ export class Editor extends EventTarget {
   }
 
   setKeyTangentModes(frames: number[], channel: ScalarAnimationChannel, mode: KeyTangentMode) {
-    if (!validAnimationChannel(channel) || !validKeyTangentMode(mode) || frames.some(frame => !Number.isInteger(frame) || frame < 1 || frame > 250)) {
+    if (!validAnimationChannel(channel) || !validKeyTangentMode(mode) || frames.some(frame => !this.frameInRange(frame))) {
       throw new Error('Invalid key tangent mode.');
     }
     if (!this.selected || this.editMode || this.playing || this.animationKeyDrag || this.animationHandleDrag) return false;
@@ -1593,7 +1593,7 @@ export class Editor extends EventTarget {
   previewAnimationKeyDrag(targetFrame: number, channel: ScalarAnimationChannel, displayValue: number) {
     const drag = this.animationKeyDrag;
     if (!drag || channel !== drag.channel || this.selected !== drag.object || this.editMode || this.playing) return false;
-    if (!Number.isInteger(targetFrame) || targetFrame < 1 || targetFrame > 250 || !Number.isFinite(displayValue)) return false;
+    if (!this.frameInRange(targetFrame) || !Number.isFinite(displayValue)) return false;
 
     const anchor = drag.originalTrack.find(key => key.frame === drag.anchorFrame);
     if (!anchor) return false;
@@ -1617,7 +1617,7 @@ export class Editor extends EventTarget {
       return false;
     };
 
-    if (targetFrames.some(frame => frame < 1 || frame > 250)) return rejectPreview();
+    if (targetFrames.some(frame => !this.frameInRange(frame))) return rejectPreview();
     if (new Set(targetFrames).size !== targetFrames.length) return rejectPreview();
 
     const occupied = new Set(
@@ -1703,15 +1703,15 @@ export class Editor extends EventTarget {
   moveTimelineKeys(sourceFrames: number[], frameDelta: number) {
     if (!this.selected || this.editMode || this.playing || this.animationKeyDrag || this.animationHandleDrag) return false;
     const uniqueFrames = [...new Set(sourceFrames)].sort((a, b) => a - b);
-    if (!uniqueFrames.length || uniqueFrames.some(frame => !Number.isInteger(frame) || frame < 1 || frame > 250)) {
-      throw new Error('Choose authored Timeline keys within frames 1–250.');
+    if (!uniqueFrames.length || uniqueFrames.some(frame => !this.frameInRange(frame))) {
+      throw new Error(`Choose authored Timeline keys within frames ${this.animationRangeLabel()}.`);
     }
     if (!Number.isInteger(frameDelta)) throw new Error('Timeline key movement must use whole frames.');
     if (frameDelta === 0) return false;
 
     const targetFrames = uniqueFrames.map(frame => frame + frameDelta);
-    if (targetFrames.some(frame => frame < 1 || frame > 250)) {
-      throw new Error('Timeline key move would leave the 1–250 frame range.');
+    if (targetFrames.some(frame => !this.frameInRange(frame))) {
+      throw new Error(`Timeline key move would leave the ${this.animationRangeLabel()} frame range.`);
     }
 
     const tracks = this.selected.userData.animationTracks as AnimationTrackMap | undefined;
@@ -1756,8 +1756,8 @@ export class Editor extends EventTarget {
   }
 
   moveTimelineKey(sourceFrame: number, targetFrame: number) {
-    if (!Number.isInteger(sourceFrame) || !Number.isInteger(targetFrame) || sourceFrame < 1 || sourceFrame > 250 || targetFrame < 1 || targetFrame > 250) {
-      throw new Error('Timeline key frames must stay within 1–250.');
+    if (!this.frameInRange(sourceFrame) || !this.frameInRange(targetFrame)) {
+      throw new Error(`Timeline key frames must stay within ${this.animationRangeLabel()}.`);
     }
     if (sourceFrame === targetFrame) {
       this.scrub(sourceFrame);
@@ -1772,15 +1772,15 @@ export class Editor extends EventTarget {
   duplicateTimelineKeys(sourceFrames: number[], frameDelta: number) {
     if (!this.selected || this.editMode || this.playing || this.animationKeyDrag || this.animationHandleDrag) return false;
     const uniqueFrames = [...new Set(sourceFrames)].sort((a, b) => a - b);
-    if (!uniqueFrames.length || uniqueFrames.some(frame => !Number.isInteger(frame) || frame < 1 || frame > 250)) {
-      throw new Error('Choose authored Timeline keys within frames 1–250.');
+    if (!uniqueFrames.length || uniqueFrames.some(frame => !this.frameInRange(frame))) {
+      throw new Error(`Choose authored Timeline keys within frames ${this.animationRangeLabel()}.`);
     }
     if (!Number.isInteger(frameDelta) || frameDelta === 0) {
       throw new Error('Timeline key duplication must move by at least one whole frame.');
     }
 
     const targetFrames = uniqueFrames.map(frame => frame + frameDelta);
-    if (targetFrames.some(frame => frame < 1 || frame > 250)) {
+    if (targetFrames.some(frame => !this.frameInRange(frame))) {
       throw new Error('Duplicated Timeline keys would leave the 1–250 frame range.');
     }
 
@@ -1827,8 +1827,8 @@ export class Editor extends EventTarget {
   removeTimelineKeys(frames: number[]) {
     if (!this.selected || this.editMode || this.playing || this.animationKeyDrag || this.animationHandleDrag) return false;
     const uniqueFrames = [...new Set(frames)].sort((a, b) => a - b);
-    if (!uniqueFrames.length || uniqueFrames.some(frame => !Number.isInteger(frame) || frame < 1 || frame > 250)) {
-      throw new Error('Choose authored Timeline keys within frames 1–250.');
+    if (!uniqueFrames.length || uniqueFrames.some(frame => !this.frameInRange(frame))) {
+      throw new Error(`Choose authored Timeline keys within frames ${this.animationRangeLabel()}.`);
     }
 
     const tracks = this.selected.userData.animationTracks as AnimationTrackMap | undefined;
@@ -1865,7 +1865,7 @@ export class Editor extends EventTarget {
     if (!this.selected || this.editMode || this.playing || this.animationKeyDrag || this.animationHandleDrag) return false;
 
     const uniqueFrames = [...new Set(frames)].sort((a, b) => a - b);
-    if (uniqueFrames.length < 2 || uniqueFrames.some(frame => !Number.isInteger(frame) || frame < 1 || frame > 250)) {
+    if (uniqueFrames.length < 2 || uniqueFrames.some(frame => !this.frameInRange(frame))) {
       throw new Error('Select at least two authored Timeline keys to scale timing.');
     }
 
@@ -1877,8 +1877,8 @@ export class Editor extends EventTarget {
 
     const pivot = (uniqueFrames[0] + uniqueFrames[uniqueFrames.length - 1]) / 2;
     const targetFrames = uniqueFrames.map(frame => Math.round(pivot + (frame - pivot) * factor));
-    if (targetFrames.some(frame => frame < 1 || frame > 250)) {
-      throw new Error('Scaled Timeline keys would leave the 1–250 frame range.');
+    if (targetFrames.some(frame => !this.frameInRange(frame))) {
+      throw new Error(`Scaled Timeline keys would leave the ${this.animationRangeLabel()} frame range.`);
     }
     if (new Set(targetFrames).size !== targetFrames.length) {
       throw new Error('Scaled Timeline keys would collapse onto the same frame.');
@@ -1927,7 +1927,7 @@ export class Editor extends EventTarget {
     if (!this.selected || this.editMode || this.playing || this.animationKeyDrag || this.animationHandleDrag) return false;
 
     const uniqueFrames = [...new Set(frames)].sort((a, b) => a - b);
-    if (uniqueFrames.length < 2 || uniqueFrames.some(frame => !Number.isInteger(frame) || frame < 1 || frame > 250)) {
+    if (uniqueFrames.length < 2 || uniqueFrames.some(frame => !this.frameInRange(frame))) {
       throw new Error('Select at least two authored channel keys to scale timing.');
     }
 
@@ -1939,8 +1939,8 @@ export class Editor extends EventTarget {
 
     const pivot = (uniqueFrames[0] + uniqueFrames[uniqueFrames.length - 1]) / 2;
     const targetFrames = uniqueFrames.map(frame => Math.round(pivot + (frame - pivot) * factor));
-    if (targetFrames.some(frame => frame < 1 || frame > 250)) {
-      throw new Error('Scaled keys would leave the 1–250 frame range.');
+    if (targetFrames.some(frame => !this.frameInRange(frame))) {
+      throw new Error(`Scaled keys would leave the ${this.animationRangeLabel()} frame range.`);
     }
     if (new Set(targetFrames).size !== targetFrames.length) {
       throw new Error('Scaled keys would collapse onto the same frame.');
@@ -1972,7 +1972,7 @@ export class Editor extends EventTarget {
 
   removeChannelKeys(channel: ScalarAnimationChannel, frames: number[]) {
     if (!validAnimationChannel(channel) || !this.selected || this.editMode || this.playing) return false;
-    const frameSet = new Set(frames.filter(frame => Number.isInteger(frame) && frame >= 1 && frame <= 250));
+    const frameSet = new Set(frames.filter(frame => Number.isInteger(frame) && this.frameInRange(frame)));
     if (!frameSet.size) return false;
     const keys = trackKeys(this.selected.userData.animationTracks as AnimationTrackMap | undefined, channel);
     if (![...frameSet].every(frame => keys.some(key => key.frame === frame))) return false;
@@ -1983,8 +1983,8 @@ export class Editor extends EventTarget {
   }
 
   editChannelKey(channel: ScalarAnimationChannel, sourceFrame: number, targetFrame: number, displayValue: number) {
-    if (!validAnimationChannel(channel) || !Number.isInteger(sourceFrame) || !Number.isInteger(targetFrame) || targetFrame < 1 || targetFrame > 250 || !Number.isFinite(displayValue)) {
-      throw new Error('Enter an integer frame from 1 to 250 and a finite key value.');
+    if (!validAnimationChannel(channel) || !Number.isInteger(sourceFrame) || !this.frameInRange(targetFrame) || !Number.isFinite(displayValue)) {
+      throw new Error(`Enter an integer frame within ${this.animationRangeLabel()} and a finite key value.`);
     }
     if (!this.selected || this.editMode || this.playing || this.animationKeyDrag || this.animationHandleDrag) return false;
 
@@ -2033,8 +2033,8 @@ export class Editor extends EventTarget {
   }
 
   retimeChannelKey(channel: ScalarAnimationChannel, targetFrame: number, copy = false) {
-    if (!validAnimationChannel(channel) || !Number.isInteger(targetFrame) || targetFrame < 1 || targetFrame > 250) {
-      throw new Error('Choose a supported channel and integer frame from 1 to 250.');
+    if (!validAnimationChannel(channel) || !this.frameInRange(targetFrame)) {
+      throw new Error(`Choose a supported channel and integer frame within ${this.animationRangeLabel()}.`);
     }
     if (!this.selected || this.editMode || this.playing) throw new Error('Select an object in Object Mode and pause playback first.');
     const keys = trackKeys(this.selected.userData.animationTracks as AnimationTrackMap | undefined, channel).map(cloneScalarKey);
