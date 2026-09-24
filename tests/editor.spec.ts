@@ -348,6 +348,69 @@ test('worker skin binding supports arbitrary roots and leaf bones with normalize
   expect(result.editLock).toContain('after skin binding');
 });
 
+test('manual Weight Mode edits selected skin vertices with normalized four-bone weights', async ({ page }) => {
+  await createGenericThreeBoneArmature(page);
+  await page.evaluate(async () => {
+    const e = (window as any).__forge, r = (window as any).__rig;
+    const mesh = e.add('sphere');
+    mesh.scale.set(0.45, 0.9, 0.45);
+    mesh.position.set(0, 1, 0);
+    e.commit();
+    await r.bindSelected();
+  });
+  await page.locator('[data-workspace="rigging"]').click();
+  await page.locator('#rig-weight-edit').click();
+  await expect(page.locator('#mode')).toHaveValue('weight');
+
+  const selected = await page.evaluate(() => {
+    const e = (window as any).__forge, r = (window as any).__rig;
+    (e as any).selectComponent(0);
+    r.setWeightBone(r.weightBones.find((bone: any) => bone.name === 'Tip'));
+    return { logical: e.selectedLogicalVertexCount, buffers: e.selectedVertexBufferIndices };
+  });
+  expect(selected.logical).toBe(1);
+  expect(selected.buffers.length).toBeGreaterThan(0);
+
+  await page.locator('#rig-weight-value').fill('0.8');
+  await page.locator('#rig-weight-apply').click();
+
+  const edited = await page.evaluate((buffers) => {
+    const e = (window as any).__forge, r = (window as any).__rig;
+    const mesh = r.activeWeightMesh;
+    const indices = mesh.geometry.getAttribute('skinIndex');
+    const weights = mesh.geometry.getAttribute('skinWeight');
+    const tip = mesh.skeleton.bones.findIndex((bone: any) => bone.name === 'Tip');
+    return {
+      weightMode: e.weightMode,
+      transformAttached: !!e.transform.object,
+      summary: r.weightSelectionSummary(),
+      vertices: buffers.map((vertex: number) => {
+        const ids = [indices.getX(vertex), indices.getY(vertex), indices.getZ(vertex), indices.getW(vertex)].map(Math.round);
+        const values = [weights.getX(vertex), weights.getY(vertex), weights.getZ(vertex), weights.getW(vertex)];
+        return {
+          sum: values.reduce((sum: number, value: number) => sum + value, 0),
+          tip: values.reduce((sum: number, value: number, slot: number) => sum + (ids[slot] === tip ? value : 0), 0),
+        };
+      }),
+    };
+  }, selected.buffers);
+  expect(edited.weightMode).toBe(true);
+  expect(edited.transformAttached).toBe(false);
+  expect(edited.summary.average).toBeCloseTo(0.8, 5);
+  edited.vertices.forEach((vertex: { sum: number; tip: number }) => {
+    expect(vertex.sum).toBeCloseTo(1, 6);
+    expect(vertex.tip).toBeCloseTo(0.8, 5);
+  });
+
+  await page.locator('#rig-weight-clear').click();
+  const cleared = await page.evaluate(() => (window as any).__rig.weightSelectionSummary());
+  expect(cleared.average).toBeCloseTo(0, 6);
+
+  await page.locator('#rig-weight-normalize').click();
+  await page.locator('#rig-weight-done').click();
+  await expect(page.locator('#mode')).toHaveValue('object');
+});
+
 test('GLB export includes generic skin and bone animation and reimports', async ({ page }) => {
   await createGenericThreeBoneArmature(page);
   await page.evaluate(async () => {

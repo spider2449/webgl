@@ -282,7 +282,8 @@ cross-channel key selection remain future work.
 3. Switch to **Pose** mode before binding or animating. Select a bone in the viewport or searchable bone list for FK posing. The existing scalar Timeline and Graph channels animate bone position, rotation and scale like any other transform target.
 4. For positional IK, select an end bone, choose the chain length, and click **IK selected bone**. Drag the target, then choose **Key full pose**. IK is solved into ordinary FK transforms rather than stored as a persistent constraint.
 5. To bind a custom mesh, leave the armature at its rest pose, select a standalone mesh, then click **Bind selected mesh**. Four distance-based influences per vertex are generated in a worker as a starting point.
-6. Save a `.forge` project or export GLB to retain the generic bone hierarchy, skin weights and transform animation.
+6. With a bound skin selected, choose **Edit selected skin weights**. Weight Mode reuses viewport vertex selection without enabling geometry movement. Pick a bone, set a 0–1 influence, then **Apply**, **Clear bone**, or **Normalize selected vertices**. Every edited vertex remains normalized to four influence slots.
+7. Save a `.forge` project or export GLB to retain the generic bone hierarchy, skin weights and transform animation.
 
 Rest-skeleton editing is intentionally locked after a skin is bound or bone animation keys exist. This keeps the current skin indices, inverse bind matrices and authored scalar animation from silently becoming inconsistent. More advanced post-bind rig editing will require an explicit rebind/remap workflow.
 

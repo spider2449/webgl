@@ -72,6 +72,7 @@ export class Editor extends EventTarget {
   playing = false;
   renderedFrames = 0;
   editMode = false;
+  weightMode = false;
   beforeRender: (() => void) | null = null;
   pickOverride: ((raycaster: THREE.Raycaster) => THREE.Object3D | null) | null = null;
   private vertexPoints: THREE.Points | null = null;
@@ -159,7 +160,7 @@ export class Editor extends EventTarget {
     });
     this.transform.addEventListener('objectChange', () => {
       if (this.transform.mode === 'rotate' && this.transformOrientation !== 'gimbal') this.unwrapRotationDrag();
-      if (this.editMode) this.updateVertex();
+      if (this.editMode && !this.weightMode) this.updateVertex();
       this.updateSelection();
       this.emit('transform');
       this.invalidate();
@@ -168,7 +169,7 @@ export class Editor extends EventTarget {
     // Shift selection must also work where a selected component meets the gizmo.
     let selectionPointer: number | null = null;
     this.renderer.domElement.addEventListener('pointerdown', e => {
-      if ((e.shiftKey || (this.editMode && this.snapTargetPending)) && e.button === 0 && !this.transform.dragging) {
+      if ((e.shiftKey || (this.editMode && !this.weightMode && this.snapTargetPending)) && e.button === 0 && !this.transform.dragging) {
         selectionPointer = e.pointerId;
         this.transform.enabled = false;
         this.renderer.domElement.setPointerCapture(e.pointerId);
@@ -186,7 +187,9 @@ export class Editor extends EventTarget {
       const rect = host.getBoundingClientRect();
       this.raycaster.setFromCamera(new THREE.Vector2((e.clientX - rect.left) / rect.width * 2 - 1, -(e.clientY - rect.top) / rect.height * 2 + 1), this.camera);
       if (this.editMode) {
-        if (this.snapTargetPending) {
+        if (this.weightMode) {
+          this.pickVertex(e.shiftKey);
+        } else if (this.snapTargetPending) {
           const threshold = this.camera.position.distanceTo(this.orbit.target) * 0.012;
           try {
             if (this.snapTargetKind === 'surface' && this.selected instanceof THREE.Mesh && this.topology) {
@@ -444,7 +447,7 @@ export class Editor extends EventTarget {
     const useGimbal = !this.editMode && mode === 'rotate' && this.transformOrientation === 'gimbal' && !!this.selected?.visible;
     this.gimbal.attach(this.selected);
     this.gimbal.setEnabled(useGimbal);
-    if (useGimbal || mode === 'select') {
+    if (this.weightMode || useGimbal || mode === 'select') {
       this.transform.detach();
     } else if (this.editMode && this.vertexIndices.length) {
       this.transform.attach(this.vertexProxy);
@@ -730,11 +733,14 @@ export class Editor extends EventTarget {
       return this.setEditMode(true, result.topology);
     } finally { this.cancelJob = null; this.modelingBusy = false; this.emit('modeling'); }
   }
-  setEditMode(enabled: boolean, preparedTopology?: MeshTopology) {
+  setEditMode(enabled: boolean, preparedTopology?: MeshTopology, weightMode = false) {
     this.modelingVersion++;
     this.cancelVertexSnap();
-    if (enabled && (!(this.selected instanceof THREE.Mesh) || this.selected instanceof THREE.SkinnedMesh || this.playing || this.selected.userData.modifierStack)) return false;
+    const nextWeightMode = enabled && weightMode;
+    if (enabled && (!(this.selected instanceof THREE.Mesh) || (!nextWeightMode && this.selected instanceof THREE.SkinnedMesh) || this.playing || this.selected.userData.modifierStack)) return false;
+    this.weightMode = nextWeightMode;
     this.editMode = enabled;
+    if (this.weightMode) this.componentMode = 'vertex';
     this.selectedComponents.clear();
     this.componentDrag = null;
     this.vertexIndices = [];
@@ -773,7 +779,13 @@ export class Editor extends EventTarget {
     this.invalidate();
     return true;
   }
+  setWeightMode(enabled: boolean) {
+    if (!enabled) return this.setEditMode(false);
+    if (!(this.selected instanceof THREE.SkinnedMesh) || this.playing) return false;
+    return this.setEditMode(true, undefined, true);
+  }
   setComponentMode(mode: ComponentMode) {
+    if (this.weightMode && mode !== 'vertex') throw new Error('Weight Mode supports vertex selection only.');
     this.modelingVersion++;
     this.cancelVertexSnap();
     this.componentDrag = null;
@@ -853,8 +865,10 @@ export class Editor extends EventTarget {
       }
       this.componentCenter.divideScalar(unique.length);
       this.vertexProxy.position.copy(this.selected.localToWorld(this.componentCenter.clone()));
-      this.transform.setMode('translate');
-      this.transform.attach(this.vertexProxy);
+      if (!this.weightMode) {
+        this.transform.setMode('translate');
+        this.transform.attach(this.vertexProxy);
+      }
     }
     this.refreshComponents();
     this.invalidate();
@@ -978,6 +992,8 @@ export class Editor extends EventTarget {
   }
 
   get componentSelection() { return [...this.selectedComponents]; }
+  get selectedVertexBufferIndices() { return [...new Set(this.vertexIndices)]; }
+  get selectedLogicalVertexCount() { return this.componentMode === 'vertex' ? this.selectedComponents.size : 0; }
   get meshTopology() { return this.topology; }
   cancelModeling() { this.cancelJob?.(); }
   private replaceGeometry(mesh: THREE.Mesh, geometry: THREE.BufferGeometry) {
@@ -1079,7 +1095,7 @@ export class Editor extends EventTarget {
   }
   private beginComponentDrag() {
     this.componentDrag = null;
-    if (!this.editMode || !(this.selected instanceof THREE.Mesh) || !this.topology || !this.vertexIndices.length) return;
+    if (!this.editMode || this.weightMode || !(this.selected instanceof THREE.Mesh) || !this.topology || !this.vertexIndices.length) return;
     const attribute = this.selected.geometry.getAttribute('position');
     const positions = Array.from({ length: attribute.count }, (_, i) => [attribute.getX(i), attribute.getY(i), attribute.getZ(i)]).flat();
     const weights = this.proportionalEnabled ? proportionalWeights(positions, this.topology, this.vertexIndices, this.proportionalRadius, this.proportionalConnected) : new Float32Array(attribute.count);
@@ -1087,7 +1103,7 @@ export class Editor extends EventTarget {
     this.componentDrag = { positions, weights, center: this.componentCenter.clone() };
   }
   private updateVertex(target?: THREE.Vector3) {
-    if (!(this.selected instanceof THREE.Mesh) || !this.vertexPoints) return;
+    if (this.weightMode || !(this.selected instanceof THREE.Mesh) || !this.vertexPoints) return;
     if (!this.componentDrag) this.beginComponentDrag();
     if (!this.componentDrag) return;
     const { positions, weights, center } = this.componentDrag;
