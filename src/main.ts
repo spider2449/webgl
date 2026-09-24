@@ -57,7 +57,7 @@ $('#app').innerHTML = `
   <div class="workspace-bar"><div class="workspace-tabs"><button class="workspace-tab active" data-workspace="layout">Layout</button><button class="workspace-tab" data-workspace="modeling">Modeling</button><button class="workspace-tab" data-workspace="material">Material</button><button class="workspace-tab" data-workspace="animation">Animation</button></div><span class="workspace-note"><span></span> All processing stays on your device</span>${button('toggle-sidebar', 'panel-right-close', 'Toggle properties panel')}</div>
   <main class="workspace">
     <section class="viewport-panel">
-      <div class="viewport-toolbar"><div class="mode-select">${icon('box')}<select id="mode" aria-label="Interaction mode"><option value="object">Object Mode</option><option value="edit">Edit Mode</option></select></div><select id="component-mode" aria-label="Mesh component" class="hidden"><option value="vertex">Vertex</option><option value="edge">Edge</option><option value="face">Triangle face</option></select><span class="divider"></span><div class="dropdown"><button class="add-button" data-menu="add-menu">${icon('plus')} Add ${icon('chevron-down')}</button><div class="menu hidden primitive-menu" id="add-menu"><span class="menu-label">MESH PRIMITIVES</span>${(['cube','sphere','cylinder','cone','torus','plane','icosphere'] as Primitive[]).map(kind => `<button data-primitive="${kind}">${icon(kind === 'sphere' ? 'globe' : kind === 'plane' ? 'grid-2x2' : 'box')}${kind[0].toUpperCase() + kind.slice(1)}</button>`).join('')}</div></div><button id="frame-all" class="text-button">View all</button><div class="toolbar-spacer"></div><select id="space" aria-label="Transform orientation"><option value="world">Global</option><option value="local">Local</option><option value="gimbal">Gimbal</option></select>${button('snap','magnet','Toggle grid snap (Shift Tab)')}${button('grid','grid-2x2','Toggle grid','active')}<span class="divider"></span><div class="shading-group">${button('shading-wire','hexagon','Wireframe shading')}${button('shading-solid','circle','Solid shading')}${button('shading-material','sun','Material shading','active')}</div></div>
+      <div class="viewport-toolbar"><div class="mode-select">${icon('box')}<select id="mode" aria-label="Interaction mode"><option value="object">Object Mode</option><option value="edit">Edit Mode</option><option value="weight">Weight Mode</option></select></div><select id="component-mode" aria-label="Mesh component" class="hidden"><option value="vertex">Vertex</option><option value="edge">Edge</option><option value="face">Triangle face</option></select><span class="divider"></span><div class="dropdown"><button class="add-button" data-menu="add-menu">${icon('plus')} Add ${icon('chevron-down')}</button><div class="menu hidden primitive-menu" id="add-menu"><span class="menu-label">MESH PRIMITIVES</span>${(['cube','sphere','cylinder','cone','torus','plane','icosphere'] as Primitive[]).map(kind => `<button data-primitive="${kind}">${icon(kind === 'sphere' ? 'globe' : kind === 'plane' ? 'grid-2x2' : 'box')}${kind[0].toUpperCase() + kind.slice(1)}</button>`).join('')}</div></div><button id="frame-all" class="text-button">View all</button><div class="toolbar-spacer"></div><select id="space" aria-label="Transform orientation"><option value="world">Global</option><option value="local">Local</option><option value="gimbal">Gimbal</option></select>${button('snap','magnet','Toggle grid snap (Shift Tab)')}${button('grid','grid-2x2','Toggle grid','active')}<span class="divider"></span><div class="shading-group">${button('shading-wire','hexagon','Wireframe shading')}${button('shading-solid','circle','Solid shading')}${button('shading-material','sun','Material shading','active')}</div></div>
       <div id="viewport" class="viewport">
         <div class="view-label"><span id="view-label">User Perspective</span><small id="selection-label">Scene Collection / Cube</small></div>
         <div class="tool-rail" role="toolbar" aria-label="Transform tools">${button('tool-select','mouse-pointer-2','Select (Q)')}${button('tool-translate','move','Move (G)','active')}${button('tool-rotate','rotate-3d','Rotate (R)')}${button('tool-scale','scaling','Scale (S)')}<span></span>${button('focus','scan','Frame selected (F)')}${button('duplicate-rail','copy','Duplicate (Shift D)')}</div>
@@ -113,6 +113,15 @@ $('.properties-content').insertAdjacentHTML('beforeend', `
       <button class="wide-button hidden" id="rig-preview">${icon('box')} Add SOMA skinned preview</button>
       <button class="wide-button" id="rig-bind">${icon('layers')} Bind selected mesh</button>
       <p class="field-help">Finish the rest skeleton, switch to Pose mode, align a standalone mesh, then bind. Four distance-based influences per vertex; up to 100k vertices.</p>
+      <button class="wide-button" id="rig-weight-edit">Edit selected skin weights</button>
+      <div class="hidden" id="rig-weight-fields">
+        <label class="property-row">Weight bone<select id="rig-weight-bone" aria-label="Weight bone"></select></label>
+        <label class="property-row">Weight<input id="rig-weight-value" aria-label="Skin weight" type="number" min="0" max="1" step="0.05" value="1"></label>
+        <div class="action-row"><button id="rig-weight-apply">Apply</button><button id="rig-weight-clear">Clear bone</button></div>
+        <button class="wide-button" id="rig-weight-normalize">Normalize selected vertices</button>
+        <p class="field-help" id="rig-weight-summary">Select vertices in the viewport.</p>
+        <button class="wide-button" id="rig-weight-done">Done editing weights</button>
+      </div>
       <div class="section-heading border-top"><span>${icon('chevron-down')} Bones <span class="count" id="rig-joint-count">0</span></span></div>
       <input id="bone-search" class="bone-search" placeholder="Filter bones…" aria-label="Filter bones">
       <div class="bone-list" id="bone-list"></div>
@@ -218,14 +227,35 @@ function refreshRig() {
   if (!active) return;
   const bones = rigBones(active);
   const editing = rigSystem.mode === 'edit';
+  const weighting = rigSystem.weightEditing;
   const preset = active.userData.forgeRig?.preset === 'soma77';
   $('#rig-status').textContent = preset ? 'SOMA77 preset' : 'Native';
   $('#rig-joint-count').textContent = String(bones.length);
   $<HTMLSelectElement>('#rig-mode').value = rigSystem.mode;
-  $('#rig-edit-controls').classList.toggle('hidden', !editing);
-  $('#rig-pose-controls').classList.toggle('hidden', editing);
-  $('#rig-preview').classList.toggle('hidden', !preset);
+  $('#rig-edit-controls').classList.toggle('hidden', !editing || weighting);
+  $('#rig-pose-controls').classList.toggle('hidden', editing || weighting);
+  $('#rig-preview').classList.toggle('hidden', !preset || weighting);
   $('#rig-source').classList.toggle('hidden', !preset);
+  $('#rig-weight-fields').classList.toggle('hidden', !weighting);
+  $<HTMLButtonElement>('#rig-weight-edit').classList.toggle('hidden', weighting);
+  $<HTMLButtonElement>('#rig-weight-edit').disabled = !(editor.selected instanceof THREE.SkinnedMesh);
+  $<HTMLSelectElement>('#rig-mode').disabled = weighting;
+
+  const weightBoneSelect = $<HTMLSelectElement>('#rig-weight-bone');
+  if (weighting) {
+    const weightBones = rigSystem.weightBones;
+    weightBoneSelect.replaceChildren(...weightBones.map((bone, index) => new Option(bone.name, String(index))));
+    const activeWeight = rigSystem.activeWeightBone;
+    const activeIndex = activeWeight ? weightBones.indexOf(activeWeight) : 0;
+    weightBoneSelect.value = String(Math.max(0, activeIndex));
+    const summary = rigSystem.weightSelectionSummary();
+    $('#rig-weight-summary').textContent = summary.vertices
+      ? `${summary.vertices} selected vertex${summary.vertices === 1 ? '' : 'es'} · ${activeWeight?.name ?? 'Bone'} average ${summary.average.toFixed(3)} · ${summary.min.toFixed(3)}–${summary.max.toFixed(3)}`
+      : 'Select vertices in the viewport; Shift-click toggles more.';
+  } else {
+    weightBoneSelect.replaceChildren();
+    $('#rig-weight-summary').textContent = 'Select vertices in the viewport.';
+  }
 
   const selectedBone = editor.selected instanceof THREE.Bone && bones.includes(editor.selected) ? editor.selected : null;
   $<HTMLButtonElement>('#rig-extrude').disabled = !editing || !selectedBone;
@@ -243,11 +273,14 @@ function refreshRig() {
   for (const bone of bones) {
     if (!bone.name.toLowerCase().includes(query)) continue;
     const button = document.createElement('button');
-    button.className = `bone-button ${editor.selected === bone ? 'active' : ''}`;
+    button.className = `bone-button ${weighting ? rigSystem.activeWeightBone === bone ? 'active' : '' : editor.selected === bone ? 'active' : ''}`;
     button.textContent = bone.name;
-    button.title = editing ? `Select ${bone.name} for rest-skeleton editing` : `Select ${bone.name} for FK posing`;
+    button.title = weighting ? `Edit ${bone.name} skin influence` : editing ? `Select ${bone.name} for rest-skeleton editing` : `Select ${bone.name} for FK posing`;
     button.style.paddingLeft = `${Math.min(5, boneDepth(bone)) * 9 + 8}px`;
-    button.onclick = () => { editor.select(bone); tool(editing ? 'translate' : 'rotate'); };
+    button.onclick = () => {
+      if (weighting) rigSystem.setWeightBone(bone);
+      else { editor.select(bone); tool(editing ? 'translate' : 'rotate'); }
+    };
     list.append(button);
   }
 }
@@ -309,6 +342,29 @@ on('rig-bind', () => {
   const button = $<HTMLButtonElement>('#rig-bind'); button.disabled = true; toast('Computing skin weights in a worker…');
   void rigSystem.bindSelected().then(() => toast('Mesh bound. Select a bone to test the deformation.')).catch(error => toast(error.message)).finally(() => button.disabled = false);
 });
+on('rig-weight-edit', () => rigAction(() => {
+  rigSystem.beginWeightEdit();
+  tool('select');
+  toast('Weight Mode: click skin vertices, Shift-click to select more.');
+}));
+on('rig-weight-done', () => rigAction(() => {
+  rigSystem.endWeightEdit();
+  tool('select');
+  toast('Weight editing finished.');
+}));
+$<HTMLSelectElement>('#rig-weight-bone').onchange = event => rigAction(() => rigSystem.setWeightBone(Number((event.target as HTMLSelectElement).value)));
+on('rig-weight-apply', () => rigAction(() => {
+  const summary = rigSystem.assignSelectedWeight(Number($<HTMLInputElement>('#rig-weight-value').value));
+  toast(`Weights updated on ${summary.vertices} selected vertex${summary.vertices === 1 ? '' : 'es'}.`);
+}));
+on('rig-weight-clear', () => rigAction(() => {
+  const summary = rigSystem.assignSelectedWeight(0);
+  toast(`Bone influence cleared on ${summary.vertices} selected vertex${summary.vertices === 1 ? '' : 'es'}.`);
+}));
+on('rig-weight-normalize', () => rigAction(() => {
+  const summary = rigSystem.normalizeSelectedWeights();
+  toast(`${summary.vertices} selected vertex${summary.vertices === 1 ? '' : 'es'} normalized.`);
+}));
 $<HTMLSelectElement>('#rig-select').onchange = event => {
   if (rigSystem.mode === 'edit') rigSystem.setMode('pose');
   editor.select(editor.content.getObjectByProperty('uuid', (event.target as HTMLSelectElement).value) ?? null);
@@ -316,12 +372,16 @@ $<HTMLSelectElement>('#rig-select').onchange = event => {
 };
 $<HTMLInputElement>('#bone-search').oninput = refreshRig;
 editor.addEventListener('change', refreshRig);
+editor.addEventListener('mode', refreshRig);
+editor.addEventListener('component-selection', refreshRig);
+editor.addEventListener('weight', refreshRig);
 function closeMenus() { document.querySelectorAll('.menu').forEach(menu => menu.classList.add('hidden')); }
 document.querySelectorAll<HTMLButtonElement>('[data-menu]').forEach(b => b.onclick = e => { e.stopPropagation(); const menu = $(`#${b.dataset.menu}`); const open = menu.classList.contains('hidden'); closeMenus(); menu.classList.toggle('hidden', !open); });
 document.addEventListener('click', closeMenus);
 document.querySelectorAll<HTMLButtonElement>('[data-primitive]').forEach(b => b.onclick = () => { editor.add(b.dataset.primitive as Primitive); toast(`${b.textContent?.trim()} added to scene`); });
 let activeTool = 'translate';
 function tool(mode: 'select' | 'translate' | 'rotate' | 'scale') {
+  if (editor.weightMode && mode !== 'select') { toast('Weight Mode uses vertex selection only.'); return; }
   if (editor.editMode && mode !== 'select' && mode !== 'translate') { toast('Edit Mode currently supports Move.'); return; }
   activeTool = mode;
   editor.setTool(mode);
@@ -339,8 +399,11 @@ document.querySelectorAll<HTMLButtonElement>('[data-workspace]').forEach(b => b.
   const name = b.dataset.workspace;
   panel(name === 'material' ? 'material' : name === 'rigging' ? 'rig' : 'object');
   document.body.classList.toggle('animation-workspace', name === 'animation');
-  if (name === 'modeling') { void editor.enterEditMode(true).then(ok => { if (!ok) toast('Select a mesh and apply its modifiers to enter Edit Mode.'); tool('translate'); }).catch(error => toast(error.message)); }
-  else editor.setEditMode(false);
+  if (name === 'modeling') {
+    if (editor.weightMode) rigSystem.endWeightEdit();
+    void editor.enterEditMode(true).then(ok => { if (!ok) toast('Select a mesh and apply its modifiers to enter Edit Mode.'); tool('translate'); }).catch(error => toast(error.message));
+  } else if (editor.weightMode && name !== 'rigging') rigSystem.endWeightEdit();
+  else if (!editor.weightMode) editor.setEditMode(false);
 });
 type TransformKeyState = 'none' | 'keyed-current' | 'animated' | 'changed';
 function updateTransforms() {
@@ -840,7 +903,15 @@ editor.addEventListener('history-limit', () => toast('Scene exceeds the 24 MiB u
 editor.addEventListener('frame', updateTimeline);
 editor.addEventListener('animation', updateTimeline);
 editor.addEventListener('mode', updateTimeline);
-editor.addEventListener('mode', () => { $('#component-mode').classList.toggle('hidden', !editor.editMode); $<HTMLSelectElement>('#mode').value = editor.editMode ? 'edit' : 'object'; $('#mode-hint').textContent = editor.editMode ? `Select a ${editor.componentMode === 'face' ? 'triangle face' : editor.componentMode}, Shift-click to toggle more; drag the move gizmo.` : 'Build something extraordinary.'; });
+editor.addEventListener('mode', () => {
+  $('#component-mode').classList.toggle('hidden', !editor.editMode || editor.weightMode);
+  $<HTMLSelectElement>('#mode').value = editor.weightMode ? 'weight' : editor.editMode ? 'edit' : 'object';
+  $('#mode-hint').textContent = editor.weightMode
+    ? 'Weight Mode · click a vertex, Shift-click to toggle more; choose a bone and assign influence.'
+    : editor.editMode
+      ? `Select a ${editor.componentMode === 'face' ? 'triangle face' : editor.componentMode}, Shift-click to toggle more; drag the move gizmo.`
+      : 'Build something extraordinary.';
+});
 editor.addEventListener('view', () => { $('#view-label').textContent = editor.camera instanceof THREE.OrthographicCamera ? 'User Orthographic' : 'User Perspective'; });
 let cachedStats = '';
 editor.addEventListener('stats', () => {
@@ -931,18 +1002,42 @@ for (const id of ['proportional-enabled', 'proportional-radius', 'proportional-c
   }
 };
 $<HTMLSelectElement>('#component-mode').onchange = e => editor.setComponentMode((e.target as HTMLSelectElement).value as 'vertex' | 'edge' | 'face');
-$<HTMLSelectElement>('#mode').onchange = async e => { try { if (!await editor.enterEditMode((e.target as HTMLSelectElement).value === 'edit')) { $<HTMLSelectElement>('#mode').value = 'object'; toast('Select a mesh, apply its modifiers and pause playback first.'); } tool('translate'); } catch (error) { toast((error as Error).message); } };
+$<HTMLSelectElement>('#mode').onchange = async e => {
+  const value = (e.target as HTMLSelectElement).value;
+  try {
+    if (value === 'weight') {
+      rigSystem.beginWeightEdit();
+      tool('select');
+    } else {
+      if (editor.weightMode) rigSystem.endWeightEdit();
+      if (!await editor.enterEditMode(value === 'edit')) {
+        $<HTMLSelectElement>('#mode').value = 'object';
+        toast('Select a mesh, apply its modifiers and pause playback first.');
+      }
+      tool(value === 'edit' ? 'translate' : 'select');
+    }
+  } catch (error) {
+    toast((error as Error).message);
+    $<HTMLSelectElement>('#mode').value = editor.weightMode ? 'weight' : editor.editMode ? 'edit' : 'object';
+  }
+};
 $<HTMLSelectElement>('#space').onchange = e => editor.setTransformOrientation((e.target as HTMLSelectElement).value as TransformOrientation);
 function snap() { const enabled = !$('#snap').classList.contains('active'); $('#snap').classList.toggle('active', enabled); editor.setTransformSnapping(enabled); toast(enabled ? 'Snap: 0.5 units · 15° · 0.1 scale' : 'Snapping disabled'); }
 on('snap', snap);
 on('grid', () => { editor.grid.visible = !editor.grid.visible; $('#grid').classList.toggle('active', editor.grid.visible); editor.invalidate(); });
 for (const value of ['wire','solid','material']) on(`shading-${value}`, () => { editor.setShading(value); document.querySelectorAll('.shading-group button').forEach(b => b.classList.toggle('active', b.id === `shading-${value}`)); });
 on('focus', () => editor.focus()); on('frame-all', () => editor.focus(true));
-for (const [id, axis] of [['axis-x','right'],['axis-y','top'],['axis-z','front'],['axis-home','perspective'],['home-view','perspective']] as const) on(id, () => { editor.view(axis); $('#view-label').textContent = `${axis[0].toUpperCase()+axis.slice(1)} ${editor.camera instanceof THREE.OrthographicCamera ? 'Orthographic' : 'Perspective'}`; });
+for (const [id, axis] of [['axis-x','right'],['axis-y','top'],['axis-z','front'],['axis-home','perspective'],['home-view','perspective']] as const) on(id, () => {
+  editor.view(axis);
+  $('#view-label').textContent = axis === 'perspective'
+    ? 'User Perspective'
+    : `${axis[0].toUpperCase()+axis.slice(1)} Orthographic`;
+});
 on('projection', () => editor.toggleProjection());
 for (const id of ['duplicate','duplicate-rail']) on(id, () => editor.duplicate());
 on('duplicate-linked', () => toast(editor.duplicateLinked() ? 'Created linked duplicate.' : 'Linked duplicate requires an ordinary mesh without modifiers.'));
 function deleteSelection() {
+  if (editor.weightMode) { toast('Finish Weight Mode before deleting scene objects.'); return; }
   if (editor.selected instanceof THREE.Bone && rigSystem.mode === 'edit') {
     rigAction(() => { rigSystem.deleteSelectedBone(); toast('Bone deleted; child bones kept in place.'); });
   } else editor.remove();
@@ -997,7 +1092,7 @@ for (const key of ['roughness','metalness'] as const) {
 $<HTMLSelectElement>('#quality').onchange = e => editor.setQuality((e.target as HTMLSelectElement).value);
 $<HTMLInputElement>('#background').oninput = e => { (editor.scene.background as THREE.Color).set((e.target as HTMLInputElement).value); editor.invalidate(); };
 $<HTMLInputElement>('#exposure').oninput = e => { editor.renderer.toneMappingExposure = Number((e.target as HTMLInputElement).value); $('#exposure-value').textContent = editor.renderer.toneMappingExposure.toFixed(2); editor.invalidate(); };
-on('play', () => editor.togglePlayback());
+on('play', () => { if (editor.weightMode) toast('Finish Weight Mode before playback.'); else editor.togglePlayback(); });
 on('first-frame', () => editor.scrub(editor.playbackRange.start));
 on('last-frame', () => editor.scrub(editor.playbackRange.end));
 for (const [id, direction] of [['previous-key',-1],['next-key',1]] as const) on(id, () => {
@@ -1956,9 +2051,15 @@ document.addEventListener('keydown', e => {
   if (key === 'd' && e.shiftKey) { e.preventDefault(); editor.duplicate(); }
   else if (key === 'd' && e.altKey) { e.preventDefault(); if (!editor.duplicateLinked()) toast('Linked duplicate requires an ordinary mesh without modifiers.'); }
   if (key === 'delete' || key === 'backspace') { e.preventDefault(); deleteSelection(); }
-  if (key === 'tab') { e.preventDefault(); if (e.shiftKey) snap(); else { if (editor.modelingBusy) editor.cancelModeling(); else void editor.enterEditMode(!editor.editMode).then(ok => { if (!ok) toast('Select a mesh and apply its modifiers first.'); tool('translate'); }).catch(error => toast(error.message)); } }
+  if (key === 'tab') {
+    e.preventDefault();
+    if (e.shiftKey) snap();
+    else if (editor.weightMode) { rigSystem.endWeightEdit(); tool('select'); }
+    else if (editor.modelingBusy) editor.cancelModeling();
+    else void editor.enterEditMode(!editor.editMode).then(ok => { if (!ok) toast('Select a mesh and apply its modifiers first.'); tool('translate'); }).catch(error => toast(error.message));
+  }
   if (key === 'i') insertKey();
-  if (key === ' ') { e.preventDefault(); editor.togglePlayback(); }
+  if (key === ' ') { e.preventDefault(); if (editor.weightMode) toast('Finish Weight Mode before playback.'); else editor.togglePlayback(); }
   if (key === '1') $('#axis-z').click(); if (key === '3') $('#axis-x').click(); if (key === '7') $('#axis-y').click(); if (key === '5') editor.toggleProjection();
   if (key === '/') { e.preventDefault(); $('#object-search').focus(); }
   if (key === 'escape') {

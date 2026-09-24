@@ -59,6 +59,47 @@ test('renders the viewport and stops rendering while idle', async ({ page }) => 
   await page.screenshot({ path: 'test-results/layout.png' });
 });
 
+test('axis widget snaps X Y Z to deterministic orthographic views', async ({ page }) => {
+  const cases = [
+    { id: '#axis-x', direction: [1, 0, 0], up: [0, 1, 0], gridPlane: 2, gridNormal: [1, 0, 0], label: 'Right Orthographic' },
+    { id: '#axis-y', direction: [0, 1, 0], up: [0, 0, -1], gridPlane: 0, gridNormal: [0, 1, 0], label: 'Top Orthographic' },
+    { id: '#axis-z', direction: [0, 0, 1], up: [0, 1, 0], gridPlane: 1, gridNormal: [0, 0, 1], label: 'Front Orthographic' },
+  ] as const;
+
+  for (const expected of cases) {
+    await page.locator(expected.id).click();
+    await expect(page.locator('#view-label')).toHaveText(expected.label);
+    const view = await page.evaluate(() => {
+      const e = (window as any).__forge;
+      return {
+        orthographic: e.camera === e.orthographic,
+        direction: e.camera.position.clone().sub(e.orbit.target).normalize().toArray(),
+        up: e.camera.up.toArray(),
+        gridVisible: e.grid.visible,
+        gridPlane: e.grid.material.uniforms.gridPlane.value,
+        gridNormal: e.camera.up.clone().set(0, 1, 0).applyQuaternion(e.grid.quaternion).normalize().toArray(),
+      };
+    });
+    expect(view.orthographic).toBe(true);
+    expect(view.gridVisible).toBe(true);
+    expect(view.gridPlane).toBe(expected.gridPlane);
+    expected.direction.forEach((value, index) => expect(view.direction[index]).toBeCloseTo(value, 5));
+    expected.up.forEach((value, index) => expect(view.up[index]).toBeCloseTo(value, 6));
+    expected.gridNormal.forEach((value, index) => expect(Math.abs(view.gridNormal[index])).toBeCloseTo(Math.abs(value), 6));
+  }
+
+  await page.locator('#axis-home').click();
+  await expect(page.locator('#view-label')).toHaveText('User Perspective');
+  expect(await page.evaluate(() => {
+    const e = (window as any).__forge;
+    return {
+      perspective: e.camera === e.perspective,
+      gridPlane: e.grid.material.uniforms.gridPlane.value,
+      gridRotation: e.grid.rotation.toArray().slice(0, 3),
+    };
+  })).toEqual({ perspective: true, gridPlane: 0, gridRotation: [0, 0, 0] });
+});
+
 test('adds, transforms, duplicates, undoes and removes objects through the UI', async ({ page }) => {
   await page.locator('[data-menu="add-menu"]').click();
   await page.locator('[data-primitive="sphere"]').click();
@@ -346,6 +387,79 @@ test('worker skin binding supports arbitrary roots and leaf bones with normalize
   expect(result.used).toContain(2);
   expect(result.before).not.toEqual(result.after);
   expect(result.editLock).toContain('after skin binding');
+});
+
+test('manual Weight Mode edits selected skin vertices with normalized four-bone weights', async ({ page }) => {
+  await createGenericThreeBoneArmature(page);
+  await page.evaluate(async () => {
+    const e = (window as any).__forge, r = (window as any).__rig;
+    const mesh = e.add('sphere');
+    mesh.scale.set(0.45, 0.9, 0.45);
+    mesh.position.set(0, 1, 0);
+    e.commit();
+    await r.bindSelected();
+  });
+  await page.locator('[data-workspace="rigging"]').click();
+  await page.locator('#rig-weight-edit').click();
+  await expect(page.locator('#mode')).toHaveValue('weight');
+
+  const selected = await page.evaluate(() => {
+    const e = (window as any).__forge, r = (window as any).__rig;
+    (e as any).selectComponent(0);
+    r.setWeightBone(r.weightBones.find((bone: any) => bone.name === 'Tip'));
+    return { logical: e.selectedLogicalVertexCount, buffers: e.selectedVertexBufferIndices };
+  });
+  expect(selected.logical).toBe(1);
+  expect(selected.buffers.length).toBeGreaterThan(0);
+
+  await page.locator('#rig-weight-value').fill('0.8');
+  await page.locator('#rig-weight-apply').click();
+
+  const edited = await page.evaluate((buffers) => {
+    const e = (window as any).__forge, r = (window as any).__rig;
+    const mesh = r.activeWeightMesh;
+    const indices = mesh.geometry.getAttribute('skinIndex');
+    const weights = mesh.geometry.getAttribute('skinWeight');
+    const tip = mesh.skeleton.bones.findIndex((bone: any) => bone.name === 'Tip');
+    return {
+      weightMode: e.weightMode,
+      transformAttached: !!e.transform.object,
+      summary: r.weightSelectionSummary(),
+      vertices: buffers.map((vertex: number) => {
+        const ids = [indices.getX(vertex), indices.getY(vertex), indices.getZ(vertex), indices.getW(vertex)].map(Math.round);
+        const values = [weights.getX(vertex), weights.getY(vertex), weights.getZ(vertex), weights.getW(vertex)];
+        return {
+          sum: values.reduce((sum: number, value: number) => sum + value, 0),
+          tip: values.reduce((sum: number, value: number, slot: number) => sum + (ids[slot] === tip ? value : 0), 0),
+        };
+      }),
+    };
+  }, selected.buffers);
+  expect(edited.weightMode).toBe(true);
+  expect(edited.transformAttached).toBe(false);
+  expect(edited.summary.average).toBeCloseTo(0.8, 5);
+  edited.vertices.forEach((vertex: { sum: number; tip: number }) => {
+    expect(vertex.sum).toBeCloseTo(1, 6);
+    expect(vertex.tip).toBeCloseTo(0.8, 5);
+  });
+
+  const frozen = await page.evaluate(() => {
+    const e = (window as any).__forge;
+    const frame = e.frame;
+    return { play: e.togglePlayback(), scrub: e.scrub(frame + 5), frame: e.frame, playing: e.playing };
+  });
+  expect(frozen.play).toBe(false);
+  expect(frozen.scrub).toBe(false);
+  expect(frozen.playing).toBe(false);
+  expect(frozen.frame).toBe(1);
+
+  await page.locator('#rig-weight-clear').click();
+  const cleared = await page.evaluate(() => (window as any).__rig.weightSelectionSummary());
+  expect(cleared.average).toBeCloseTo(0, 6);
+
+  await page.locator('#rig-weight-normalize').click();
+  await page.locator('#rig-weight-done').click();
+  await expect(page.locator('#mode')).toHaveValue('object');
 });
 
 test('GLB export includes generic skin and bone animation and reimports', async ({ page }) => {

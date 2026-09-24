@@ -66,6 +66,8 @@ export class RigSystem {
   private ikChain: THREE.Bone[] = [];
   private worker: Worker | null = null;
   private editRig: THREE.Object3D | null = null;
+  private weightMesh: THREE.SkinnedMesh | null = null;
+  private weightBoneIndex = 0;
   constructor(readonly editor: Editor) {
     editor.scene.add(this.ikTarget);
     editor.beforeRender = () => this.updateVisuals();
@@ -73,6 +75,10 @@ export class RigSystem {
     editor.transform.addEventListener('objectChange', () => { if (this.ikEnd && editor.transform.object === this.ikTarget) this.solveIK(); });
     editor.addEventListener('change', () => {
       if (editor.transform.object !== this.ikTarget) this.ikEnd = null;
+      if (this.weightMesh && (!editor.weightMode || editor.selected !== this.weightMesh)) {
+        this.weightMesh = null;
+        this.weightBoneIndex = 0;
+      }
       this.sync();
     });
     editor.addEventListener('transform', () => {
@@ -90,6 +96,10 @@ export class RigSystem {
   get mode(): ArmatureMode {
     return this.activeRig && this.activeRig === this.editRig ? 'edit' : 'pose';
   }
+  get weightEditing() { return !!this.weightMesh && this.editor.weightMode && this.editor.selected === this.weightMesh; }
+  get activeWeightMesh() { return this.weightEditing ? this.weightMesh : null; }
+  get weightBones() { return this.activeWeightMesh?.skeleton.bones ?? []; }
+  get activeWeightBone() { return this.weightBones[this.weightBoneIndex] ?? null; }
   private rigFor(object: THREE.Object3D | null): THREE.Object3D | null {
     let node = object;
     while (node) {
@@ -372,6 +382,139 @@ export class RigSystem {
     this.editor.emit('transform');
     this.editor.invalidate();
   }
+  beginWeightEdit() {
+    const mesh = this.editor.selected;
+    if (!(mesh instanceof THREE.SkinnedMesh)) throw new Error('Select a bound skinned mesh first.');
+    const rig = this.rigFor(mesh);
+    if (!rig) throw new Error('The selected skin is not inside a Forge armature.');
+    if (this.editRig === rig) throw new Error('Switch the armature to Pose mode before editing weights.');
+    if (!mesh.geometry.getAttribute('skinIndex') || !mesh.geometry.getAttribute('skinWeight')) throw new Error('The selected skin has no editable skin weights.');
+    this.editor.playing = false;
+    this.applyRestPose(rig);
+    this.weightMesh = mesh;
+    this.weightBoneIndex = 0;
+    if (!this.editor.setWeightMode(true)) {
+      this.weightMesh = null;
+      throw new Error('Weight Mode could not start for the selected skin.');
+    }
+    this.editor.commit();
+    this.editor.emit('weight');
+    return mesh;
+  }
+  endWeightEdit() {
+    if (!this.weightEditing) return false;
+    this.editor.setWeightMode(false);
+    this.weightMesh = null;
+    this.weightBoneIndex = 0;
+    this.editor.emit('weight');
+    return true;
+  }
+  setWeightBone(bone: THREE.Bone | number) {
+    const bones = this.weightBones;
+    if (!bones.length) throw new Error('Start Weight Mode on a bound skin first.');
+    const index = typeof bone === 'number' ? bone : bones.indexOf(bone);
+    if (!Number.isInteger(index) || index < 0 || index >= bones.length) throw new Error('Choose a bone from the active skin.');
+    this.weightBoneIndex = index;
+    this.editor.emit('weight');
+    return bones[index];
+  }
+  private weightAttributes() {
+    const mesh = this.activeWeightMesh;
+    if (!mesh) throw new Error('Start Weight Mode on a bound skin first.');
+    const indices = mesh.geometry.getAttribute('skinIndex');
+    const weights = mesh.geometry.getAttribute('skinWeight');
+    if (!indices || !weights || indices.itemSize !== 4 || weights.itemSize !== 4 || indices.count !== weights.count) throw new Error('The active skin has invalid four-influence weights.');
+    return { mesh, indices, weights };
+  }
+  private selectedWeightVertices() {
+    const vertices = this.editor.selectedVertexBufferIndices;
+    if (!vertices.length) throw new Error('Select one or more skin vertices first.');
+    return vertices;
+  }
+  weightSelectionSummary() {
+    if (!this.weightEditing) return { vertices: 0, buffers: 0, average: 0, min: 0, max: 0 };
+    const { indices, weights } = this.weightAttributes();
+    const vertices = this.editor.selectedVertexBufferIndices;
+    if (!vertices.length) return { vertices: 0, buffers: 0, average: 0, min: 0, max: 0 };
+    const values = vertices.map(vertex => {
+      const ids = [indices.getX(vertex), indices.getY(vertex), indices.getZ(vertex), indices.getW(vertex)];
+      const influence = [weights.getX(vertex), weights.getY(vertex), weights.getZ(vertex), weights.getW(vertex)];
+      return influence.reduce((sum, value, slot) => sum + (Math.round(ids[slot]) === this.weightBoneIndex ? value : 0), 0);
+    });
+    return {
+      vertices: this.editor.selectedLogicalVertexCount,
+      buffers: vertices.length,
+      average: values.reduce((sum, value) => sum + value, 0) / values.length,
+      min: Math.min(...values),
+      max: Math.max(...values),
+    };
+  }
+  assignSelectedWeight(value: number) {
+    if (!Number.isFinite(value) || value < 0 || value > 1) throw new Error('Skin weight must be between 0 and 1.');
+    const { mesh, indices, weights } = this.weightAttributes();
+    const vertices = this.selectedWeightVertices();
+    const boneCount = mesh.skeleton.bones.length;
+    if (boneCount < 1) throw new Error('The active skin has no skeleton bones.');
+    const epsilon = 1e-8;
+
+    for (const vertex of vertices) {
+      const ids = [indices.getX(vertex), indices.getY(vertex), indices.getZ(vertex), indices.getW(vertex)].map(id => Math.round(id));
+      const influence = [weights.getX(vertex), weights.getY(vertex), weights.getZ(vertex), weights.getW(vertex)];
+      let slot = ids.findIndex(id => id === this.weightBoneIndex);
+      if (slot < 0) {
+        if (value <= epsilon) continue;
+        slot = influence.findIndex(weight => weight <= epsilon);
+        if (slot < 0) slot = influence.reduce((best, weight, index) => weight < influence[best] ? index : best, 0);
+        ids[slot] = this.weightBoneIndex;
+        influence[slot] = 0;
+      }
+
+      influence[slot] = value;
+      const others = [0, 1, 2, 3].filter(index => index !== slot);
+      const otherSum = others.reduce((sum, index) => sum + Math.max(0, influence[index]), 0);
+      const remainder = 1 - value;
+      if (remainder <= epsilon) {
+        others.forEach(index => influence[index] = 0);
+      } else if (otherSum > epsilon) {
+        const scale = remainder / otherSum;
+        others.forEach(index => influence[index] = Math.max(0, influence[index]) * scale);
+      } else {
+        if (boneCount < 2) throw new Error('A one-bone skin must keep weight 1 on its only bone.');
+        const fallbackBone = this.weightBoneIndex === 0 ? 1 : 0;
+        const fallbackSlot = others[0];
+        others.forEach(index => influence[index] = 0);
+        ids[fallbackSlot] = fallbackBone;
+        influence[fallbackSlot] = remainder;
+      }
+      indices.setXYZW(vertex, ids[0], ids[1], ids[2], ids[3]);
+      weights.setXYZW(vertex, influence[0], influence[1], influence[2], influence[3]);
+    }
+    indices.needsUpdate = true;
+    weights.needsUpdate = true;
+    this.editor.commit();
+    this.editor.emit('weight');
+    return this.weightSelectionSummary();
+  }
+  normalizeSelectedWeights() {
+    const { indices, weights } = this.weightAttributes();
+    const vertices = this.selectedWeightVertices();
+    for (const vertex of vertices) {
+      const influence = [weights.getX(vertex), weights.getY(vertex), weights.getZ(vertex), weights.getW(vertex)].map(value => Math.max(0, value));
+      const sum = influence.reduce((total, value) => total + value, 0);
+      if (sum <= 1e-8) {
+        indices.setXYZW(vertex, 0, 0, 0, 0);
+        weights.setXYZW(vertex, 1, 0, 0, 0);
+      } else {
+        weights.setXYZW(vertex, influence[0] / sum, influence[1] / sum, influence[2] / sum, influence[3] / sum);
+      }
+    }
+    indices.needsUpdate = true;
+    weights.needsUpdate = true;
+    this.editor.commit();
+    this.editor.emit('weight');
+    return this.weightSelectionSummary();
+  }
+
   async bindSelected() {
     if (this.worker) throw new Error('A skin binding job is already running.');
     const mesh = this.editor.selected;

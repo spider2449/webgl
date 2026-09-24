@@ -4,7 +4,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { TransformControls } from 'three/addons/controls/TransformControls.js';
 import { GimbalControls } from './viewport/gimbal-controls';
 import { clone as cloneSkeleton } from 'three/addons/utils/SkeletonUtils.js';
-import { createGrid } from './viewport/grid';
+import { createGrid, setGridPlane } from './viewport/grid';
 import { extrudeTriangle, insetTriangle } from './modeling/extrude';
 import { buildTopology, type MeshTopology, type ComponentMode } from './modeling/topology';
 import { proportionalWeights } from './modeling/proportional';
@@ -72,6 +72,7 @@ export class Editor extends EventTarget {
   playing = false;
   renderedFrames = 0;
   editMode = false;
+  weightMode = false;
   beforeRender: (() => void) | null = null;
   pickOverride: ((raycaster: THREE.Raycaster) => THREE.Object3D | null) | null = null;
   private vertexPoints: THREE.Points | null = null;
@@ -159,7 +160,7 @@ export class Editor extends EventTarget {
     });
     this.transform.addEventListener('objectChange', () => {
       if (this.transform.mode === 'rotate' && this.transformOrientation !== 'gimbal') this.unwrapRotationDrag();
-      if (this.editMode) this.updateVertex();
+      if (this.editMode && !this.weightMode) this.updateVertex();
       this.updateSelection();
       this.emit('transform');
       this.invalidate();
@@ -168,7 +169,7 @@ export class Editor extends EventTarget {
     // Shift selection must also work where a selected component meets the gizmo.
     let selectionPointer: number | null = null;
     this.renderer.domElement.addEventListener('pointerdown', e => {
-      if ((e.shiftKey || (this.editMode && this.snapTargetPending)) && e.button === 0 && !this.transform.dragging) {
+      if ((e.shiftKey || (this.editMode && !this.weightMode && this.snapTargetPending)) && e.button === 0 && !this.transform.dragging) {
         selectionPointer = e.pointerId;
         this.transform.enabled = false;
         this.renderer.domElement.setPointerCapture(e.pointerId);
@@ -186,7 +187,9 @@ export class Editor extends EventTarget {
       const rect = host.getBoundingClientRect();
       this.raycaster.setFromCamera(new THREE.Vector2((e.clientX - rect.left) / rect.width * 2 - 1, -(e.clientY - rect.top) / rect.height * 2 + 1), this.camera);
       if (this.editMode) {
-        if (this.snapTargetPending) {
+        if (this.weightMode) {
+          this.pickVertex(e.shiftKey);
+        } else if (this.snapTargetPending) {
           const threshold = this.camera.position.distanceTo(this.orbit.target) * 0.012;
           try {
             if (this.snapTargetKind === 'surface' && this.selected instanceof THREE.Mesh && this.topology) {
@@ -444,7 +447,7 @@ export class Editor extends EventTarget {
     const useGimbal = !this.editMode && mode === 'rotate' && this.transformOrientation === 'gimbal' && !!this.selected?.visible;
     this.gimbal.attach(this.selected);
     this.gimbal.setEnabled(useGimbal);
-    if (useGimbal || mode === 'select') {
+    if (this.weightMode || useGimbal || mode === 'select') {
       this.transform.detach();
     } else if (this.editMode && this.vertexIndices.length) {
       this.transform.attach(this.vertexProxy);
@@ -543,16 +546,36 @@ export class Editor extends EventTarget {
   setShading(value: string) { this.viewStyle = value; this.invalidate(); }
   setQuality(value: string) { this.renderer.setPixelRatio(Math.min(devicePixelRatio, value === 'high' ? 2 : value === 'low' ? 1 : 1.5)); this.resize(); }
   view(axis: 'front' | 'right' | 'top' | 'perspective') {
-    const distance = this.camera.position.distanceTo(this.orbit.target);
-    const direction = axis === 'front' ? new THREE.Vector3(0, 0, 1) : axis === 'right' ? new THREE.Vector3(1, 0, 0) : axis === 'top' ? new THREE.Vector3(0, 1, 0.0001) : new THREE.Vector3(1, 0.75, 1.25).normalize();
+    const distance = Math.max(0.001, this.camera.position.distanceTo(this.orbit.target));
+    const next = axis === 'perspective' ? this.perspective : this.orthographic;
+    const direction =
+      axis === 'front' ? new THREE.Vector3(0, 0, 1) :
+      axis === 'right' ? new THREE.Vector3(1, 0, 0) :
+      axis === 'top' ? new THREE.Vector3(0, 1, 0) :
+      new THREE.Vector3(1, 0.75, 1.25).normalize();
+    const up = axis === 'top' ? new THREE.Vector3(0, 0, -1) : new THREE.Vector3(0, 1, 0);
+
+    if (next === this.orthographic && this.camera !== this.orthographic) {
+      this.orthographic.zoom = 14 / Math.max(1, distance * 0.77);
+      this.orthographic.updateProjectionMatrix();
+    }
+    this.camera = next;
+    this.orbit.object = next;
+    this.transform.camera = next;
+    this.gimbal.setCamera(next);
+    this.camera.up.copy(up);
     this.camera.position.copy(this.orbit.target).addScaledVector(direction, distance);
+    this.camera.lookAt(this.orbit.target);
+    setGridPlane(this.grid, axis);
     this.orbit.update();
     this.invalidate();
+    this.emit('view');
   }
   toggleProjection() {
     const next = this.camera === this.perspective ? this.orthographic : this.perspective;
     next.position.copy(this.camera.position);
     next.quaternion.copy(this.camera.quaternion);
+    next.up.copy(this.camera.up);
     if (next === this.orthographic) { next.zoom = 14 / Math.max(1, this.camera.position.distanceTo(this.orbit.target) * 0.77); next.updateProjectionMatrix(); }
     this.camera = next;
     this.orbit.object = next;
@@ -730,11 +753,14 @@ export class Editor extends EventTarget {
       return this.setEditMode(true, result.topology);
     } finally { this.cancelJob = null; this.modelingBusy = false; this.emit('modeling'); }
   }
-  setEditMode(enabled: boolean, preparedTopology?: MeshTopology) {
+  setEditMode(enabled: boolean, preparedTopology?: MeshTopology, weightMode = false) {
     this.modelingVersion++;
     this.cancelVertexSnap();
-    if (enabled && (!(this.selected instanceof THREE.Mesh) || this.selected instanceof THREE.SkinnedMesh || this.playing || this.selected.userData.modifierStack)) return false;
+    const nextWeightMode = enabled && weightMode;
+    if (enabled && (!(this.selected instanceof THREE.Mesh) || (!nextWeightMode && this.selected instanceof THREE.SkinnedMesh) || this.playing || this.selected.userData.modifierStack)) return false;
+    this.weightMode = nextWeightMode;
     this.editMode = enabled;
+    if (this.weightMode) this.componentMode = 'vertex';
     this.selectedComponents.clear();
     this.componentDrag = null;
     this.vertexIndices = [];
@@ -773,7 +799,13 @@ export class Editor extends EventTarget {
     this.invalidate();
     return true;
   }
+  setWeightMode(enabled: boolean) {
+    if (!enabled) return this.setEditMode(false);
+    if (!(this.selected instanceof THREE.SkinnedMesh) || this.playing) return false;
+    return this.setEditMode(true, undefined, true);
+  }
   setComponentMode(mode: ComponentMode) {
+    if (this.weightMode && mode !== 'vertex') throw new Error('Weight Mode supports vertex selection only.');
     this.modelingVersion++;
     this.cancelVertexSnap();
     this.componentDrag = null;
@@ -853,8 +885,10 @@ export class Editor extends EventTarget {
       }
       this.componentCenter.divideScalar(unique.length);
       this.vertexProxy.position.copy(this.selected.localToWorld(this.componentCenter.clone()));
-      this.transform.setMode('translate');
-      this.transform.attach(this.vertexProxy);
+      if (!this.weightMode) {
+        this.transform.setMode('translate');
+        this.transform.attach(this.vertexProxy);
+      }
     }
     this.refreshComponents();
     this.invalidate();
@@ -978,6 +1012,8 @@ export class Editor extends EventTarget {
   }
 
   get componentSelection() { return [...this.selectedComponents]; }
+  get selectedVertexBufferIndices() { return [...new Set(this.vertexIndices)]; }
+  get selectedLogicalVertexCount() { return this.componentMode === 'vertex' ? this.selectedComponents.size : 0; }
   get meshTopology() { return this.topology; }
   cancelModeling() { this.cancelJob?.(); }
   private replaceGeometry(mesh: THREE.Mesh, geometry: THREE.BufferGeometry) {
@@ -1079,7 +1115,7 @@ export class Editor extends EventTarget {
   }
   private beginComponentDrag() {
     this.componentDrag = null;
-    if (!this.editMode || !(this.selected instanceof THREE.Mesh) || !this.topology || !this.vertexIndices.length) return;
+    if (!this.editMode || this.weightMode || !(this.selected instanceof THREE.Mesh) || !this.topology || !this.vertexIndices.length) return;
     const attribute = this.selected.geometry.getAttribute('position');
     const positions = Array.from({ length: attribute.count }, (_, i) => [attribute.getX(i), attribute.getY(i), attribute.getZ(i)]).flat();
     const weights = this.proportionalEnabled ? proportionalWeights(positions, this.topology, this.vertexIndices, this.proportionalRadius, this.proportionalConnected) : new Float32Array(attribute.count);
@@ -1087,7 +1123,7 @@ export class Editor extends EventTarget {
     this.componentDrag = { positions, weights, center: this.componentCenter.clone() };
   }
   private updateVertex(target?: THREE.Vector3) {
-    if (!(this.selected instanceof THREE.Mesh) || !this.vertexPoints) return;
+    if (this.weightMode || !(this.selected instanceof THREE.Mesh) || !this.vertexPoints) return;
     if (!this.componentDrag) this.beginComponentDrag();
     if (!this.componentDrag) return;
     const { positions, weights, center } = this.componentDrag;
@@ -2135,8 +2171,17 @@ export class Editor extends EventTarget {
     this.commit();
   }
 
-  scrub(frame: number) { this.frame = THREE.MathUtils.clamp(frame, this.frameStart, this.frameEnd); this.evaluateAnimation(); this.emit('frame'); this.emit('transform'); this.invalidate(); }
+  scrub(frame: number) {
+    if (this.weightMode) return false;
+    this.frame = THREE.MathUtils.clamp(frame, this.frameStart, this.frameEnd);
+    this.evaluateAnimation();
+    this.emit('frame');
+    this.emit('transform');
+    this.invalidate();
+    return true;
+  }
   togglePlayback() {
+    if (this.weightMode) return false;
     this.setEditMode(false);
     this.playing = !this.playing;
     const playback = this.playbackRange;
@@ -2145,6 +2190,7 @@ export class Editor extends EventTarget {
     this.playbackFrame = this.frame;
     this.emit('frame');
     this.invalidate();
+    return true;
   }
 
   evaluateAnimation() {
