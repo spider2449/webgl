@@ -1303,6 +1303,8 @@ function applyAnimationRange() {
     return changed;
   } catch (error) {
     toast((error as Error).message);
+    $<HTMLInputElement>('#frame-start').value = String(editor.frameStart);
+    $<HTMLInputElement>('#frame-end').value = String(editor.frameEnd);
     timelineState = '';
     updateTimeline();
     return false;
