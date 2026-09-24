@@ -111,7 +111,7 @@ export class RigSystem {
   }
   private assertEditableRig(rig: THREE.Object3D) {
     const metadata = rig.userData.forgeRig as ForgeArmatureMetadata | undefined;
-    if (metadata?.preset) throw new Error('Preset armatures are pose-only. Create a Forge armature to edit its hierarchy.');
+    if (metadata?.preset || typeof metadata?.skeleton === 'string') throw new Error('Preset armatures are pose-only. Create a Forge armature to edit its hierarchy.');
     if (this.rigHasSkin(rig)) throw new Error('Armature Edit mode is unavailable after skin binding. Edit the rest skeleton before binding.');
     if (this.rigHasAnimation(rig)) throw new Error('Armature Edit mode is unavailable after bone animation is authored. Edit the rest skeleton before keying poses.');
   }
@@ -162,6 +162,12 @@ export class RigSystem {
       this.editor.emit();
       this.editor.invalidate();
     }
+  }
+  captureEditedRest() {
+    const bone = this.editor.selected;
+    if (!(bone instanceof THREE.Bone) || !this.editRig || this.rigFor(bone) !== this.editRig) return false;
+    captureBoneRest(bone);
+    return true;
   }
   addRootBone() {
     const rig = this.activeRig;
