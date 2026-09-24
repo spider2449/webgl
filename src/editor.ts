@@ -1781,7 +1781,7 @@ export class Editor extends EventTarget {
 
     const targetFrames = uniqueFrames.map(frame => frame + frameDelta);
     if (targetFrames.some(frame => !this.frameInRange(frame))) {
-      throw new Error('Duplicated Timeline keys would leave the 1–250 frame range.');
+      throw new Error(`Duplicated Timeline keys would leave the ${this.animationRangeLabel()} frame range.`);
     }
 
     const tracks = this.selected.userData.animationTracks as AnimationTrackMap | undefined;
