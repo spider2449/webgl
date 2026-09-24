@@ -31,7 +31,7 @@ export type AnimationTrackMap = Partial<Record<ScalarAnimationChannel, ScalarKey
 export type AnimationRange = { start: number; end: number };
 export type Project = { format: 'forge-studio'; version: 1; name: string; animationRange?: AnimationRange; scene: ReturnType<THREE.Group['toJSON']> };
 const MAX_HISTORY_BYTES = 24 * 1024 * 1024;
-const MAX_ANIMATION_FRAME = 250;
+const MAX_ANIMATION_FRAME = 100_000;
 const cloneScalarKey = (key: ScalarKey): ScalarKey => ({
   frame: key.frame,
   value: key.value,
@@ -1180,7 +1180,7 @@ export class Editor extends EventTarget {
       if ('animationInterpolation' in o.userData || 'animationChannelInterpolation' in o.userData || 'keyframes' in o.userData) {
         throw new Error('Legacy animation metadata is unsupported.');
       }
-      if (!validAnimationTracks(o.userData.animationTracks)) throw new Error('Invalid animation tracks.');
+      if (!validAnimationTracks(o.userData.animationTracks, range.start, range.end)) throw new Error('Invalid animation tracks for the project frame range.');
     }); } catch (error) { this.disposeObject(root); throw error; }
     if (vertices > 2_000_000) { this.disposeObject(root); throw new Error('Scene exceeds the 2 million vertex limit.'); }
     this.playing = false;
@@ -1191,8 +1191,8 @@ export class Editor extends EventTarget {
     this.name = typeof project.name === 'string' ? project.name.slice(0, 100) : 'Untitled scene';
     this.frameStart = range.start;
     this.frameEnd = range.end;
-    this.frame = THREE.MathUtils.clamp(this.frame, 1, MAX_ANIMATION_FRAME);
-    this.playbackFrame = THREE.MathUtils.clamp(this.frame, this.frameStart, this.frameEnd);
+    this.frame = THREE.MathUtils.clamp(this.frame, this.frameStart, this.frameEnd);
+    this.playbackFrame = this.frame;
     this.select(this.content.children[0] ?? null);
     this.evaluateAnimation();
     this.emit('range');
@@ -1215,11 +1215,11 @@ export class Editor extends EventTarget {
   get animationRange(): AnimationRange { return { start: this.frameStart, end: this.frameEnd }; }
 
   private authoredFrame(frame: number) {
-    return Number.isInteger(frame) && frame >= 1 && frame <= MAX_ANIMATION_FRAME;
+    return Number.isInteger(frame) && frame >= this.frameStart && frame <= this.frameEnd;
   }
 
   private frameInRange(frame: number) {
-    return this.authoredFrame(frame) && frame >= this.frameStart && frame <= this.frameEnd;
+    return this.authoredFrame(frame);
   }
 
   private animationRangeLabel() {
@@ -1237,9 +1237,20 @@ export class Editor extends EventTarget {
     if (this.playing || this.animationKeyDrag || this.animationHandleDrag) throw new Error('Pause playback and finish animation editing before changing the time range.');
     if (start === this.frameStart && end === this.frameEnd) return false;
 
+    let outside: number | null = null;
+    this.content.traverse(object => {
+      if (outside !== null) return;
+      const frames = allAnimationFrames(object.userData.animationTracks as AnimationTrackMap | undefined);
+      outside = frames.find(frame => frame < start || frame > end) ?? null;
+    });
+    if (outside !== null) {
+      throw new Error(`Scene frame range ${start}–${end} would exclude authored key frame ${outside}. Move or remove that key first.`);
+    }
+
     this.frameStart = start;
     this.frameEnd = end;
-    this.playbackFrame = THREE.MathUtils.clamp(this.frame, start, end);
+    this.frame = THREE.MathUtils.clamp(this.frame, start, end);
+    this.playbackFrame = this.frame;
     this.evaluateAnimation();
     this.emit('range');
     this.emit('frame');
@@ -1934,7 +1945,7 @@ export class Editor extends EventTarget {
     const pivot = (uniqueFrames[0] + uniqueFrames[uniqueFrames.length - 1]) / 2;
     const targetFrames = uniqueFrames.map(frame => Math.round(pivot + (frame - pivot) * factor));
     if (targetFrames.some(frame => !this.authoredFrame(frame))) {
-      throw new Error('Scaled keys would leave the supported 1–250 frame range.');
+      throw new Error(`Scaled keys would leave the ${this.animationRangeLabel()} frame range.`);
     }
     if (new Set(targetFrames).size !== targetFrames.length) {
       throw new Error('Scaled keys would collapse onto the same frame.');
@@ -1978,7 +1989,7 @@ export class Editor extends EventTarget {
 
   editChannelKey(channel: ScalarAnimationChannel, sourceFrame: number, targetFrame: number, displayValue: number) {
     if (!validAnimationChannel(channel) || !Number.isInteger(sourceFrame) || !this.authoredFrame(targetFrame) || !Number.isFinite(displayValue)) {
-      throw new Error('Enter an integer frame from 1 to 250 and a finite key value.');
+      throw new Error(`Enter an integer frame within ${this.animationRangeLabel()} and a finite key value.`);
     }
     if (!this.selected || this.editMode || this.playing || this.animationKeyDrag || this.animationHandleDrag) return false;
 
@@ -2028,7 +2039,7 @@ export class Editor extends EventTarget {
 
   retimeChannelKey(channel: ScalarAnimationChannel, targetFrame: number, copy = false) {
     if (!validAnimationChannel(channel) || !this.authoredFrame(targetFrame)) {
-      throw new Error('Choose a supported channel and integer frame from 1 to 250.');
+      throw new Error(`Choose a supported channel and integer frame within ${this.animationRangeLabel()}.`);
     }
     if (!this.selected || this.editMode || this.playing) throw new Error('Select an object in Object Mode and pause playback first.');
     const keys = trackKeys(this.selected.userData.animationTracks as AnimationTrackMap | undefined, channel).map(cloneScalarKey);
@@ -2057,7 +2068,7 @@ export class Editor extends EventTarget {
     this.commit();
   }
 
-  scrub(frame: number) { this.frame = THREE.MathUtils.clamp(frame, 1, MAX_ANIMATION_FRAME); this.evaluateAnimation(); this.emit('frame'); this.emit('transform'); this.invalidate(); }
+  scrub(frame: number) { this.frame = THREE.MathUtils.clamp(frame, this.frameStart, this.frameEnd); this.evaluateAnimation(); this.emit('frame'); this.emit('transform'); this.invalidate(); }
   togglePlayback() {
     this.setEditMode(false);
     this.playing = !this.playing;
