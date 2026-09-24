@@ -167,6 +167,22 @@ test('creates and edits a Forge-native armature hierarchy through rig controls',
   deleteSetup.childWorld.forEach((value: number, index: number) => expect(deleted.world[index]).toBeCloseTo(value, 6));
   expect(deleted.rest).toHaveLength(3);
   expect(deleted.selected).toBe('Bone');
+
+  await page.keyboard.press('Control+z');
+  expect(await page.evaluate(() => {
+    const r = (window as any).__rig;
+    const names: string[] = [];
+    r.activeRig.traverse((object: any) => { if (object.isBone) names.push(object.name); });
+    return names;
+  })).toEqual(['Bone', 'Bone.001', 'Bone.002', 'Bone.003']);
+
+  await page.keyboard.press('Control+Shift+z');
+  expect(await page.evaluate(() => {
+    const r = (window as any).__rig;
+    const names: string[] = [];
+    r.activeRig.traverse((object: any) => { if (object.isBone) names.push(object.name); });
+    return names;
+  })).toEqual(['Bone', 'Bone.002', 'Bone.003']);
 });
 
 test('keeps at least one bone and routes Delete through armature Edit mode', async ({ page }) => {
