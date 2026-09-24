@@ -154,6 +154,16 @@ overlay is playback-only. Clear Preview to return playback to the full Scene
 Frame Range. Preview Range is saved in `.forge` projects and participates in
 undo/redo.
 
+For long scenes, the Timeline has its own editor-only **View Range**. Mouse
+wheel zooms around the pointer and middle-mouse drag pans horizontally. The
+Timeline view controls restore the full **Scene Range**, frame selected summary
+keys, or center the current frame while preserving zoom. Home, Numpad . and
+Numpad 0 provide the same framing actions while the Timeline has focus. This
+view state is not saved in `.forge` and never enters undo history. Ruler labels,
+markers, Preview overlay, playhead, box selection, scrubbing and summary-key
+dragging all use the active Timeline view transform; Scene / Preview ranges and
+authored-key validity remain unchanged.
+
 The timeline header keeps the fast transform workflow: **Insert transform key**
 authors all nine scalar channels at the current frame, while **Remove current
 key** removes any channel keys at that frame. Timeline markers and previous/next
