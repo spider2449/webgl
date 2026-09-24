@@ -30,13 +30,25 @@
 
 /* Animation Graph Editor */
 .animation-graph{display:none;background:#1c1e24;border-bottom:1px solid #30333a}
-.animation-workspace .timeline{height:360px}
-.animation-workspace .animation-graph{display:block;height:214px}
+.animation-workspace .timeline{height:390px}
+.animation-workspace .animation-graph{display:block;height:244px}
 .animation-workspace .timeline-key-toolbar{display:flex}
 .animation-workspace .timeline-track{height:80px}
 .animation-graph-header{height:32px;display:flex;align-items:center;gap:12px;padding:0 22px;border-bottom:1px solid #2f3239;background:#1f2127}
 .animation-graph-header>span:first-child{font:500 10px var(--mono);color:#d7b487;letter-spacing:.2px}
 #animation-graph-detail{font:9px var(--mono);color:#6f7886}
+.animation-graph-header .graph-editor-badge{margin-left:auto}
+.graph-key-toolbar{height:30px;display:flex;align-items:center;gap:7px;padding:0 22px;border-bottom:1px solid #2f3239;background:#1d1f24;font:8px var(--mono);letter-spacing:.35px;color:#717a87}
+.graph-key-toolbar-label{color:#c6a77e;text-transform:uppercase;letter-spacing:.7px}
+#graph-selection-count{min-width:54px}
+.graph-key-toolbar>label{display:flex;align-items:center;gap:5px;text-transform:uppercase}
+.graph-key-toolbar #graph-key-frame{width:46px}
+.graph-key-toolbar #graph-key-value{width:64px}
+.graph-key-toolbar #graph-key-frame,.graph-key-toolbar #graph-key-value{height:22px;padding:1px 5px;border:1px solid #3b414b;background:#191b20;color:#aab2bf;border-radius:3px;font:9px var(--mono)}
+.graph-key-toolbar #graph-key-frame:disabled,.graph-key-toolbar #graph-key-value:disabled{opacity:.45}
+.graph-key-unit{min-width:8px;color:#8e97a6}
+.graph-key-apply{height:22px;padding:2px 7px;font:8px var(--mono);letter-spacing:.4px;text-transform:uppercase;border:1px solid #3b414b;border-radius:3px}
+.graph-key-apply:disabled{opacity:.4}
 .graph-segment-control{margin-left:auto}
 .graph-segment-control,.graph-tangent-control,.graph-time-scale-control{display:flex;align-items:center;gap:5px;font:8px var(--mono);letter-spacing:.5px;text-transform:uppercase;color:#6f7886}
 .graph-segment-control select,.graph-tangent-control select,.graph-time-scale-control input{height:22px;font:9px var(--mono);padding:1px 5px;border:1px solid #3b414b;background:#191b20;color:#aab2bf;border-radius:3px}
