@@ -1110,6 +1110,7 @@ export class Editor extends EventTarget {
       if (this.selected !== mesh || this.snapshot() !== before || this.modelingVersion !== version) throw new Error('Scene changed; discarded modifier result.');
       const geometry = new THREE.BufferGeometryLoader().parse(response.geometry!);
       if (this.stats().vertices - mesh.geometry.getAttribute('position').count + geometry.getAttribute('position').count > 2_000_000) { geometry.dispose(); throw new Error('Modifier exceeds the scene vertex budget.'); }
+      if (items.length) this.markPrimitiveApplied(mesh);
       this.setEditMode(false); this.replaceGeometry(mesh, geometry);
       if (items.length) mesh.userData.modifierStack = { source: sourceJSON, items: structuredClone(items) } satisfies ModifierStack;
       else delete mesh.userData.modifierStack;
