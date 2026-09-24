@@ -1,4 +1,4 @@
-import { allAnimationFrames, animationChannels, animationTracks, effectiveBezierHandle, effectiveSegmentInterpolation, sampleAnimationChannel, trackKeys } from './animation/animation';
+import { allAnimationFrames, animationChannels, animationTracks, effectiveBezierHandle, effectiveSegmentInterpolation, importAnimationClip, sampleAnimationChannel, trackKeys, type ImportedAnimationSummary } from './animation/animation';
 import { AnimationGraphView, animationChannelLabel } from './animation/animation-graph';
 import './style.css';
 import * as THREE from 'three';
@@ -1773,28 +1773,67 @@ $<HTMLInputElement>('#project-input').onchange = async e => {
   catch (error) { toast(`Open failed: ${(error as Error).message}`); } finally { input.value = ''; }
 };
 $<HTMLInputElement>('#model-input').onchange = async e => {
-  const input = e.target as HTMLInputElement; const file = input.files?.[0]; if (!file) return;
+  const input = e.target as HTMLInputElement;
+  const file = input.files?.[0];
+  if (!file) return;
+
+  let root: THREE.Group | null = null;
+  let added = false;
   try {
     if (file.size > 32 * 1024 * 1024) throw new Error('Model exceeds the 32 MB limit.');
     toast('Importing model…');
-    let root: THREE.Group;
+
+    let importedAnimation: ImportedAnimationSummary | null = null;
     if (file.name.toLowerCase().endsWith('.obj')) {
       const { OBJLoader } = await import('three/addons/loaders/OBJLoader.js');
       root = new OBJLoader().parse(await file.text());
-      root.traverse(o => { if (o instanceof THREE.Mesh) { const old = o.material; o.material = new THREE.MeshStandardMaterial({ color: 0xb8b6b2, roughness: 0.55, side: THREE.DoubleSide }); (Array.isArray(old) ? old : [old]).forEach(m => m.dispose()); } });
+      root.traverse(o => {
+        if (!(o instanceof THREE.Mesh)) return;
+        const old = o.material;
+        o.material = new THREE.MeshStandardMaterial({ color: 0xb8b6b2, roughness: 0.55, side: THREE.DoubleSide });
+        (Array.isArray(old) ? old : [old]).forEach(m => m.dispose());
+      });
     } else {
       const { GLTFLoader } = await import('three/addons/loaders/GLTFLoader.js');
       const manager = new THREE.LoadingManager();
-      manager.setURLModifier(url => { if (!url.startsWith('blob:') && !url.startsWith('data:')) throw new Error('Use a self-contained GLB with embedded assets.'); return url; });
-      root = (await new GLTFLoader(manager).parseAsync(await file.arrayBuffer(), '')).scene;
+      manager.setURLModifier(url => {
+        if (!url.startsWith('blob:') && !url.startsWith('data:')) {
+          throw new Error('Use a self-contained GLB with embedded assets.');
+        }
+        return url;
+      });
+      const gltf = await new GLTFLoader(manager).parseAsync(await file.arrayBuffer(), '');
+      root = gltf.scene;
+      if (gltf.animations.length > 1) {
+        throw new Error(
+          `GLB contains ${gltf.animations.length} animation clips. Forge currently imports one editable clip at a time; export or provide a single-clip GLB.`,
+        );
+      }
+      if (gltf.animations.length === 1) importedAnimation = importAnimationClip(root, gltf.animations[0]);
     }
+
     let count = editor.stats().vertices;
     root.traverse(o => { if (o instanceof THREE.Mesh) count += o.geometry.getAttribute('position')?.count ?? 0; });
-    if (count > 2_000_000) { editor.disposeObject(root); throw new Error('Import would exceed the 2 million vertex scene limit.'); }
+    if (count > 2_000_000) throw new Error('Import would exceed the 2 million vertex scene limit.');
+
     root.name = editor.uniqueName(file.name.replace(/\.[^.]+$/, ''));
-    editor.content.add(root); editor.select(root); editor.commit(); editor.focus();
-    toast('Model imported. Imported animations and rigs are not editable in this release.');
-  } catch (error) { toast(`Import failed: ${(error as Error).message}`); } finally { input.value = ''; }
+    editor.importObject(root, importedAnimation?.frameEnd);
+    added = true;
+    editor.focus();
+
+    if (importedAnimation?.scalarKeys) {
+      toast(
+        `Model imported with editable animation: ${importedAnimation.targets} target${importedAnimation.targets === 1 ? '' : 's'}, ${importedAnimation.scalarKeys.toLocaleString()} scalar keys through F${importedAnimation.frameEnd}.`,
+      );
+    } else {
+      toast('Model imported.');
+    }
+  } catch (error) {
+    if (root && !added) editor.disposeObject(root);
+    toast(`Import failed: ${(error as Error).message}`);
+  } finally {
+    input.value = '';
+  }
 };
 async function exportGLB() {
   try {
