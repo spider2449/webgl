@@ -82,6 +82,13 @@ test('malformed projects do not erase the current scene', async ({ page }) => {
   expect(await page.evaluate(() => { const e=(window as any).__forge; const original=e.selected.uuid; try{e.load({format:'nope',version:1,scene:{}});}catch{} return e.selected.uuid===original; })).toBe(true);
 });
 
+test('legacy preset rig UI and runtime are absent', async ({ page }) => {
+  await expect(page.locator('[data-workspace="rigging"]')).toHaveCount(0);
+  await expect(page.locator('[data-panel="rig"]')).toHaveCount(0);
+  await expect(page.locator('#create-rig')).toHaveCount(0);
+  expect(await page.evaluate(() => '__rig' in window)).toBe(false);
+});
+
 test('mobile layout fits and opens the object panel', async ({ page }) => {
   await page.setViewportSize({width:390,height:844});
   expect(await page.evaluate(()=>document.documentElement.scrollWidth)).toBe(390);
