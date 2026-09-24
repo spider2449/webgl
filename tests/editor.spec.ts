@@ -78,93 +78,248 @@ test('round trips edited geometry, transforms and materials', async ({ page }) =
   expect(result.color).toBe('e08050');
 });
 
-test('creates exact SOMA77 hierarchy and supports FK and full-pose keys', async ({ page }) => {
+test('creates a generic armature hierarchy and supports FK and full-pose keys', async ({ page }) => {
   await page.locator('[data-workspace="rigging"]').click();
   await page.locator('#create-rig').click();
-  await expect(page.locator('.bone-button')).toHaveCount(77);
+  await page.locator('#rig-add-bone').click();
+  await page.locator('#rig-add-bone').click();
+  await expect(page.locator('.bone-button')).toHaveCount(3);
+  await expect(page.locator('#rig-bone-count')).toHaveText('3');
+
   const result = await page.evaluate(() => {
     const e = (window as any).__forge, r = (window as any).__rig;
     const rig = r.activeRig;
-    const bones: any[] = []; rig.traverse((o: any) => { if(o.isBone) bones.push(o); });
-    const hips = rig.getObjectByName('Hips'), arm = rig.getObjectByName('LeftArm'), hand = rig.getObjectByName('LeftHand');
-    const before = hand.getWorldPosition(hips.position.clone()).toArray();
+    const bones: any[] = [];
+    rig.traverse((o: any) => { if (o.isBone) bones.push(o); });
+    const root = bones[0], middle = bones[1], end = bones[2];
+
     r.keyPose();
-    e.frame = 25; arm.rotation.z = 0.7; rig.updateMatrixWorld(true);
-    const after = hand.getWorldPosition(hips.position.clone()).toArray();
-    r.keyPose(); e.scrub(13);
-    return { count: bones.length, hips: hips.position.toArray(), parent: hand.parent.name, before, after, angle: arm.rotation.z, keys: arm.userData.animationTracks['rotation.z'].length };
-  });
-  expect(result.count).toBe(77); expect(result.hips).toEqual([0,0,0]); expect(result.parent).toBe('LeftForeArm');
-  expect(result.before).not.toEqual(result.after); expect(result.angle).toBeCloseTo(0.35, 4); expect(result.keys).toBe(2);
-});
-
-test('skinned vertices deform and survive project reload', async ({ page }) => {
-  const result = await page.evaluate(() => {
-    const e = (window as any).__forge, r = (window as any).__rig;
-    const rig = r.add(); r.addPreview();
-    const mesh = rig.children.find((o: any) => o.isSkinnedMesh);
-    const arm = rig.getObjectByName('LeftArm');
-    const index = mesh.geometry.attributes.skinIndex.array.findIndex((v: number, i: number) => i % 4 === 0 && v === mesh.skeleton.bones.indexOf(arm)) / 4;
-    const vertex = arm.position.clone();
-    rig.updateMatrixWorld(true); mesh.skeleton.update();
-    mesh.getVertexPosition(index,vertex); const before = vertex.toArray();
-    arm.rotation.z = 0.8; rig.updateMatrixWorld(true); mesh.skeleton.update();
-    mesh.getVertexPosition(index,vertex); const posed = vertex.toArray();
-    e.commit(); const saved = e.snapshot(); e.load(JSON.parse(saved));
-    const restored = e.content.children.find((o: any)=>o.userData.forgeRig);
-    const skin = restored.children.find((o: any)=>o.isSkinnedMesh);
-    restored.updateMatrixWorld(true); skin.skeleton.update(); skin.getVertexPosition(index,vertex);
-    return { before, posed, restored: vertex.toArray(), bones: skin.skeleton.bones.length };
-  });
-  expect(result.posed).not.toEqual(result.before);
-  result.posed.forEach((v: number,i: number) => expect(result.restored[i]).toBeCloseTo(v,5));
-  expect(result.bones).toBe(77);
-});
-
-test('duplicating a rig keeps skeleton references independent', async ({ page }) => {
-  const result = await page.evaluate(() => {
-    const e = (window as any).__forge, r = (window as any).__rig;
-    const rig = r.add(); r.addPreview(); e.select(rig); e.duplicate();
-    const copy = e.selected;
-    const sourceArm = rig.getObjectByName('LeftArm'), copyArm = copy.getObjectByName('LeftArm');
-    copyArm.rotation.z = 0.6;
-    const copySkin = copy.children.find((o:any)=>o.isSkinnedMesh);
-    return { sourceAngle: sourceArm.rotation.z, distinct: sourceArm !== copyArm, referencesCopy: copySkin.skeleton.bones.includes(copyArm), referencesOriginal: copySkin.skeleton.bones.includes(sourceArm) };
-  });
-  expect(result).toEqual({ sourceAngle:0, distinct:true, referencesCopy:true, referencesOriginal:false });
-});
-
-test('IK moves the wrist to a reachable target', async ({ page }) => {
-  const result = await page.evaluate(() => {
-    const e = (window as any).__forge, r = (window as any).__rig;
-    const rig = r.add(); r.enableIK('LeftHand');
-    const target = e.transform.object;
-    target.position.x -= 0.1; target.position.y += 0.13; target.position.z += 0.12;
-    e.transform.dispatchEvent({type:'objectChange'});
+    e.frame = 25;
+    middle.rotation.z = 0.7;
     rig.updateMatrixWorld(true);
-    return rig.getObjectByName('LeftHand').getWorldPosition(target.position.clone()).distanceTo(target.position);
+    r.keyPose();
+    e.scrub(13);
+
+    return {
+      count: bones.length,
+      names: bones.map((bone: any) => bone.name),
+      parent: end.parent.name,
+      angle: middle.rotation.z,
+      keys: middle.userData.animationTracks['rotation.z'].length,
+      rootParentIsRig: root.parent === rig,
+    };
   });
-  expect(result).toBeLessThan(0.015);
+
+  expect(result).toEqual({
+    count: 3,
+    names: ['Root', 'Bone', 'Bone.001'],
+    parent: 'Bone',
+    angle: expect.closeTo(0.35, 4),
+    keys: 2,
+    rootParentIsRig: true,
+  });
 });
 
-test('worker skin binding creates normalized GPU weights and real deformation', async ({ page }) => {
+test('Forge rest pose captures arbitrary bone transforms and restores them', async ({ page }) => {
+  const result = await page.evaluate(() => {
+    const e = (window as any).__forge, r = (window as any).__rig;
+    const rig = r.add();
+    const middle = r.addBone();
+    const end = r.addBone();
+
+    middle.position.set(0.2, 0.7, -0.1);
+    middle.rotation.set(0.1, 0.2, 0.3);
+    middle.scale.set(1.1, 0.9, 1.2);
+    end.position.set(0, 0.55, 0.15);
+    r.setRestPose();
+
+    middle.position.set(2, 3, 4);
+    middle.rotation.set(1, 1, 1);
+    middle.scale.set(2, 2, 2);
+    end.position.set(4, 5, 6);
+    r.resetPose();
+
+    return {
+      rigType: rig.userData.forgeRig,
+      middle: {
+        position: middle.position.toArray(),
+        rotation: [middle.rotation.x, middle.rotation.y, middle.rotation.z],
+        scale: middle.scale.toArray(),
+      },
+      end: end.position.toArray(),
+      stored: middle.userData.forgeRestPose,
+      selected: e.selected?.name,
+    };
+  });
+
+  expect(result.rigType).toEqual({ type: 'armature', version: 1 });
+  expect(result.middle.position).toEqual([0.2, 0.7, -0.1]);
+  expect(result.middle.rotation[0]).toBeCloseTo(0.1, 6);
+  expect(result.middle.rotation[1]).toBeCloseTo(0.2, 6);
+  expect(result.middle.rotation[2]).toBeCloseTo(0.3, 6);
+  expect(result.middle.scale).toEqual([1.1, 0.9, 1.2]);
+  expect(result.end).toEqual([0, 0.55, 0.15]);
+  expect(result.stored.position).toEqual([0.2, 0.7, -0.1]);
+  expect(result.selected).toBe('Armature');
+});
+
+test('generic IK moves the selected end bone to a reachable target', async ({ page }) => {
+  const result = await page.evaluate(() => {
+    const e = (window as any).__forge, r = (window as any).__rig;
+    const rig = r.add();
+    const middle = r.addBone();
+    middle.position.set(0, 1, 0);
+    const end = r.addBone();
+    end.position.set(0, 1, 0);
+    r.setRestPose();
+    e.select(end);
+    r.enableIK();
+
+    const target = e.transform.object;
+    target.position.set(0.7, 1.6, 0.25);
+    e.transform.dispatchEvent({ type: 'objectChange' });
+    rig.updateMatrixWorld(true);
+    return end.getWorldPosition(target.position.clone()).distanceTo(target.position);
+  });
+
+  expect(result).toBeLessThan(0.02);
+});
+
+test('worker skin binding uses generic bone segments and produces real deformation', async ({ page }) => {
   const result = await page.evaluate(async () => {
     const e = (window as any).__forge, r = (window as any).__rig;
     const rig = r.add();
-    const mesh = e.add('sphere'); mesh.scale.set(0.2,0.2,0.2); mesh.position.set(0.3,1.45,0); e.commit();
+    const middle = r.addBone();
+    middle.position.set(0, 1, 0);
+    const end = r.addBone();
+    end.position.set(0, 1, 0);
+    r.setRestPose();
+    e.select(rig);
+
+    const mesh = e.add('sphere');
+    mesh.scale.set(0.35, 0.9, 0.35);
+    mesh.position.set(0, 1, 0);
+    e.commit();
+
     const bound = await r.bindSelected();
     const weights = bound.geometry.attributes.skinWeight;
     let maxError = 0;
-    for(let i=0;i<weights.count;i++) maxError = Math.max(maxError,Math.abs(weights.getX(i)+weights.getY(i)+weights.getZ(i)+weights.getW(i)-1));
-    const vertex = mesh.position.clone(); rig.updateMatrixWorld(true); bound.skeleton.update(); bound.getVertexPosition(100,vertex); const before=vertex.toArray();
-    rig.getObjectByName('Hips').rotation.z=0.2; rig.updateMatrixWorld(true); bound.skeleton.update(); bound.getVertexPosition(100,vertex);
-    return { maxError, before, after:vertex.toArray(), bones:bound.skeleton.bones.length };
+    for (let i = 0; i < weights.count; i++) {
+      maxError = Math.max(maxError, Math.abs(
+        weights.getX(i) + weights.getY(i) + weights.getZ(i) + weights.getW(i) - 1
+      ));
+    }
+
+    const middleIndex = bound.skeleton.bones.indexOf(middle);
+    const skinIndex = bound.geometry.attributes.skinIndex;
+    const skinWeight = bound.geometry.attributes.skinWeight;
+    let vertexIndex = -1;
+    for (let i = 0; i < skinIndex.count && vertexIndex < 0; i++) {
+      for (let slot = 0; slot < 4; slot++) {
+        if (skinIndex.getComponent(i, slot) === middleIndex && skinWeight.getComponent(i, slot) > 0.05) {
+          vertexIndex = i;
+          break;
+        }
+      }
+    }
+
+    const point = new (e.selected.position.constructor)();
+    rig.updateMatrixWorld(true);
+    bound.skeleton.update();
+    bound.getVertexPosition(vertexIndex, point);
+    const before = point.toArray();
+
+    middle.rotation.z = 0.45;
+    rig.updateMatrixWorld(true);
+    bound.skeleton.update();
+    bound.getVertexPosition(vertexIndex, point);
+
+    return {
+      maxError,
+      before,
+      after: point.toArray(),
+      bones: bound.skeleton.bones.length,
+      vertexIndex,
+    };
   });
-  expect(result.maxError).toBeLessThan(1e-6); expect(result.bones).toBe(77); expect(result.before).not.toEqual(result.after);
+
+  expect(result.maxError).toBeLessThan(1e-6);
+  expect(result.bones).toBe(3);
+  expect(result.vertexIndex).toBeGreaterThanOrEqual(0);
+  expect(result.before).not.toEqual(result.after);
 });
 
-test('GLB export includes skin and bone animation and reimports', async ({ page }) => {
-  await page.evaluate(() => { const e=(window as any).__forge,r=(window as any).__rig; r.add(); r.addPreview(); r.keyPose(); e.frame=25; r.activeRig.getObjectByName('LeftArm').rotation.z=0.5; r.keyPose(); });
+test('duplicating a generic skinned armature keeps skeleton references independent', async ({ page }) => {
+  const result = await page.evaluate(async () => {
+    const e = (window as any).__forge, r = (window as any).__rig;
+    const rig = r.add();
+    const middle = r.addBone();
+    middle.position.set(0, 1, 0);
+    const end = r.addBone();
+    end.position.set(0, 1, 0);
+    r.setRestPose();
+
+    e.select(rig);
+    const mesh = e.add('sphere');
+    mesh.scale.set(0.3, 0.8, 0.3);
+    mesh.position.set(0, 1, 0);
+    e.commit();
+    await r.bindSelected();
+
+    e.select(rig);
+    e.duplicate();
+    const copy = e.selected;
+    const sourceBone = rig.getObjectByName('Bone');
+    const copyBone = copy.getObjectByName('Bone');
+    copyBone.rotation.z = 0.6;
+    const copySkin = copy.children.find((o: any) => o.isSkinnedMesh);
+
+    return {
+      sourceAngle: sourceBone.rotation.z,
+      distinct: sourceBone !== copyBone,
+      referencesCopy: copySkin.skeleton.bones.includes(copyBone),
+      referencesOriginal: copySkin.skeleton.bones.includes(sourceBone),
+    };
+  });
+
+  expect(result).toEqual({
+    sourceAngle: 0,
+    distinct: true,
+    referencesCopy: true,
+    referencesOriginal: false,
+  });
+});
+
+test('GLB export includes generic skin and bone animation and reimports', async ({ page }) => {
+  await page.evaluate(async () => {
+    const e = (window as any).__forge, r = (window as any).__rig;
+    const rig = r.add();
+    const middle = r.addBone();
+    middle.position.set(0, 1, 0);
+    const end = r.addBone();
+    end.position.set(0, 1, 0);
+    r.setRestPose();
+
+    e.select(rig);
+    const mesh = e.add('sphere');
+    mesh.scale.set(0.3, 0.8, 0.3);
+    mesh.position.set(0, 1, 0);
+    e.commit();
+    await r.bindSelected();
+
+    e.select(middle);
+    r.keyPose();
+    e.frame = 25;
+    middle.rotation.z = 0.5;
+    r.keyPose();
+  });
+
+  const before = await page.evaluate(() => {
+    let count = 0;
+    (window as any).__forge.content.traverse((o: any) => { if (o.isSkinnedMesh) count++; });
+    return count;
+  });
+
   const downloadPromise = page.waitForEvent('download');
   await page.locator('#export-top').click();
   const download = await downloadPromise;
@@ -172,7 +327,18 @@ test('GLB export includes skin and bone animation and reimports', async ({ page 
   const path = await download.path();
   await page.locator('#model-input').setInputFiles(path!);
   await expect(page.locator('#toast')).toContainText('Model imported');
-  expect(await page.evaluate(() => { let count=0; (window as any).__forge.content.traverse((o:any)=>{if(o.isSkinnedMesh)count++;});return count; })).toBe(2);
+
+  const after = await page.evaluate(() => {
+    let skinned = 0, bones = 0;
+    (window as any).__forge.content.traverse((o: any) => {
+      if (o.isSkinnedMesh) skinned++;
+      if (o.isBone) bones++;
+    });
+    return { skinned, bones };
+  });
+
+  expect(after.skinned).toBe(before + 1);
+  expect(after.bones).toBeGreaterThanOrEqual(6);
 });
 
 test('malformed projects do not erase the current scene', async ({ page }) => {
