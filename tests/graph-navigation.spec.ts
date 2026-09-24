@@ -95,12 +95,12 @@ test('Graph wheel zoom and MMB pan change only view state, not editor history', 
   expect(afterHistory).toEqual(beforeHistory);
 });
 
-test('Graph pan cancellation restores the starting view', async ({ page }) => {
+test('Graph pan cancellation restores the starting view and manual-view state', async ({ page }) => {
   await seedPositionKeys(page);
   const graph = page.getByLabel('Animation graph editor');
-  await page.getByRole('button', { name: 'Frame all Graph keys (Home)' }).click();
 
   const before = await graphView(page);
+  await expect(graph).toHaveAttribute('data-view-manual', 'false');
   const box = await graph.boundingBox();
   expect(box).not.toBeNull();
 
@@ -110,6 +110,7 @@ test('Graph pan cancellation restores the starting view', async ({ page }) => {
 
   const during = await graphView(page);
   expect(during.frameMin).not.toBeCloseTo(before.frameMin, 6);
+  await expect(graph).toHaveAttribute('data-view-manual', 'true');
 
   await page.keyboard.press('Escape');
   await page.mouse.up({ button: 'middle' });
@@ -119,6 +120,7 @@ test('Graph pan cancellation restores the starting view', async ({ page }) => {
   expect(restored.frameMax).toBeCloseTo(before.frameMax, 6);
   expect(restored.valueMin).toBeCloseTo(before.valueMin, 6);
   expect(restored.valueMax).toBeCloseTo(before.valueMax, 6);
+  await expect(graph).toHaveAttribute('data-view-manual', 'false');
 });
 
 test('Graph view state is preserved independently per scalar channel', async ({ page }) => {
