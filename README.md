@@ -197,9 +197,16 @@ Bezier keys support **Free**, **Aligned**, and **Auto** tangent modes. Free
 handles are independent. Aligned keeps both sides opposite and collinear while
 preserving the opposite handle length when bounds allow. Auto derives a
 monotone slope from neighboring scalar keys and updates automatically as key
-times or values change; Auto handles are visible but not draggable. Rotation
-tracks store unwrapped radians and the Graph Editor displays degrees, so values
-such as 270°, 540°, or 720° remain continuous.
+times or values change. Following the Blender Graph Editor interaction model,
+manually dragging or precisely editing an Auto handle materializes its current
+automatic handles and converts that key to **Aligned**; undo restores Auto and
+its computed handles. A dedicated **Bezier Handles** inspector below the Key
+Inspector shows the active mode as **FREE · independent**, **ALIGNED · linked**,
+or **AUTO · edit → ALIGNED**, and exposes the selected Left/Right handle's
+absolute **Frame** and **Value**. Handle frames may be fractional; rotation
+handle values are displayed and entered in degrees. Free edits affect one side,
+while Aligned edits keep the opposite side collinear. Rotation tracks store
+unwrapped radians, so values such as 270°, 540°, or 720° remain continuous.
 
 Transform fields in the Object panel use Blender-style animation state colors
 per scalar channel: **yellow** when that channel has a key on the current frame,
