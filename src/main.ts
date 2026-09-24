@@ -391,8 +391,96 @@ let markerState = '';
 let timelineRangeState = '';
 let timelineSelectedFrames = new Set<number>();
 let timelineSelectionObject = '';
+let timelineViewStart = 1;
+let timelineViewEnd = 250;
+let timelineViewManual = false;
+let timelineViewSceneState = '';
 let wasPlaying = false;
+
+function normalizeTimelineView(start: number, end: number) {
+  const sceneStart = editor.frameStart;
+  const sceneEnd = editor.frameEnd;
+  const sceneSpan = sceneEnd - sceneStart;
+  const minimumSpan = Math.min(2, sceneSpan);
+  let span = THREE.MathUtils.clamp(Math.abs(end - start), minimumSpan, sceneSpan);
+  let center = (start + end) / 2;
+  let viewStart = center - span / 2;
+  let viewEnd = center + span / 2;
+  if (viewStart < sceneStart) {
+    viewEnd += sceneStart - viewStart;
+    viewStart = sceneStart;
+  }
+  if (viewEnd > sceneEnd) {
+    viewStart -= viewEnd - sceneEnd;
+    viewEnd = sceneEnd;
+  }
+  viewStart = Math.max(sceneStart, viewStart);
+  viewEnd = Math.min(sceneEnd, viewEnd);
+  span = viewEnd - viewStart;
+  if (span < minimumSpan) {
+    center = THREE.MathUtils.clamp(center, sceneStart + minimumSpan / 2, sceneEnd - minimumSpan / 2);
+    viewStart = center - minimumSpan / 2;
+    viewEnd = center + minimumSpan / 2;
+  }
+  return { start: viewStart, end: viewEnd };
+}
+
+function syncTimelineViewToScene() {
+  const sceneState = `${editor.frameStart}:${editor.frameEnd}`;
+  if (sceneState === timelineViewSceneState) return false;
+  timelineViewSceneState = sceneState;
+  const next = timelineViewManual
+    ? normalizeTimelineView(timelineViewStart, timelineViewEnd)
+    : { start: editor.frameStart, end: editor.frameEnd };
+  timelineViewStart = next.start;
+  timelineViewEnd = next.end;
+  return true;
+}
+
+function setTimelineView(start: number, end: number, manual = true) {
+  const next = normalizeTimelineView(start, end);
+  const changed =
+    Math.abs(next.start - timelineViewStart) > 1e-9 ||
+    Math.abs(next.end - timelineViewEnd) > 1e-9 ||
+    timelineViewManual !== manual;
+  timelineViewStart = next.start;
+  timelineViewEnd = next.end;
+  timelineViewManual = manual;
+  if (!changed) return false;
+  timelineState = '';
+  markerState = '';
+  timelineRangeState = '';
+  updateTimeline();
+  return true;
+}
+
+function frameTimelineSceneRange() {
+  return setTimelineView(editor.frameStart, editor.frameEnd, false);
+}
+
+function frameSelectedTimelineKeys() {
+  const frames = [...timelineSelectedFrames].sort((a, b) => a - b);
+  if (!frames.length) return false;
+  let start = frames[0];
+  let end = frames[frames.length - 1];
+  if (frames.length === 1) {
+    start -= 10;
+    end += 10;
+  } else {
+    const pad = Math.max(2, (end - start) * 0.12);
+    start -= pad;
+    end += pad;
+  }
+  return setTimelineView(start, end, true);
+}
+
+function centerTimelineOnCurrentFrame() {
+  const span = timelineViewEnd - timelineViewStart;
+  return setTimelineView(editor.frame - span / 2, editor.frame + span / 2, true);
+}
+
 function updateTimeline() {
+  syncTimelineViewToScene();
   const frame = Math.round(editor.frame);
   const selectionObject = editor.selected?.uuid ?? '';
   if (timelineSelectionObject !== selectionObject) {
@@ -400,10 +488,12 @@ function updateTimeline() {
     timelineSelectionObject = selectionObject;
   }
   const tracks = editor.selected?.userData.animationTracks as AnimationTrackMap | undefined;
-  const markerFrames = allAnimationFrames(tracks)
+  const sceneMarkerFrames = allAnimationFrames(tracks)
     .filter(keyFrame => keyFrame >= editor.frameStart && keyFrame <= editor.frameEnd);
-  const markerFrameSet = new Set(markerFrames);
-  timelineSelectedFrames = new Set([...timelineSelectedFrames].filter(selectedFrame => markerFrameSet.has(selectedFrame)));
+  const sceneMarkerFrameSet = new Set(sceneMarkerFrames);
+  timelineSelectedFrames = new Set([...timelineSelectedFrames].filter(selectedFrame => sceneMarkerFrameSet.has(selectedFrame)));
+  const markerFrames = sceneMarkerFrames
+    .filter(keyFrame => keyFrame >= timelineViewStart && keyFrame <= timelineViewEnd);
   const markers = markerFrames.join(',');
   const selectedMarkers = [...timelineSelectedFrames].sort((a, b) => a - b).join(',');
   const activeKeys = trackKeys(tracks, graphChannel);
@@ -562,9 +652,17 @@ function updateTimeline() {
     ? `Scale ${timelineSelectionCount} selected Timeline key times around their range midpoint`
     : 'Select at least two Timeline keys to scale timing';
 
+  const timelineTrackElement = $('#timeline-track');
+  timelineTrackElement.dataset.viewStart = String(timelineViewStart);
+  timelineTrackElement.dataset.viewEnd = String(timelineViewEnd);
+  timelineTrackElement.dataset.viewManual = String(timelineViewManual);
+  $<HTMLButtonElement>('#timeline-frame-selected').disabled = !timelineSelectionCount;
+  $<HTMLButtonElement>('#timeline-frame-scene').disabled = false;
+  $<HTMLButtonElement>('#timeline-center-current').disabled = false;
+
   const preview = editor.previewRange;
   const playback = editor.playbackRange;
-  const rangeState = `${editor.frameStart}:${editor.frameEnd}:${preview?.start ?? ''}:${preview?.end ?? ''}`;
+  const rangeState = `${editor.frameStart}:${editor.frameEnd}:${preview?.start ?? ''}:${preview?.end ?? ''}:${timelineViewStart}:${timelineViewEnd}`;
   const startInput = $<HTMLInputElement>('#frame-start');
   const endInput = $<HTMLInputElement>('#frame-end');
   const previewStartInput = $<HTMLInputElement>('#preview-start');
@@ -587,12 +685,17 @@ function updateTimeline() {
   $('#timeline-preview-status').textContent = preview ? `Preview ${preview.start}–${preview.end}` : 'Scene playback';
   currentFrameInput.min = String(editor.frameStart);
   currentFrameInput.max = String(editor.frameEnd);
-  scrubber.min = String(editor.frameStart);
-  scrubber.max = String(editor.frameEnd);
+  scrubber.min = String(Math.ceil(timelineViewStart));
+  scrubber.max = String(Math.floor(timelineViewEnd));
   const previewOverlay = $('#timeline-preview-range');
-  previewOverlay.classList.toggle('active', preview !== null);
-  previewOverlay.style.left = `${timelinePercent(playback.start)}%`;
-  previewOverlay.style.width = `${timelinePercent(playback.end) - timelinePercent(playback.start)}%`;
+  const previewVisibleStart = Math.max(playback.start, timelineViewStart);
+  const previewVisibleEnd = Math.min(playback.end, timelineViewEnd);
+  const previewVisible = preview !== null && previewVisibleEnd >= previewVisibleStart;
+  previewOverlay.classList.toggle('active', previewVisible);
+  previewOverlay.style.left = previewVisible ? `${timelinePercent(previewVisibleStart)}%` : '0%';
+  previewOverlay.style.width = previewVisible
+    ? `${timelinePercent(previewVisibleEnd) - timelinePercent(previewVisibleStart)}%`
+    : '0%';
   $<HTMLButtonElement>('#first-frame').title = preview
     ? `First preview frame ${playback.start}`
     : `First scene frame ${playback.start}`;
@@ -601,9 +704,9 @@ function updateTimeline() {
     : `Last scene frame ${playback.end}`;
 
   if (timelineRangeState !== rangeState) {
-    const span = editor.frameEnd - editor.frameStart;
+    const span = timelineViewEnd - timelineViewStart;
     const rulerFrames = [...new Set(Array.from({ length: 11 }, (_, index) =>
-      Math.round(editor.frameStart + span * index / 10)
+      Math.round(timelineViewStart + span * index / 10)
     ))];
     $('#timeline-ruler').innerHTML = rulerFrames
       .map(rulerFrame => `<span style="left:${timelinePercent(rulerFrame)}%">${rulerFrame}</span>`)
@@ -615,9 +718,11 @@ function updateTimeline() {
   if (timelineState === state) return;
   timelineState = state;
   currentFrameInput.value = String(frame);
-  scrubber.value = String(frame);
-  $('#playhead').style.left = `${timelinePercent(editor.frame)}%`;
-  $('#playhead span').textContent = String(frame);
+  scrubber.value = String(THREE.MathUtils.clamp(frame, Math.ceil(timelineViewStart), Math.floor(timelineViewEnd)));
+  const timelinePlayhead = $('#playhead');
+  timelinePlayhead.style.left = `${timelinePercent(editor.frame)}%`;
+  timelinePlayhead.classList.toggle('outside', editor.frame < timelineViewStart || editor.frame > timelineViewEnd);
+  timelinePlayhead.querySelector('span')!.textContent = String(frame);
   if (wasPlaying !== editor.playing) { $('#play').innerHTML = icon(editor.playing ? 'pause' : 'play'); refreshIcons(); wasPlaying = editor.playing; }
   $('#draw-status').textContent = editor.playing ? 'PLAYING · 24 FPS' : 'ON DEMAND';
   const markerRenderState = `${rangeState}|${markers}`;
