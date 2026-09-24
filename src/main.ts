@@ -1,4 +1,4 @@
-import { allAnimationFrames, animationChannels, animationTracks, effectiveBezierHandle, effectiveSegmentInterpolation, importAnimationClip, sampleAnimationChannel, trackKeys, type ImportedAnimationSummary } from './animation/animation';
+import { allAnimationFrames, animationChannels, effectiveBezierHandle, effectiveSegmentInterpolation, importAnimationClip, sampleAnimationChannel, sceneAnimationClip, trackKeys, type ImportedAnimationSummary } from './animation/animation';
 import { AnimationGraphView, animationChannelLabel } from './animation/animation-graph';
 import './style.css';
 import * as THREE from 'three';
@@ -1841,14 +1841,11 @@ async function exportGLB() {
     editor.setEditMode(false);
     toast('Preparing GLB…');
     const { GLTFExporter } = await import('three/addons/exporters/GLTFExporter.js');
-    const clips: THREE.AnimationClip[] = [];
-    editor.content.traverse(o => {
-      const tracks = animationTracks(o);
-      if (!tracks.length) return;
-      clips.push(new THREE.AnimationClip(`${o.name}Action`, -1, tracks));
-    });
-    const result = await new GLTFExporter().parseAsync(editor.content, { binary: true, animations: clips });
-    download(result as ArrayBuffer, `${editor.name}.glb`, 'model/gltf-binary'); toast('GLB exported with transform animations.');
+    const sceneClip = sceneAnimationClip(editor.content);
+    const animations = sceneClip ? [sceneClip] : [];
+    const result = await new GLTFExporter().parseAsync(editor.content, { binary: true, animations });
+    download(result as ArrayBuffer, `${editor.name}.glb`, 'model/gltf-binary');
+    toast(sceneClip ? 'GLB exported with transform animations.' : 'GLB exported.');
   } catch (error) { toast(`Export failed: ${(error as Error).message}`); }
 }
 on('export-glb', () => void exportGLB()); on('export-top', () => void exportGLB());
