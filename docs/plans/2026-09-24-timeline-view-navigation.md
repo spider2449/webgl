@@ -46,6 +46,10 @@ Timeline supports:
 - mouse wheel: horizontal zoom around pointer anchor,
 - middle-mouse drag: horizontal pan,
 - Escape during MMB pan: restore exact starting view,
+- horizontal View Scrollbar thumb drag: pan,
+- View Scrollbar left/right handles: resize / zoom the visible range,
+- empty View Scrollbar track click: page left/right,
+- Escape during active scrollbar drag: restore the exact starting view,
 - Scene Range button / Home: restore full Scene Start–End,
 - Selected Keys button / Numpad .: frame selected Timeline summary keys,
 - Current Frame button / Numpad 0: preserve zoom span and center current frame.
@@ -102,5 +106,9 @@ Focused Playwright coverage verifies:
 6. current-frame centering,
 7. key drag uses the active navigated transform,
 8. Home framing shortcut while Timeline has focus.
+9. View Scrollbar thumb pan without project/history mutation.
+10. View Scrollbar handle resize.
+11. Empty scrollbar track paging.
+12. Escape cancellation of scrollbar drag.
 
 Full Windows-local build and Playwright validation remain the merge gate for the exact PR HEAD.
