@@ -159,8 +159,6 @@ type KeyDragState = {
   anchorValue: number;
   startClientX: number;
   startClientY: number;
-  valueMin: number;
-  valueMax: number;
   markers: { sourceFrame: number; sourceValue: number; marker: SVGRectElement }[];
   ghostMarkers: SVGRectElement[];
   copy: boolean;
@@ -173,8 +171,6 @@ type HandleDragState = {
   pointerId: number;
   keyFrame: number;
   side: 'left' | 'right';
-  valueMin: number;
-  valueMax: number;
   marker: SVGCircleElement;
   line: SVGLineElement;
 };
@@ -229,7 +225,11 @@ export class AnimationGraphView {
     private readonly detail: HTMLElement,
     private readonly edits: AnimationGraphEditCallbacks,
   ) {
-    svg.replaceChildren(this.curveLayer, this.selectionBox, this.playhead);
+    const defs = svgElement('defs', {});
+    const plotClip = svgElement('clipPath', { id: 'animation-graph-plot-clip' });
+    plotClip.append(svgElement('rect', { x: 48, y: 18, width: 924, height: 144 }));
+    defs.append(plotClip);
+    svg.replaceChildren(defs, this.curveLayer, this.selectionBox, this.playhead);
     svg.addEventListener('pointerdown', this.pointerDown);
     svg.addEventListener('pointermove', this.pointerMove);
     svg.addEventListener('pointerup', this.pointerUp);
@@ -272,8 +272,6 @@ export class AnimationGraphView {
     return this.applyView({
       frameMin: frameMax - frameMin < 4 ? Math.max(1, (frameMin + frameMax) / 2 - 2) : frameMin,
       frameMax: frameMax - frameMin < 4 ? Math.min(250, (frameMin + frameMax) / 2 + 2) : frameMax,
-      valueMin: this.data.valueMin,
-      valueMax: this.data.valueMax,
     });
   }
 
@@ -408,10 +406,10 @@ export class AnimationGraphView {
     }
     for (const key of data.keys) {
       const gx = x(key.frame);
-      this.curveLayer.append(svgElement('line', { class: 'graph-key-grid', x1: gx, x2: gx, y1: 18, y2: 162 }));
+      this.curveLayer.append(svgElement('line', { class: 'graph-key-grid', x1: gx, x2: gx, y1: 18, y2: 162, 'clip-path': 'url(#animation-graph-plot-clip)' }));
     }
 
-    const path = svgElement('path', { class: 'graph-curve', d: this.curvePath(data) });
+    const path = svgElement('path', { class: 'graph-curve', d: this.curvePath(data), 'clip-path': 'url(#animation-graph-plot-clip)' });
     path.dataset.sampleCount = String(data.samples.length);
     this.curveLayer.append(path);
 
@@ -423,6 +421,7 @@ export class AnimationGraphView {
         width: 8,
         height: 8,
         rx: 1,
+        'clip-path': 'url(#animation-graph-plot-clip)',
       });
       marker.dataset.frame = String(key.frame);
       marker.dataset.value = String(key.value);
@@ -478,6 +477,7 @@ export class AnimationGraphView {
         y1: y(keyValue),
         x2: x(handleFrame),
         y2: y(handleValue),
+        'clip-path': 'url(#animation-graph-plot-clip)',
       });
       line.dataset.handleLine = side;
       line.dataset.keyFrame = String(key.frame);
@@ -486,6 +486,7 @@ export class AnimationGraphView {
         cx: x(handleFrame),
         cy: y(handleValue),
         r: 4,
+        'clip-path': 'url(#animation-graph-plot-clip)',
       });
       marker.dataset.handle = side;
       marker.dataset.keyFrame = String(key.frame);
@@ -706,8 +707,6 @@ export class AnimationGraphView {
         pointerId: event.pointerId,
         keyFrame,
         side,
-        valueMin: this.currentView().valueMin,
-        valueMax: this.currentView().valueMax,
         marker: handle,
         line,
       };
@@ -790,8 +789,6 @@ export class AnimationGraphView {
       anchorValue: value,
       startClientX: event.clientX,
       startClientY: event.clientY,
-      valueMin: this.data.valueMin,
-      valueMax: this.data.valueMax,
       markers: selectedMarkers,
       ghostMarkers,
       copy,
