@@ -30,8 +30,8 @@
 
 /* Animation Graph Editor */
 .animation-graph{display:none;background:#1c1e24;border-bottom:1px solid #30333a}
-.animation-workspace .timeline{height:390px}
-.animation-workspace .animation-graph{display:block;height:244px}
+.animation-workspace .timeline{height:420px}
+.animation-workspace .animation-graph{display:block;height:274px}
 .animation-workspace .timeline-key-toolbar{display:flex}
 .animation-workspace .timeline-track{height:80px}
 .animation-graph-header{height:32px;display:flex;align-items:center;gap:12px;padding:0 22px;border-bottom:1px solid #2f3239;background:#1f2127}
@@ -49,6 +49,21 @@
 .graph-key-unit{min-width:8px;color:#8e97a6}
 .graph-key-apply{height:22px;padding:2px 7px;font:8px var(--mono);letter-spacing:.4px;text-transform:uppercase;border:1px solid #3b414b;border-radius:3px}
 .graph-key-apply:disabled{opacity:.4}
+.graph-handle-toolbar{height:30px;display:flex;align-items:center;gap:7px;padding:0 22px;border-bottom:1px solid #2f3239;background:#1b1d22;font:8px var(--mono);letter-spacing:.35px;color:#717a87}
+.graph-handle-toolbar-label{color:#c6a77e;text-transform:uppercase;letter-spacing:.7px}
+#graph-handle-mode{min-width:128px;font-weight:600;letter-spacing:.45px}
+#graph-handle-mode[data-mode="free"]{color:#9fa8b8}
+#graph-handle-mode[data-mode="aligned"]{color:#c5a1d6}
+#graph-handle-mode[data-mode="auto"]{color:#d5bb78}
+.graph-handle-toolbar>label{display:flex;align-items:center;gap:5px;text-transform:uppercase}
+.graph-handle-toolbar select,.graph-handle-toolbar input{height:22px;padding:1px 5px;border:1px solid #3b414b;background:#191b20;color:#aab2bf;border-radius:3px;font:9px var(--mono)}
+.graph-handle-toolbar select{min-width:64px}
+#graph-handle-frame{width:58px}
+#graph-handle-value{width:68px}
+.graph-handle-toolbar select:disabled,.graph-handle-toolbar input:disabled{opacity:.45}
+.graph-handle-apply{height:22px;padding:2px 7px;font:8px var(--mono);letter-spacing:.4px;text-transform:uppercase;border:1px solid #3b414b;border-radius:3px}
+.graph-handle-apply:disabled{opacity:.4}
+.graph-handle-hint{margin-left:auto;color:#5f6875;white-space:nowrap}
 .graph-segment-control{margin-left:auto}
 .graph-segment-control,.graph-tangent-control,.graph-time-scale-control{display:flex;align-items:center;gap:5px;font:8px var(--mono);letter-spacing:.5px;text-transform:uppercase;color:#6f7886}
 .graph-segment-control select,.graph-tangent-control select,.graph-time-scale-control input{height:22px;font:9px var(--mono);padding:1px 5px;border:1px solid #3b414b;background:#191b20;color:#aab2bf;border-radius:3px}
@@ -87,11 +102,16 @@
 .graph-key-point.dragging{cursor:grabbing;fill:#f0c88f;stroke:#fff3d6;stroke-width:2}
 .graph-key-point.ghost{opacity:.62;fill:#f3d6a9;stroke:#fff0d2;stroke-dasharray:2 2;pointer-events:none}
 .graph-selection-box{fill:#8aa6cc22;stroke:#9eb8db;stroke-width:1;stroke-dasharray:4 3;vector-effect:non-scaling-stroke;pointer-events:none}
-.graph-handle-line{stroke:#8b7960;stroke-width:1;stroke-dasharray:2 2;vector-effect:non-scaling-stroke;pointer-events:none}
-.graph-handle{fill:#1b1d22;stroke:#e0b780;stroke-width:1.5;vector-effect:non-scaling-stroke;cursor:crosshair;pointer-events:all}
+.graph-handle-line{stroke-width:1;vector-effect:non-scaling-stroke;pointer-events:none}
+.graph-handle-line.free{stroke:#8b7960;stroke-dasharray:2 2}
+.graph-handle-line.aligned{stroke:#9d7eaa;stroke-dasharray:none}
+.graph-handle-line.auto{stroke:#8f8364;stroke-dasharray:1 3}
+.graph-handle{vector-effect:non-scaling-stroke;cursor:crosshair;pointer-events:all;stroke-width:1.5}
+.graph-handle.free{fill:#1b1d22;stroke:#e0b780}
+.graph-handle.aligned{fill:#2d2432;stroke:#c59fd8}
+.graph-handle.auto{fill:#2b2920;stroke:#cbb573}
 .graph-handle:hover,.graph-handle.dragging{fill:#e0b780;stroke:#fff0d2;stroke-width:2}
-.graph-handle.auto{fill:#2b2e34;stroke:#77808e;cursor:not-allowed}
-.graph-handle.auto:hover{fill:#2b2e34;stroke:#8d96a4;stroke-width:1.5}
+.graph-handle.auto:hover{fill:#a58d54;stroke:#f2d48c;stroke-width:2}
 .graph-playhead{stroke:#d8b382;stroke-width:1.5;pointer-events:none;vector-effect:non-scaling-stroke}
 .graph-playhead.outside{opacity:.3;stroke-dasharray:3 3}
 .graph-value-label,.graph-frame-label{fill:#687180;font:9px var(--mono);pointer-events:none}
