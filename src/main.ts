@@ -37,7 +37,7 @@ $('#app').innerHTML = `
         <div class="viewport-caption"><span class="caption-mark"></span><span id="mode-hint">Build something extraordinary.</span></div>
         <div class="viewport-badge">${icon('activity')}<span id="draw-status">ON DEMAND</span></div>
       </div>
-      <section class="timeline" aria-label="Animation timeline"><div class="timeline-header"><span class="panel-title">${icon('diamond')} Timeline</span><span class="timeline-selection" id="timeline-object">Cube</span><div class="playback">${button('first-frame','chevron-first','First frame')}${button('previous-key','skip-back','Previous keyframe')}${button('play','play','Play / pause (Space)')}${button('next-key','skip-forward','Next keyframe')}${button('last-frame','chevron-last','Last frame')}</div><div class="frame-settings"><input id="current-frame" aria-label="Current frame" type="number" min="1" max="250" value="1"><span>/ 250</span><span class="fps">24 fps</span>${button('insert-key','diamond','Insert transform keyframe (I)')}${button('remove-key','x','Remove current keyframe')}</div></div><div class="animation-graph"><div class="animation-graph-header"><span id="animation-graph-title">Graph Editor</span><span id="animation-graph-detail">Insert channel keys to display a curve.</span>${button('insert-channel-key','diamond','Insert key on selected channel')}${button('remove-channel-key','x','Remove selected channel key')}<label class="graph-segment-control">Segment<select id="graph-key-interpolation" aria-label="Selected key interpolation"><option value="mixed" disabled>Mixed</option><option value="linear">Linear</option><option value="constant">Constant</option><option value="bezier">Bezier</option></select></label><label class="graph-tangent-control">Tangent<select id="graph-key-tangent" aria-label="Selected key tangent mode"><option value="mixed" disabled>Mixed</option><option value="free">Free</option><option value="aligned">Aligned</option><option value="auto">Auto</option></select></label><label class="graph-time-scale-control">Time<input id="graph-time-scale" aria-label="Selected key time scale" type="number" min="0.01" step="0.1" value="1"></label><button id="apply-graph-time-scale" class="text-button graph-time-scale-button" type="button">Scale</button><span class="graph-editor-badge" title="Box-select keys · Shift adds · Drag selected keys to move · Alt-drag to copy · Segment/Tangent/Time apply to selection">KEY CURVES</span></div><div class="animation-graph-body"><nav class="graph-channels" aria-label="Graph channels">${(['position','rotation','scale'] as const).map(property => `<div class="graph-channel-group"><span>${property === 'position' ? 'Location' : property[0].toUpperCase()+property.slice(1)}</span>${animationChannels.filter(channel => channel.startsWith(property + '.')).map(channel => `<button type="button" data-graph-channel="${channel}" aria-label="Graph channel ${animationChannelLabel(channel)}"><span>${channel.at(-1)!.toUpperCase()}</span><small>LIN</small></button>`).join('')}</div>`).join('')}</nav><svg id="animation-graph" aria-label="Animation graph editor" role="img" viewBox="0 0 1000 180" preserveAspectRatio="none"></svg></div></div><div class="timeline-track" id="timeline-track"><div class="timeline-ruler">${[1,25,50,75,100,125,150,175,200,225,250].map(n => `<span style="left:${(n-1)/249*100}%">${n}</span>`).join('')}</div><div id="timeline-selection-box" aria-hidden="true"></div><div id="keyframe-markers"></div><div class="playhead" id="playhead"><span>1</span></div><input type="range" id="scrubber" aria-label="Timeline frame" min="1" max="250" value="1"></div></section>
+      <section class="timeline" aria-label="Animation timeline"><div class="timeline-header"><span class="panel-title">${icon('diamond')} Timeline</span><span class="timeline-selection" id="timeline-object">Cube</span><div class="playback">${button('first-frame','chevron-first','First frame')}${button('previous-key','skip-back','Previous keyframe')}${button('play','play','Play / pause (Space)')}${button('next-key','skip-forward','Next keyframe')}${button('last-frame','chevron-last','Last frame')}</div><div class="frame-settings"><input id="current-frame" aria-label="Current frame" type="number" min="1" max="250" value="1"><span>/ 250</span><span class="fps">24 fps</span>${button('insert-key','diamond','Insert transform keyframe (I)')}${button('remove-key','x','Remove current keyframe')}</div></div><div class="animation-graph"><div class="animation-graph-header"><span id="animation-graph-title">Graph Editor</span><span id="animation-graph-detail">Insert channel keys to display a curve.</span>${button('insert-channel-key','diamond','Insert key on selected channel')}${button('remove-channel-key','x','Remove selected channel key')}<label class="graph-segment-control">Segment<select id="graph-key-interpolation" aria-label="Selected key interpolation"><option value="mixed" disabled>Mixed</option><option value="linear">Linear</option><option value="constant">Constant</option><option value="bezier">Bezier</option></select></label><label class="graph-tangent-control">Tangent<select id="graph-key-tangent" aria-label="Selected key tangent mode"><option value="mixed" disabled>Mixed</option><option value="free">Free</option><option value="aligned">Aligned</option><option value="auto">Auto</option></select></label><label class="graph-time-scale-control">Time<input id="graph-time-scale" aria-label="Selected key time scale" type="number" min="0.01" step="0.1" value="1"></label><button id="apply-graph-time-scale" class="text-button graph-time-scale-button" type="button">Scale</button><span class="graph-editor-badge" title="Box-select keys · Shift adds · Drag selected keys to move · Alt-drag to copy · Segment/Tangent/Time apply to selection">KEY CURVES</span></div><div class="animation-graph-body"><nav class="graph-channels" aria-label="Graph channels">${(['position','rotation','scale'] as const).map(property => `<div class="graph-channel-group"><span>${property === 'position' ? 'Location' : property[0].toUpperCase()+property.slice(1)}</span>${animationChannels.filter(channel => channel.startsWith(property + '.')).map(channel => `<button type="button" data-graph-channel="${channel}" aria-label="Graph channel ${animationChannelLabel(channel)}"><span>${channel.at(-1)!.toUpperCase()}</span><small>LIN</small></button>`).join('')}</div>`).join('')}</nav><svg id="animation-graph" aria-label="Animation graph editor" role="img" viewBox="0 0 1000 180" preserveAspectRatio="none"></svg></div></div><div class="timeline-key-toolbar" aria-label="Timeline key editing controls"><span class="timeline-key-toolbar-label">Summary Keys</span><span id="timeline-selection-count">0 selected</span>${button('remove-timeline-selected','trash-2','Remove selected Timeline keys')}<label>Time Scale<input id="timeline-time-scale" aria-label="Selected Timeline key time scale" type="number" min="0.01" step="0.1" value="1"></label><button id="apply-timeline-time-scale" class="text-button" type="button" aria-label="Scale selected Timeline keys">Scale</button><span class="timeline-key-toolbar-hint">Shift-select · Alt-drag copy · Delete removes</span></div><div class="timeline-track" id="timeline-track"><div class="timeline-ruler">${[1,25,50,75,100,125,150,175,200,225,250].map(n => `<span style="left:${(n-1)/249*100}%">${n}</span>`).join('')}</div><div id="timeline-selection-box" aria-hidden="true"></div><div id="keyframe-markers"></div><div class="playhead" id="playhead"><span>1</span></div><input type="range" id="scrubber" aria-label="Timeline frame" min="1" max="250" value="1"></div></section>
     </section>
     <aside class="sidebar">
       <section class="outliner"><div class="panel-heading"><span class="panel-title">${icon('layers')} Scene Collection</span><span class="count" id="object-count">1</span>${button('add-outliner','plus','Add mesh')}</div><div class="search-field">${icon('search')}<input id="object-search" placeholder="Search objects…" aria-label="Search objects"><kbd>/</kbd></div><div class="collection-row">${icon('chevron-down')}${icon('folder-open')}<span>Scene Collection</span>${button('add-collection','plus','Create collection')}</div><div id="object-list" class="object-list"></div><div class="outliner-footer"><span id="selection-count">1 object selected</span>${button('delete-outliner','trash-2','Delete selected object')}<input id="collection-name" aria-label="New collection name" value="Collection" maxlength="100"><select id="collection-target" aria-label="Target collection"><option value="">Move selected to…</option></select>${button('move-to-collection','folder-open','Move selected to collection')}${button('unlink-collection','log-out','Unlink from collection')}${button('delete-collection','trash-2','Delete empty collection')}</div></section>
@@ -432,6 +432,22 @@ function updateTimeline() {
     ? `Remove ${selectedGraphFrames.length} selected channel keys`
     : 'Remove selected channel key';
 
+  const timelineSelectionCount = timelineSelectedFrames.size;
+  $('#timeline-selection-count').textContent = timelineSelectionCount ? `${timelineSelectionCount} selected` : '0 selected';
+  const removeTimelineSelected = $<HTMLButtonElement>('#remove-timeline-selected');
+  removeTimelineSelected.disabled = !timelineSelectionCount || editor.editMode || editor.playing;
+  removeTimelineSelected.title = timelineSelectionCount
+    ? `Remove ${timelineSelectionCount} selected Timeline key${timelineSelectionCount === 1 ? '' : 's'}`
+    : 'Select Timeline keys to remove';
+  const timelineTimeScale = $<HTMLInputElement>('#timeline-time-scale');
+  const applyTimelineTimeScale = $<HTMLButtonElement>('#apply-timeline-time-scale');
+  const canScaleTimeline = timelineSelectionCount >= 2 && !editor.editMode && !editor.playing;
+  timelineTimeScale.disabled = !canScaleTimeline;
+  applyTimelineTimeScale.disabled = !canScaleTimeline;
+  applyTimelineTimeScale.title = canScaleTimeline
+    ? `Scale ${timelineSelectionCount} selected Timeline key times around their range midpoint`
+    : 'Select at least two Timeline keys to scale timing';
+
   const state = `${frame}|${editor.playing}|${markers}|${selectedMarkers}`;
   if (timelineState === state) return;
   timelineState = state;
@@ -686,6 +702,57 @@ on('apply-graph-time-scale', () => {
 on('insert-key', insertKey);
 on('remove-key', () => editor.removeKey());
 
+function removeSelectedTimelineKeys() {
+  const frames = [...timelineSelectedFrames].sort((a, b) => a - b);
+  if (!frames.length) return false;
+  try {
+    const removed = editor.removeTimelineKeys(frames);
+    if (!removed) return false;
+    const removedSet = new Set(frames);
+    const graphSelection = animationGraph.selectedKeyFrames.filter(frame => !removedSet.has(frame));
+    animationGraph.selectKeyFrames(graphSelection);
+    timelineSelectedFrames.clear();
+    toast(`${frames.length} Timeline key${frames.length === 1 ? '' : 's'} removed.`);
+    timelineState = '';
+    updateTimeline();
+    return true;
+  } catch (error) {
+    toast((error as Error).message);
+    updateTimeline();
+    return false;
+  }
+}
+
+function applyTimelineTimeScale() {
+  const frames = [...timelineSelectedFrames].sort((a, b) => a - b);
+  const factor = Number($<HTMLInputElement>('#timeline-time-scale').value);
+  try {
+    const graphSelectionBefore = animationGraph.selectedKeyFrames;
+    const scaled = editor.scaleTimelineKeyTimes(frames, factor);
+    if (!scaled) {
+      toast('Timeline time scale did not move any selected keys.');
+      return false;
+    }
+    const targetBySource = new Map(frames.map((frame, index) => [frame, scaled.frames[index]]));
+    const graphSelection = graphSelectionBefore.map(frame => targetBySource.get(frame) ?? frame);
+    if (graphSelection.some((frame, index) => frame !== graphSelectionBefore[index])) {
+      animationGraph.selectKeyFrames(graphSelection);
+    }
+    timelineSelectedFrames = new Set(scaled.frames);
+    $<HTMLInputElement>('#timeline-time-scale').value = '1';
+    toast(`${frames.length} Timeline key times scaled ×${factor} around F${((frames[0] + frames[frames.length - 1]) / 2).toFixed(1).replace('.0', '')}.`);
+    timelineState = '';
+    updateTimeline();
+    return true;
+  } catch (error) {
+    toast((error as Error).message);
+    updateTimeline();
+    return false;
+  }
+}
+on('remove-timeline-selected', removeSelectedTimelineKeys);
+on('apply-timeline-time-scale', applyTimelineTimeScale);
+
 type TimelineKeyDrag = {
   anchorMarker: HTMLButtonElement;
   pointerId: number;
@@ -693,6 +760,8 @@ type TimelineKeyDrag = {
   targetFrame: number;
   sourceFrames: number[];
   markers: Array<{ marker: HTMLButtonElement; frame: number }>;
+  copy: boolean;
+  ghostMarkers: Array<{ marker: HTMLButtonElement; frame: number }>;
 };
 let timelineKeyDrag: TimelineKeyDrag | null = null;
 
@@ -769,18 +838,26 @@ function restoreTimelineMarker(marker: HTMLButtonElement, frame: number) {
 }
 
 function setTimelineMarkerSelection() {
-  timelineMarkers.querySelectorAll<HTMLButtonElement>('.key-marker').forEach(marker => {
+  timelineMarkers.querySelectorAll<HTMLButtonElement>('.key-marker:not(.copy-ghost)').forEach(marker => {
     marker.classList.toggle('selected', timelineSelectedFrames.has(Number(marker.dataset.frame)));
   });
+}
+
+function clearTimelineCopyGhosts(drag: TimelineKeyDrag) {
+  for (const item of drag.ghostMarkers) item.marker.remove();
 }
 
 function cancelTimelineKeyDrag() {
   const drag = timelineKeyDrag;
   if (!drag) return false;
   timelineKeyDrag = null;
-  for (const item of drag.markers) {
-    item.marker.classList.remove('dragging');
-    restoreTimelineMarker(item.marker, item.frame);
+  if (drag.copy) {
+    clearTimelineCopyGhosts(drag);
+  } else {
+    for (const item of drag.markers) {
+      item.marker.classList.remove('dragging');
+      restoreTimelineMarker(item.marker, item.frame);
+    }
   }
   if (drag.anchorMarker.hasPointerCapture(drag.pointerId)) drag.anchorMarker.releasePointerCapture(drag.pointerId);
   editor.scrub(drag.anchorFrame);
@@ -868,6 +945,19 @@ timelineMarkers.addEventListener('pointerdown', event => {
     }))
     .filter((item): item is { marker: HTMLButtonElement; frame: number } => item.marker !== null);
 
+  const copy = event.altKey;
+  const ghostMarkers = copy
+    ? selectedMarkers.map(item => {
+        const ghost = item.marker.cloneNode(true) as HTMLButtonElement;
+        ghost.classList.remove('selected');
+        ghost.classList.add('copy-ghost', 'dragging');
+        ghost.setAttribute('aria-label', `Animation key copy preview at frame ${item.frame}`);
+        ghost.title = `Copy animation key from frame ${item.frame}`;
+        timelineMarkers.append(ghost);
+        return { marker: ghost, frame: item.frame };
+      })
+    : [];
+
   timelineKeyDrag = {
     anchorMarker: marker,
     pointerId: event.pointerId,
@@ -875,8 +965,10 @@ timelineMarkers.addEventListener('pointerdown', event => {
     targetFrame: sourceFrame,
     sourceFrames,
     markers: selectedMarkers,
+    copy,
+    ghostMarkers,
   };
-  for (const item of selectedMarkers) item.marker.classList.add('dragging', 'selected');
+  if (!copy) for (const item of selectedMarkers) item.marker.classList.add('dragging', 'selected');
   marker.setPointerCapture(event.pointerId);
   editor.scrub(sourceFrame);
 });
@@ -893,12 +985,17 @@ timelineMarkers.addEventListener('pointermove', event => {
   const targetFrame = drag.anchorFrame + frameDelta;
   drag.targetFrame = targetFrame;
 
-  for (const item of drag.markers) {
+  const previewMarkers = drag.copy ? drag.ghostMarkers : drag.markers;
+  for (const item of previewMarkers) {
     const previewFrame = item.frame + frameDelta;
     item.marker.style.left = `${(previewFrame - 1) / 249 * 100}%`;
     item.marker.dataset.frame = String(previewFrame);
-    item.marker.setAttribute('aria-label', `Animation key preview at frame ${previewFrame}`);
-    item.marker.title = `Move animation key to frame ${previewFrame}`;
+    item.marker.setAttribute('aria-label', drag.copy
+      ? `Animation key copy preview at frame ${previewFrame}`
+      : `Animation key preview at frame ${previewFrame}`);
+    item.marker.title = drag.copy
+      ? `Copy animation key to frame ${previewFrame}`
+      : `Move animation key to frame ${previewFrame}`;
   }
   editor.scrub(targetFrame);
 });
@@ -907,11 +1004,12 @@ function finishTimelineKeyDrag(event: PointerEvent) {
   const drag = timelineKeyDrag;
   if (!drag || event.pointerId !== drag.pointerId) return;
   timelineKeyDrag = null;
-  for (const item of drag.markers) item.marker.classList.remove('dragging');
+  if (!drag.copy) for (const item of drag.markers) item.marker.classList.remove('dragging');
   if (drag.anchorMarker.hasPointerCapture(event.pointerId)) drag.anchorMarker.releasePointerCapture(event.pointerId);
 
   if (event.type === 'pointercancel') {
-    for (const item of drag.markers) restoreTimelineMarker(item.marker, item.frame);
+    if (drag.copy) clearTimelineCopyGhosts(drag);
+    else for (const item of drag.markers) restoreTimelineMarker(item.marker, item.frame);
     editor.scrub(drag.anchorFrame);
     setTimelineMarkerSelection();
     return;
@@ -919,34 +1017,40 @@ function finishTimelineKeyDrag(event: PointerEvent) {
 
   const frameDelta = drag.targetFrame - drag.anchorFrame;
   if (frameDelta === 0) {
-    for (const item of drag.markers) restoreTimelineMarker(item.marker, item.frame);
+    if (drag.copy) clearTimelineCopyGhosts(drag);
+    else for (const item of drag.markers) restoreTimelineMarker(item.marker, item.frame);
     editor.scrub(drag.anchorFrame);
     setTimelineMarkerSelection();
     return;
   }
 
   try {
-    const moved = editor.moveTimelineKeys(drag.sourceFrames, frameDelta);
-    if (!moved) {
-      for (const item of drag.markers) restoreTimelineMarker(item.marker, item.frame);
+    const graphSelectionBefore = animationGraph.selectedKeyFrames;
+    const edited = drag.copy
+      ? editor.duplicateTimelineKeys(drag.sourceFrames, frameDelta)
+      : editor.moveTimelineKeys(drag.sourceFrames, frameDelta);
+    if (!edited) {
+      if (drag.copy) clearTimelineCopyGhosts(drag);
+      else for (const item of drag.markers) restoreTimelineMarker(item.marker, item.frame);
       editor.scrub(drag.anchorFrame);
       setTimelineMarkerSelection();
       return;
     }
 
     const sourceSet = new Set(drag.sourceFrames);
-    const graphSelection = animationGraph.selectedKeyFrames;
-    if (graphSelection.some(frame => sourceSet.has(frame))) {
-      animationGraph.selectKeyFrames(graphSelection.map(frame => sourceSet.has(frame) ? frame + frameDelta : frame));
+    if (graphSelectionBefore.some(frame => sourceSet.has(frame))) {
+      animationGraph.selectKeyFrames(graphSelectionBefore.map(frame => sourceSet.has(frame) ? frame + frameDelta : frame));
     }
 
-    timelineSelectedFrames = new Set(moved.frames);
+    if (drag.copy) clearTimelineCopyGhosts(drag);
+    timelineSelectedFrames = new Set(edited.frames);
     editor.scrub(drag.targetFrame);
-    toast(`${drag.sourceFrames.length} Timeline key${drag.sourceFrames.length === 1 ? '' : 's'} moved by ${frameDelta > 0 ? '+' : ''}${frameDelta} frame${Math.abs(frameDelta) === 1 ? '' : 's'}.`);
+    toast(`${drag.sourceFrames.length} Timeline key${drag.sourceFrames.length === 1 ? '' : 's'} ${drag.copy ? 'copied' : 'moved'} by ${frameDelta > 0 ? '+' : ''}${frameDelta} frame${Math.abs(frameDelta) === 1 ? '' : 's'}.`);
     timelineState = '';
     updateTimeline();
   } catch (error) {
-    for (const item of drag.markers) restoreTimelineMarker(item.marker, item.frame);
+    if (drag.copy) clearTimelineCopyGhosts(drag);
+    else for (const item of drag.markers) restoreTimelineMarker(item.marker, item.frame);
     editor.scrub(drag.anchorFrame);
     toast((error as Error).message);
     timelineState = '';
@@ -1028,6 +1132,17 @@ on('capture', capture); on('capture-quick', capture);
 document.addEventListener('keydown', e => {
   const key = e.key.toLowerCase();
   const dialogOpen = Boolean(document.querySelector('dialog[open]'));
+  if ((key === 'delete' || key === 'backspace') && timelineSelectedFrames.size && !dialogOpen) {
+    const target = e.target;
+    const editingField = (target instanceof HTMLInputElement && target !== $<HTMLInputElement>('#scrubber'))
+      || target instanceof HTMLTextAreaElement
+      || target instanceof HTMLSelectElement;
+    if (!editingField) {
+      e.preventDefault();
+      removeSelectedTimelineKeys();
+      return;
+    }
+  }
   if (key === 'escape' && !dialogOpen) {
     if (timelineKeyDrag || timelineBoxDrag) {
       e.preventDefault();
