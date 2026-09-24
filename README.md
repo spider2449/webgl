@@ -136,13 +136,14 @@ and Bezier tangents.
 
 The Timeline header exposes the scene **Start / End Frame Range**, defaulting
 to **1–250**. Frame 250 is only the default end frame, not a hard animation
-limit: extend End to author longer animations (Forge currently applies a
-defensive 100,000-frame ceiling). The Timeline ruler, scrubber, current frame,
-playback loop, First/Last controls, Graph **Scene Range**, and all key retiming
-operations use this dynamic scene range. Shrinking the range is rejected if it
-would exclude an existing authored key, so range edits never silently delete or
-hide animation data. The range is stored in new `.forge` snapshots; older
-projects without it load as 1–250.
+limit: extend End for a longer playback / Timeline window (Forge currently
+applies a defensive authored-frame domain of 1–100,000). The Timeline ruler,
+scrubber, current frame and Scene playback use this dynamic range. Authored keys
+may exist before Start or after End; changing the Scene Frame Range never warns
+about, deletes, or invalidates those keys. Timeline markers show keys inside the
+current Scene Range, while Graph **Frame All / Frame Selected** can recover keys
+outside it. The range is stored in new `.forge` snapshots; older projects
+without it load as 1–250.
 
 Forge also supports a separate **Preview Range** for temporary playback of a
 subsection without changing the scene's Start / End or authored keys. Use the
