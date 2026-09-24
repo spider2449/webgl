@@ -416,6 +416,31 @@ export class Editor extends EventTarget {
     while (names.has(`${base}.${String(i).padStart(3, '0')}`)) i++;
     return `${base}.${String(i).padStart(3, '0')}`;
   }
+  importObject(object: THREE.Object3D, animationFrameEnd?: number) {
+    if (this.playing || this.modelingBusy || this.transform.dragging || this.animationKeyDrag || this.animationHandleDrag) {
+      throw new Error('Pause playback and finish the current edit before importing a model.');
+    }
+    if (
+      animationFrameEnd !== undefined &&
+      (!Number.isInteger(animationFrameEnd) || animationFrameEnd < 1 || animationFrameEnd > MAX_ANIMATION_FRAME)
+    ) throw new Error(`Imported animation must stay inside frames 1–${MAX_ANIMATION_FRAME}.`);
+
+    this.setEditMode(false);
+    this.content.add(object);
+    this.select(object);
+
+    if (animationFrameEnd !== undefined) {
+      const nextStart = 1;
+      const nextEnd = Math.max(this.frameEnd, Math.max(2, animationFrameEnd));
+      if (this.frameStart !== nextStart || this.frameEnd !== nextEnd) {
+        this.frameStart = nextStart;
+        this.frameEnd = nextEnd;
+        this.emit('range');
+      }
+    }
+
+    this.commit();
+  }
   select(object: THREE.Object3D | null, toggle = false) {
     if (toggle && !object) return;
     this.modelingVersion++;
