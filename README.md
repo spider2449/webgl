@@ -144,10 +144,14 @@ would exclude an existing authored key, so range edits never silently delete or
 hide animation data. The range is stored in new `.forge` snapshots; older
 projects without it load as 1–250.
 
-A Blender-style **Preview Range** is a separate animation concept: it would
-temporarily limit playback to a subsection without changing the scene's Start /
-End. Forge does not add Preview Range in this package; it can be implemented as
-a separate capability later.
+Forge also supports a separate **Preview Range** for temporary playback of a
+subsection without changing the scene's Start / End or authored keys. Use the
+Timeline **Preview** control with **P Start / P End** to enable it. While active,
+Play and First/Last use the preview subset, but the Timeline continues to show
+the entire Scene Frame Range and all authored keys. The highlighted Preview
+overlay is playback-only. Clear Preview to return playback to the full Scene
+Frame Range. Preview Range is saved in `.forge` projects and participates in
+undo/redo.
 
 The timeline header keeps the fast transform workflow: **Insert transform key**
 authors all nine scalar channels at the current frame, while **Remove current
@@ -168,8 +172,8 @@ frame spacing around the midpoint of the selected range. Move,
 copy, delete and time-scale batches each create one undo entry and validate the
 whole participating scalar-channel set before changing tracks. Copy/move/scale
 are rejected without partial changes when a same-channel collision would occur;
-move/scale also enforce frames 1–250 and time scaling rejects rounded frame
-collapse. Escape or pointer cancellation restores the pre-drag Timeline state
+move/scale enforce the active Scene Frame Range and time scaling rejects rounded
+frame collapse. Escape or pointer cancellation restores the pre-drag Timeline state
 and never cancels the active object selection. Timeline selection remains a
 summary-frame interaction and does not create a second animation key model.
 
