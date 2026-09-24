@@ -111,6 +111,28 @@ test('Aligned Handle Inspector keeps the opposite handle collinear and preserves
   await expect(page.locator('#graph-handle-mode')).toHaveText('ALIGNED · linked');
 });
 
+test('Aligned pointer drag previews the coupled opposite handle before pointerup', async ({ page }) => {
+  const graph = await seedPositionBezier(page, 'aligned');
+
+  const left = graph.locator('.graph-handle[data-handle="left"]');
+  const right = graph.locator('.graph-handle[data-handle="right"]');
+  const leftBefore = await left.boundingBox();
+  const rightBox = await right.boundingBox();
+  expect(leftBefore).not.toBeNull();
+  expect(rightBox).not.toBeNull();
+
+  await page.mouse.move(rightBox!.x + rightBox!.width / 2, rightBox!.y + rightBox!.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(rightBox!.x + rightBox!.width / 2, rightBox!.y - 30, { steps: 6 });
+
+  const leftDuring = await left.boundingBox();
+  expect(leftDuring).not.toBeNull();
+  expect(Math.abs(leftDuring!.x - leftBefore!.x) + Math.abs(leftDuring!.y - leftBefore!.y)).toBeGreaterThan(1);
+  await expect(graph.locator('.graph-handle.aligned')).toHaveCount(2);
+
+  await page.mouse.up();
+});
+
 test('editing an Auto handle precisely converts it to Aligned and undo restores Auto', async ({ page }) => {
   const graph = await seedPositionBezier(page, 'auto');
 
