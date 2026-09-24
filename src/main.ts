@@ -391,10 +391,9 @@ function updateTimeline() {
   });
 
   const selectedGraphFrames = animationGraph.selectedKeyFrames;
-  const selectedGraphKeys = selectedGraphFrames
-    .map(selectedFrame => activeKeys.find(key => key.frame === selectedFrame))
-    .filter((key): key is NonNullable<typeof key> => key !== undefined);
-  const singleGraphKey = selectedGraphKeys.length === 1 ? selectedGraphKeys[0] : null;
+  const singleGraphKey = selectedGraphFrames.length === 1
+    ? activeKeys.find(key => key.frame === selectedGraphFrames[0]) ?? null
+    : null;
   $('#graph-selection-count').textContent = selectedGraphFrames.length ? `${selectedGraphFrames.length} selected` : '0 selected';
   const graphKeyFrame = $<HTMLInputElement>('#graph-key-frame');
   const graphKeyValue = $<HTMLInputElement>('#graph-key-value');
