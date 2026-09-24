@@ -1027,7 +1027,12 @@ on('snap', snap);
 on('grid', () => { editor.grid.visible = !editor.grid.visible; $('#grid').classList.toggle('active', editor.grid.visible); editor.invalidate(); });
 for (const value of ['wire','solid','material']) on(`shading-${value}`, () => { editor.setShading(value); document.querySelectorAll('.shading-group button').forEach(b => b.classList.toggle('active', b.id === `shading-${value}`)); });
 on('focus', () => editor.focus()); on('frame-all', () => editor.focus(true));
-for (const [id, axis] of [['axis-x','right'],['axis-y','top'],['axis-z','front'],['axis-home','perspective'],['home-view','perspective']] as const) on(id, () => { editor.view(axis); $('#view-label').textContent = `${axis[0].toUpperCase()+axis.slice(1)} ${editor.camera instanceof THREE.OrthographicCamera ? 'Orthographic' : 'Perspective'}`; });
+for (const [id, axis] of [['axis-x','right'],['axis-y','top'],['axis-z','front'],['axis-home','perspective'],['home-view','perspective']] as const) on(id, () => {
+  editor.view(axis);
+  $('#view-label').textContent = axis === 'perspective'
+    ? 'User Perspective'
+    : `${axis[0].toUpperCase()+axis.slice(1)} Orthographic`;
+});
 on('projection', () => editor.toggleProjection());
 for (const id of ['duplicate','duplicate-rail']) on(id, () => editor.duplicate());
 on('duplicate-linked', () => toast(editor.duplicateLinked() ? 'Created linked duplicate.' : 'Linked duplicate requires an ordinary mesh without modifiers.'));
