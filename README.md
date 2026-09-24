@@ -168,6 +168,15 @@ shown and entered in degrees, and precise retiming rejects same-channel
 collisions before changing the track. Multi-selection disables precise
 Frame/Value editing but keeps eligible batch controls available.
 
+The Graph view can be navigated independently of animation data. **MMB-drag**
+pans frame/value space and the mouse wheel zooms around the pointer. The Graph
+header provides **Frame All**, **Frame Selected**, **Scene Range**, and **Current
+Frame** controls; with the Graph focused, **Home**, **Numpad .**, and **Numpad
+0** provide the corresponding framing shortcuts. Manual Graph views are kept
+separately for each object + scalar channel, and view changes never create undo
+history. The default horizontal view remains frames 1–250. Escape or pointer
+cancellation during an MMB pan restores the pre-pan view.
+
 Drag empty Graph space to box-select keys; **Shift-drag** adds the boxed keys to
 the existing selection. Dragging any selected key moves the whole selection by
 one shared frame/value delta; **Alt-drag** shows copy ghosts and commits all
