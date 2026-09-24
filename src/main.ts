@@ -1385,13 +1385,139 @@ timelineTrack.addEventListener('wheel', event => {
 }, { passive: false });
 
 timelineTrack.addEventListener('keydown', event => {
-  if (event.target !== timelineTrack || timelineKeyDrag || timelineBoxDrag || timelinePanDrag) return;
+  if (event.target !== timelineTrack || timelineKeyDrag || timelineBoxDrag || timelinePanDrag || timelineScrollbarDrag) return;
   if (event.key === 'Home') {
     if (frameTimelineSceneRange()) event.preventDefault();
   } else if (event.code === 'NumpadDecimal') {
     if (frameSelectedTimelineKeys()) event.preventDefault();
   } else if (event.code === 'Numpad0') {
     if (centerTimelineOnCurrentFrame()) event.preventDefault();
+  }
+});
+
+function cancelTimelineScrollbarDrag() {
+  const drag = timelineScrollbarDrag;
+  if (!drag) return false;
+  timelineScrollbarDrag = null;
+  timelineViewScrollbar.classList.remove('dragging', 'resizing');
+  if (timelineViewScrollbar.hasPointerCapture(drag.pointerId)) {
+    timelineViewScrollbar.releasePointerCapture(drag.pointerId);
+  }
+  setTimelineView(drag.startViewStart, drag.startViewEnd, drag.startManual);
+  return true;
+}
+
+timelineViewScrollbar.addEventListener('pointerdown', event => {
+  if (event.button !== 0 || editor.playing || timelineKeyDrag || timelineBoxDrag || timelinePanDrag) return;
+  const rect = timelineViewScrollbar.getBoundingClientRect();
+  if (rect.width <= 0) return;
+
+  const target = event.target as Element;
+  const thumb = target.closest('#timeline-view-thumb');
+  if (!thumb) {
+    const ratio = THREE.MathUtils.clamp((event.clientX - rect.left) / rect.width, 0, 1);
+    const clickedFrame = editor.frameStart + ratio * (editor.frameEnd - editor.frameStart);
+    const span = timelineViewEnd - timelineViewStart;
+    const pageDelta = span * 0.8;
+    if (clickedFrame < timelineViewStart) {
+      setTimelineView(timelineViewStart - pageDelta, timelineViewEnd - pageDelta, true);
+    } else if (clickedFrame > timelineViewEnd) {
+      setTimelineView(timelineViewStart + pageDelta, timelineViewEnd + pageDelta, true);
+    }
+    event.preventDefault();
+    return;
+  }
+
+  const handle = target.closest<HTMLElement>('[data-timeline-view-handle]');
+  const kind: TimelineScrollbarDrag['kind'] =
+    handle?.dataset.timelineViewHandle === 'start'
+      ? 'start'
+      : handle?.dataset.timelineViewHandle === 'end'
+        ? 'end'
+        : 'pan';
+
+  timelineScrollbarDrag = {
+    pointerId: event.pointerId,
+    kind,
+    startClientX: event.clientX,
+    startViewStart: timelineViewStart,
+    startViewEnd: timelineViewEnd,
+    startManual: timelineViewManual,
+  };
+  timelineViewScrollbar.classList.add(kind === 'pan' ? 'dragging' : 'resizing');
+  timelineViewScrollbar.setPointerCapture(event.pointerId);
+  timelineViewScrollbar.focus({ preventScroll: true });
+  event.preventDefault();
+});
+
+timelineViewScrollbar.addEventListener('pointermove', event => {
+  const drag = timelineScrollbarDrag;
+  if (!drag || event.pointerId !== drag.pointerId) return;
+  const rect = timelineViewScrollbar.getBoundingClientRect();
+  if (rect.width <= 0) return;
+
+  const sceneSpan = editor.frameEnd - editor.frameStart;
+  const frameDelta = (event.clientX - drag.startClientX) / rect.width * sceneSpan;
+  const minimumSpan = Math.min(2, sceneSpan);
+
+  if (drag.kind === 'pan') {
+    setTimelineView(
+      drag.startViewStart + frameDelta,
+      drag.startViewEnd + frameDelta,
+      true,
+    );
+  } else if (drag.kind === 'start') {
+    const nextStart = THREE.MathUtils.clamp(
+      drag.startViewStart + frameDelta,
+      editor.frameStart,
+      drag.startViewEnd - minimumSpan,
+    );
+    setTimelineView(nextStart, drag.startViewEnd, true);
+  } else {
+    const nextEnd = THREE.MathUtils.clamp(
+      drag.startViewEnd + frameDelta,
+      drag.startViewStart + minimumSpan,
+      editor.frameEnd,
+    );
+    setTimelineView(drag.startViewStart, nextEnd, true);
+  }
+  event.preventDefault();
+});
+
+function finishTimelineScrollbarDrag(event: PointerEvent) {
+  const drag = timelineScrollbarDrag;
+  if (!drag || event.pointerId !== drag.pointerId) return;
+  timelineScrollbarDrag = null;
+  timelineViewScrollbar.classList.remove('dragging', 'resizing');
+  if (timelineViewScrollbar.hasPointerCapture(event.pointerId)) {
+    timelineViewScrollbar.releasePointerCapture(event.pointerId);
+  }
+  if (event.type === 'pointercancel') {
+    setTimelineView(drag.startViewStart, drag.startViewEnd, drag.startManual);
+  }
+}
+timelineViewScrollbar.addEventListener('pointerup', finishTimelineScrollbarDrag);
+timelineViewScrollbar.addEventListener('pointercancel', finishTimelineScrollbarDrag);
+
+timelineViewScrollbar.addEventListener('keydown', event => {
+  if (timelineScrollbarDrag || editor.playing) return;
+  const span = timelineViewEnd - timelineViewStart;
+  const step = Math.max(1, span * 0.1);
+  const page = span * 0.8;
+  if (event.key === 'ArrowLeft') {
+    setTimelineView(timelineViewStart - step, timelineViewEnd - step, true);
+    event.preventDefault();
+  } else if (event.key === 'ArrowRight') {
+    setTimelineView(timelineViewStart + step, timelineViewEnd + step, true);
+    event.preventDefault();
+  } else if (event.key === 'PageUp') {
+    setTimelineView(timelineViewStart - page, timelineViewEnd - page, true);
+    event.preventDefault();
+  } else if (event.key === 'PageDown') {
+    setTimelineView(timelineViewStart + page, timelineViewEnd + page, true);
+    event.preventDefault();
+  } else if (event.key === 'Home') {
+    if (frameTimelineSceneRange()) event.preventDefault();
   }
 });
 
@@ -1707,12 +1833,13 @@ document.addEventListener('keydown', e => {
     }
   }
   if (key === 'escape' && !dialogOpen) {
-    if (timelineKeyDrag || timelineBoxDrag || timelinePanDrag) {
+    if (timelineKeyDrag || timelineBoxDrag || timelinePanDrag || timelineScrollbarDrag) {
       e.preventDefault();
       closeMenus();
       if (timelineKeyDrag) cancelTimelineKeyDrag();
       else if (timelineBoxDrag) cancelTimelineBoxDrag();
-      else cancelTimelinePanDrag();
+      else if (timelinePanDrag) cancelTimelinePanDrag();
+      else cancelTimelineScrollbarDrag();
       return;
     }
     if (timelineSelectedFrames.size && e.target === $<HTMLInputElement>('#scrubber')) {
@@ -1758,6 +1885,6 @@ document.addEventListener('keydown', e => {
   }
 });
 document.addEventListener('keyup', e => { if (e.key === 'Alt') editor.orbit.mouseButtons.LEFT = null as unknown as THREE.MOUSE; });
-window.addEventListener('blur', () => { editor.orbit.mouseButtons.LEFT = null as unknown as THREE.MOUSE; cancelTimelineKeyDrag(); cancelTimelineBoxDrag(); if (editor.playing) editor.togglePlayback(); });
+window.addEventListener('blur', () => { editor.orbit.mouseButtons.LEFT = null as unknown as THREE.MOUSE; cancelTimelineKeyDrag(); cancelTimelineBoxDrag(); cancelTimelinePanDrag(); cancelTimelineScrollbarDrag(); if (editor.playing) editor.togglePlayback(); });
 document.addEventListener('visibilitychange', () => { if (document.hidden && editor.playing) editor.togglePlayback(); });
 if (import.meta.env.DEV) Object.assign(window, { __forge: editor, __rig: rigSystem });
