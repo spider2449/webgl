@@ -228,7 +228,7 @@ export class AnimationGraphView {
   ) {
     const defs = svgElement('defs', {});
     const plotClip = svgElement('clipPath', { id: 'animation-graph-plot-clip' });
-    plotClip.append(svgElement('rect', { x: 48, y: 18, width: 924, height: 144 }));
+    plotClip.append(svgElement('rect', { x: 44, y: 14, width: 932, height: 152 }));
     defs.append(plotClip);
     svg.replaceChildren(defs, this.curveLayer, this.selectionBox, this.playhead);
     svg.addEventListener('pointerdown', this.pointerDown);
