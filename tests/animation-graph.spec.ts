@@ -169,7 +169,7 @@ test('Aligned tangent pointer dragging couples the opposite scalar-key handle', 
   expect(after.leftLength).toBeCloseTo(before.leftLength, 6);
 });
 
-test('Auto tangent handles recompute from neighboring scalar keys and are locked', async ({ page }) => {
+test('Auto tangent handles recompute and manual dragging converts them to Aligned', async ({ page }) => {
   await page.evaluate(() => {
     const e = (window as any).__forge;
     e.scrub(1); e.selected.position.x = 0; e.insertChannelKey('position.x');
@@ -200,16 +200,6 @@ test('Auto tangent handles recompute from neighboring scalar keys and are locked
   expect(stored.left).toBeUndefined();
   expect(stored.right).toBeUndefined();
 
-  const right = graph.locator('.graph-handle[data-handle="right"]');
-  const pathBefore = await graph.locator('.graph-curve').getAttribute('d');
-  const box = await right.boundingBox();
-  expect(box).not.toBeNull();
-  await page.mouse.move(box!.x + box!.width / 2, box!.y + box!.height / 2);
-  await page.mouse.down();
-  await page.mouse.move(box!.x + box!.width / 2, box!.y - 30, { steps: 5 });
-  await page.mouse.up();
-  expect(await graph.locator('.graph-curve').getAttribute('d')).toBe(pathBefore);
-
   await page.evaluate(() => {
     const e = (window as any).__forge;
     e.selected.userData.animationTracks['position.x'][2].value = 16;
@@ -222,6 +212,42 @@ test('Auto tangent handles recompute from neighboring scalar keys and are locked
   );
   expect(updated[0]).toBeLessThan(8);
   expect(updated[1]).toBeGreaterThan(8);
+
+  const right = graph.locator('.graph-handle[data-handle="right"]');
+  const pathBefore = await graph.locator('.graph-curve').getAttribute('d');
+  const box = await right.boundingBox();
+  expect(box).not.toBeNull();
+  await page.mouse.move(box!.x + box!.width / 2, box!.y + box!.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(box!.x + box!.width / 2, box!.y - 30, { steps: 5 });
+  await page.mouse.up();
+
+  expect(await graph.locator('.graph-curve').getAttribute('d')).not.toBe(pathBefore);
+  await expect(graph.locator('.graph-handle.aligned')).toHaveCount(2);
+  await expect(page.getByLabel('Selected key tangent mode')).toHaveValue('aligned');
+
+  const manual = await page.evaluate(() => {
+    const key = (window as any).__forge.selected.userData.animationTracks['position.x'][1];
+    const left = [...key.left], right = [...key.right];
+    return {
+      tangent: key.tangent,
+      left,
+      right,
+      cross: left[0] * right[1] - left[1] * right[0],
+      dot: left[0] * right[0] + left[1] * right[1],
+    };
+  });
+  expect(manual.tangent).toBe('aligned');
+  expect(manual.cross).toBeCloseTo(0, 6);
+  expect(manual.dot).toBeLessThan(0);
+
+  await page.evaluate(() => (window as any).__forge.undo());
+  const restored = await page.evaluate(() => structuredClone(
+    (window as any).__forge.selected.userData.animationTracks['position.x'][1]
+  ));
+  expect(restored.tangent).toBe('auto');
+  expect(restored.left).toBeUndefined();
+  expect(restored.right).toBeUndefined();
 });
 
 

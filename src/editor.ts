@@ -95,7 +95,7 @@ export class Editor extends EventTarget {
   private rotationDragReference = new THREE.Vector3();
   private rotationDragMatrix = new THREE.Matrix4();
   private animationKeyDrag: { object: THREE.Object3D; sourceFrames: number[]; anchorFrame: number; channel: ScalarAnimationChannel; copy: boolean; changed: boolean; originalTrack: ScalarKey[]; pendingCopy?: { frameDelta: number; valueDelta: number } } | null = null;
-  private animationHandleDrag: { object: THREE.Object3D; frame: number; channel: ScalarAnimationChannel; side: 'left' | 'right'; originalTrack: ScalarKey[] } | null = null;
+  private animationHandleDrag: { object: THREE.Object3D; frame: number; channel: ScalarAnimationChannel; side: 'left' | 'right'; changed: boolean; originalTrack: ScalarKey[] } | null = null;
   transformOrientation: TransformOrientation = 'world';
   private transformTool: 'select' | 'translate' | 'rotate' | 'scale' = 'translate';
   private viewStyle = 'material';
@@ -1333,12 +1333,13 @@ export class Editor extends EventTarget {
     const enabled = side === 'right'
       ? index < keys.length - 1 && (keys[index].interpolation ?? 'linear') === 'bezier'
       : index > 0 && (keys[index - 1].interpolation ?? 'linear') === 'bezier';
-    if (!enabled || (keys[index].tangent ?? 'free') === 'auto') return false;
+    if (!enabled) return false;
     this.animationHandleDrag = {
       object: this.selected,
       frame,
       channel,
       side,
+      changed: false,
       originalTrack: keys.map(cloneScalarKey),
     };
     return true;
@@ -1370,6 +1371,29 @@ export class Editor extends EventTarget {
     }
 
     const clampedFrame = THREE.MathUtils.clamp(targetFrame, minimumFrame, maximumFrame);
+    const originalHandle = effectiveBezierHandle(drag.originalTrack, index, drag.side);
+    if (!originalHandle) return false;
+    const originalFrame = key.frame + originalHandle[0];
+    const originalValue = key.value + originalHandle[1];
+    const changed = Math.abs(clampedFrame - originalFrame) > 1e-9 || Math.abs(targetValue - originalValue) > 1e-9;
+    drag.changed = changed;
+    if (!changed) {
+      this.setAnimationTrack(drag.object, drag.channel, drag.originalTrack);
+      this.evaluateAnimation();
+      this.emit('animation');
+      this.emit('transform');
+      this.invalidate();
+      return { frame: clampedFrame, value: displayValue };
+    }
+
+    if ((key.tangent ?? 'free') === 'auto') {
+      key.tangent = 'aligned';
+      const left = effectiveBezierHandle(drag.originalTrack, index, 'left');
+      const right = effectiveBezierHandle(drag.originalTrack, index, 'right');
+      if (left) key.left = [...left];
+      if (right) key.right = [...right];
+    }
+
     const dragged: [number, number] = [clampedFrame - key.frame, targetValue - key.value];
     key[drag.side] = dragged;
 
@@ -1430,8 +1454,35 @@ export class Editor extends EventTarget {
       this.invalidate();
       return true;
     }
+    if (!drag.changed) return false;
     this.commit();
     return true;
+  }
+
+  editAnimationHandle(
+    frame: number,
+    channel: ScalarAnimationChannel,
+    side: 'left' | 'right',
+    targetFrame: number,
+    displayValue: number,
+  ) {
+    if (!Number.isInteger(frame) || !validAnimationChannel(channel) || (side !== 'left' && side !== 'right') || !Number.isFinite(targetFrame) || !Number.isFinite(displayValue)) {
+      throw new Error('Choose a valid Bezier handle with finite Frame / Value coordinates.');
+    }
+    if (!this.beginAnimationHandleDrag(frame, channel, side)) {
+      throw new Error('Choose one editable Bezier handle first.');
+    }
+    const preview = this.previewAnimationHandleDrag(targetFrame, displayValue);
+    if (!preview) {
+      this.endAnimationHandleDrag(true);
+      throw new Error('The Bezier handle could not be edited.');
+    }
+    if (Math.abs(preview.frame - targetFrame) > 1e-9) {
+      this.endAnimationHandleDrag(true);
+      throw new Error('Handle Frame must stay within the editable Bezier segment.');
+    }
+    const changed = this.endAnimationHandleDrag(false);
+    return changed ? preview : false;
   }
 
   keyObjectTransform(object: THREE.Object3D, frame = Math.round(this.frame)) {

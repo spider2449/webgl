@@ -31,6 +31,7 @@ The browser tests use port 5174. Production output is in `dist/`. No backend, ac
 - Material properties edit the first standard material of a selected mesh. Imported groups expose child meshes in the outliner. Solid and wireframe views are temporary viewport overrides.
 - The Material workspace includes bounded **Texture paint** and texture management tools for UV-mapped meshes. Enable an embedded 256×256 canvas, choose a brush color and size, paint directly on the UV layout, or import PNG/JPEG/WebP pixels and export the active canvas as PNG; clear, undo/redo and Forge project save/load retain the bitmap. Layers, alpha masks and packing are not included.
 - Use the timeline to insert transform keys across all nine scalar channels, or the Graph Editor to author Location/Rotation/Scale channels independently. Playback interpolates at a 24 fps timeline timebase across frames 1–250. Rotation tracks store unwrapped Euler radians, so values such as 270°, 540° or 720° survive scrubbing, playback and Forge project reloads instead of folding back into ±180°; quaternion values are derived for viewport transforms and GLB export.
+- Use the top-bar **Light / Dark** control to switch the editor chrome between themes. Dark remains the default; the choice is stored locally and survives reload. Both themes keep Graph/Timeline secondary text at readable contrast. Theme switching affects editor chrome only and does not replace the WebGL scene background or alter scene lighting/materials.
 - Ctrl+Z / Ctrl+Shift+Z undo and redo. Shift+D creates an independent duplicate; Alt+D creates a linked duplicate for an ordinary mesh, sharing its geometry and material while keeping transform, name and collection membership independent. Linked duplication rejects skinned meshes and meshes with an active modifier stack. Delete removes objects. Individual bones cannot be deleted or duplicated; duplicate the armature to make an independent character.
 
 ### Triangle inset
@@ -197,9 +198,16 @@ Bezier keys support **Free**, **Aligned**, and **Auto** tangent modes. Free
 handles are independent. Aligned keeps both sides opposite and collinear while
 preserving the opposite handle length when bounds allow. Auto derives a
 monotone slope from neighboring scalar keys and updates automatically as key
-times or values change; Auto handles are visible but not draggable. Rotation
-tracks store unwrapped radians and the Graph Editor displays degrees, so values
-such as 270°, 540°, or 720° remain continuous.
+times or values change. Following the Blender Graph Editor interaction model,
+manually dragging or precisely editing an Auto handle materializes its current
+automatic handles and converts that key to **Aligned**; undo restores Auto and
+its computed handles. A dedicated **Bezier Handles** inspector below the Key
+Inspector shows the active mode as **FREE · independent**, **ALIGNED · linked**,
+or **AUTO · edit → ALIGNED**, and exposes the selected Left/Right handle's
+absolute **Frame** and **Value**. Handle frames may be fractional; rotation
+handle values are displayed and entered in degrees. Free edits affect one side,
+while Aligned edits keep the opposite side collinear. Rotation tracks store
+unwrapped radians, so values such as 270°, 540°, or 720° remain continuous.
 
 Transform fields in the Object panel use Blender-style animation state colors
 per scalar channel: **yellow** when that channel has a key on the current frame,
