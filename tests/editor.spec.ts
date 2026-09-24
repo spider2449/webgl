@@ -59,6 +59,37 @@ test('renders the viewport and stops rendering while idle', async ({ page }) => 
   await page.screenshot({ path: 'test-results/layout.png' });
 });
 
+test('axis widget snaps X Y Z to deterministic orthographic views', async ({ page }) => {
+  const cases = [
+    { id: '#axis-x', direction: [1, 0, 0], up: [0, 1, 0], label: 'Right Orthographic' },
+    { id: '#axis-y', direction: [0, 1, 0], up: [0, 0, -1], label: 'Top Orthographic' },
+    { id: '#axis-z', direction: [0, 0, 1], up: [0, 1, 0], label: 'Front Orthographic' },
+  ] as const;
+
+  for (const expected of cases) {
+    await page.locator(expected.id).click();
+    await expect(page.locator('#view-label')).toHaveText(expected.label);
+    const view = await page.evaluate(() => {
+      const e = (window as any).__forge;
+      return {
+        orthographic: e.camera === e.orthographic,
+        direction: e.camera.position.clone().sub(e.orbit.target).normalize().toArray(),
+        up: e.camera.up.toArray(),
+      };
+    });
+    expect(view.orthographic).toBe(true);
+    expected.direction.forEach((value, index) => expect(view.direction[index]).toBeCloseTo(value, 6));
+    expected.up.forEach((value, index) => expect(view.up[index]).toBeCloseTo(value, 6));
+  }
+
+  await page.locator('#axis-home').click();
+  await expect(page.locator('#view-label')).toHaveText('User Perspective');
+  expect(await page.evaluate(() => {
+    const e = (window as any).__forge;
+    return e.camera === e.perspective;
+  })).toBe(true);
+});
+
 test('adds, transforms, duplicates, undoes and removes objects through the UI', async ({ page }) => {
   await page.locator('[data-menu="add-menu"]').click();
   await page.locator('[data-primitive="sphere"]').click();
