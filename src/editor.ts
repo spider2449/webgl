@@ -576,6 +576,7 @@ export class Editor extends EventTarget {
     }
     this.replaceGeometry(this.selected, geometry);
     this.selected.userData.forgePrimitive = next;
+    if (next.kind === 'cube' || next.kind === 'plane') this.selected.userData.forgeLogicalQuads = true;
     this.commit();
     return next;
   }
@@ -584,6 +585,8 @@ export class Editor extends EventTarget {
       throw new Error('Select a parametric primitive in Object Mode first.');
     }
     if (this.selected.userData.forgePrimitive === undefined) return false;
+    const settings = this.primitiveSettings;
+    if (settings?.kind === 'cube' || settings?.kind === 'plane') this.selected.userData.forgeLogicalQuads = true;
     delete this.selected.userData.forgePrimitive;
     this.commit();
     return true;
@@ -1471,7 +1474,7 @@ export class Editor extends EventTarget {
       meshes.forEach(mesh => operation.kind === 'uv' ? this.markPrimitiveApplied(mesh) : this.markTopologyChanged(mesh));
       meshes.forEach((mesh, i) => this.replaceGeometry(mesh, results[i])); results.length = 0;
       if (editing) {
-        this.setEditMode(true, topologies[0]);
+        this.setEditMode(true, operation.kind === 'uv' ? undefined : topologies[0]);
         if (operation.kind === 'subdivide') {
           this.restoreSubdivisionSelection(oldMode, oldEdges, midpoint);
         } else if (operation.kind === 'subdivide-all') {
