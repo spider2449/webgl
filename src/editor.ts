@@ -99,6 +99,8 @@ export class Editor extends EventTarget {
   private raycaster = new THREE.Raycaster();
   private mouseDown = new THREE.Vector2();
   private suppressClick = false;
+  private boxSelectOverlay!: HTMLDivElement;
+  private boxSelectDrag: { pointerId: number; start: THREE.Vector2; current: THREE.Vector2; add: boolean; active: boolean } | null = null;
   private rotationDragObject: THREE.Object3D | null = null;
   private rotationDragReference = new THREE.Vector3();
   private rotationDragMatrix = new THREE.Matrix4();
@@ -120,6 +122,10 @@ export class Editor extends EventTarget {
     this.renderer.toneMappingExposure = 1.3;
     host.prepend(this.renderer.domElement);
     this.renderer.domElement.setAttribute('aria-label', 'Interactive 3D viewport');
+    this.boxSelectOverlay = document.createElement('div');
+    this.boxSelectOverlay.className = 'viewport-box-select';
+    this.boxSelectOverlay.hidden = true;
+    host.append(this.boxSelectOverlay);
     this.gimbal = new GimbalControls(host, this.camera);
     this.gimbal.onDraggingChange = dragging => { this.orbit.enabled = !dragging; if (dragging) this.suppressClick = true; };
     this.gimbal.onChange = () => {
@@ -182,8 +188,41 @@ export class Editor extends EventTarget {
     this.renderer.domElement.addEventListener('pointerdown', e => {
       this.mouseDown.set(e.clientX, e.clientY);
       this.suppressClick = this.transform.dragging;
+      if (e.button === 0 && !this.transform.dragging && !this.playing && !this.modelingBusy && !this.snapTargetPending) {
+        const rect = host.getBoundingClientRect();
+        const start = new THREE.Vector2(e.clientX - rect.left, e.clientY - rect.top);
+        this.boxSelectDrag = { pointerId: e.pointerId, start, current: start.clone(), add: e.shiftKey, active: false };
+      } else this.boxSelectDrag = null;
+    });
+    this.renderer.domElement.addEventListener('pointermove', e => {
+      const drag = this.boxSelectDrag;
+      if (!drag || drag.pointerId !== e.pointerId) return;
+      if (this.transform.dragging || this.suppressClick || this.snapTargetPending) {
+        this.cancelBoxSelection();
+        return;
+      }
+      const rect = host.getBoundingClientRect();
+      drag.current.set(e.clientX - rect.left, e.clientY - rect.top);
+      if (!drag.active && drag.start.distanceTo(drag.current) > 4) {
+        drag.active = true;
+        this.transform.enabled = false;
+        this.orbit.enabled = false;
+        this.renderer.domElement.setPointerCapture(e.pointerId);
+        this.boxSelectOverlay.hidden = false;
+      }
+      if (drag.active) this.updateBoxSelectOverlay(drag.start, drag.current);
     });
     this.renderer.domElement.addEventListener('pointerup', e => {
+      const box = this.boxSelectDrag;
+      if (box && box.pointerId === e.pointerId && box.active) {
+        const end = box.current.clone();
+        const start = box.start.clone();
+        const add = box.add;
+        this.finishBoxSelection(e.pointerId);
+        this.applyBoxSelection(start, end, add);
+        return;
+      }
+      if (box && box.pointerId === e.pointerId) this.boxSelectDrag = null;
       if (e.button !== 0 || this.suppressClick || this.mouseDown.distanceTo(new THREE.Vector2(e.clientX, e.clientY)) > 4) return;
       const rect = host.getBoundingClientRect();
       this.raycaster.setFromCamera(new THREE.Vector2((e.clientX - rect.left) / rect.width * 2 - 1, -(e.clientY - rect.top) / rect.height * 2 + 1), this.camera);
@@ -226,12 +265,99 @@ export class Editor extends EventTarget {
       this.select(object, e.shiftKey);
     });
     this.renderer.domElement.addEventListener('pointerup', restoreTransform);
-    this.renderer.domElement.addEventListener('pointercancel', restoreTransform);
-    this.renderer.domElement.addEventListener('lostpointercapture', restoreTransform);
+    this.renderer.domElement.addEventListener('pointercancel', e => { restoreTransform(e); this.cancelBoxSelection(); });
+    this.renderer.domElement.addEventListener('lostpointercapture', e => { restoreTransform(e); if (this.boxSelectDrag?.pointerId === e.pointerId) this.cancelBoxSelection(); });
     this.renderer.domElement.addEventListener('contextmenu', e => e.preventDefault());
     this.resizeObserver = new ResizeObserver(() => this.resize());
     this.resizeObserver.observe(host);
     this.resize();
+  }
+
+  get boxSelecting() { return !!this.boxSelectDrag?.active; }
+  cancelBoxSelection() {
+    const drag = this.boxSelectDrag;
+    if (!drag) return false;
+    const pointerId = drag.pointerId;
+    this.boxSelectDrag = null;
+    this.boxSelectOverlay.hidden = true;
+    if (this.renderer.domElement.hasPointerCapture(pointerId)) this.renderer.domElement.releasePointerCapture(pointerId);
+    this.transform.enabled = true;
+    this.orbit.enabled = true;
+    return true;
+  }
+  private finishBoxSelection(pointerId: number) {
+    this.boxSelectDrag = null;
+    this.boxSelectOverlay.hidden = true;
+    if (this.renderer.domElement.hasPointerCapture(pointerId)) this.renderer.domElement.releasePointerCapture(pointerId);
+    this.transform.enabled = true;
+    this.orbit.enabled = true;
+  }
+  private updateBoxSelectOverlay(start: THREE.Vector2, end: THREE.Vector2) {
+    const left = Math.min(start.x, end.x), top = Math.min(start.y, end.y);
+    this.boxSelectOverlay.style.left = `${left}px`;
+    this.boxSelectOverlay.style.top = `${top}px`;
+    this.boxSelectOverlay.style.width = `${Math.abs(end.x - start.x)}px`;
+    this.boxSelectOverlay.style.height = `${Math.abs(end.y - start.y)}px`;
+  }
+  private applyBoxSelection(start: THREE.Vector2, end: THREE.Vector2, add: boolean) {
+    const left = Math.min(start.x, end.x), right = Math.max(start.x, end.x);
+    const top = Math.min(start.y, end.y), bottom = Math.max(start.y, end.y);
+    const rect = this.host.getBoundingClientRect();
+    const inside = (point: THREE.Vector3) => {
+      point.project(this.camera);
+      if (point.z < -1 || point.z > 1) return false;
+      const x = (point.x + 1) * rect.width * 0.5;
+      const y = (1 - point.y) * rect.height * 0.5;
+      return x >= left && x <= right && y >= top && y <= bottom;
+    };
+    this.camera.updateMatrixWorld(true);
+    this.content.updateMatrixWorld(true);
+
+    if (this.editMode && this.selected instanceof THREE.Mesh && this.topology) {
+      const positions = this.selected.geometry.getAttribute('position');
+      const vertexPoint = (vertex: number) => this.selected!.localToWorld(new THREE.Vector3().fromBufferAttribute(positions, this.topology!.vertices[vertex][0]));
+      const hits: number[] = [];
+      if (this.componentMode === 'vertex') {
+        this.topology.vertices.forEach((_, vertex) => { if (inside(vertexPoint(vertex))) hits.push(vertex); });
+      } else if (this.componentMode === 'edge') {
+        this.topology.edges.forEach((edge, id) => {
+          const center = vertexPoint(edge[0]).add(vertexPoint(edge[1])).multiplyScalar(0.5);
+          if (inside(center)) hits.push(id);
+        });
+      } else {
+        this.topology.faces.forEach((face, id) => {
+          const center = face.reduce((sum, vertex) => sum.add(vertexPoint(vertex)), new THREE.Vector3()).multiplyScalar(1 / 3);
+          if (inside(center)) hits.push(id);
+        });
+      }
+      if (!add) this.selectedComponents.clear();
+      hits.forEach(id => this.selectedComponents.add(id));
+      this.selectedFace = this.componentMode === 'face' && this.selectedComponents.size === 1 ? [...this.selectedComponents][0] : null;
+      const vertices = [...this.selectedComponents].flatMap(id => this.componentMode === 'vertex' ? [id] : this.componentMode === 'edge' ? this.topology!.edges[id] : this.topology!.faces[id]);
+      this.selectComponentVertices(vertices);
+      this.emit('component-selection');
+      this.emit();
+      return;
+    }
+
+    const roots: THREE.Object3D[] = [];
+    for (const child of this.content.children) {
+      if (this.isCollection(child)) roots.push(...child.children);
+      else roots.push(child);
+    }
+    const hits = roots.filter(object => {
+      if (!this.isVisible(object) || object instanceof THREE.Bone || object instanceof THREE.Points) return false;
+      const bounds = new THREE.Box3().setFromObject(object);
+      if (bounds.isEmpty()) return false;
+      return inside(bounds.getCenter(new THREE.Vector3()));
+    });
+    if (!add) this.selectedObjects.clear();
+    hits.forEach(object => this.selectedObjects.add(object));
+    this.selected = [...this.selectedObjects].at(-1) ?? null;
+    this.syncTransformControls();
+    this.updateSelection();
+    this.emit();
+    this.invalidate();
   }
 
   private beginRotationDrag() {
