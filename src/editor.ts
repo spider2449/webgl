@@ -458,7 +458,10 @@ export class Editor extends EventTarget {
     this.gimbal.update();
     const originals = new Map<THREE.Mesh, THREE.Material | THREE.Material[]>();
     if (this.viewStyle !== 'material') this.content.traverse(o => {
-      if (o instanceof THREE.Mesh) { originals.set(o, o.material); o.material = this.viewStyle === 'wire' ? this.wire : this.solid; }
+      if (o instanceof THREE.Mesh && o.userData.forgeEditorHelper !== true) {
+        originals.set(o, o.material);
+        o.material = this.viewStyle === 'wire' ? this.wire : this.solid;
+      }
     });
     this.renderer.render(this.scene, this.camera);
     originals.forEach((material, mesh) => mesh.material = material);
@@ -998,10 +1001,13 @@ export class Editor extends EventTarget {
       this.componentEdges = new THREE.LineSegments(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({ color: 0xb17842, transparent: true, opacity: 0.55, depthTest: false }));
       this.componentEdges.renderOrder = 9;
       this.selectedVertexOverlay = new THREE.Points(new THREE.BufferGeometry(), new THREE.PointsMaterial({ color: 0xffcf85, size: 10, sizeAttenuation: false, depthTest: false }));
+      this.selectedVertexOverlay.userData.forgeEditorHelper = true;
       this.selectedVertexOverlay.renderOrder = 12;
       this.selectedEdgeOverlay = new THREE.LineSegments(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({ color: 0xffcf85, depthTest: false }));
+      this.selectedEdgeOverlay.userData.forgeEditorHelper = true;
       this.selectedEdgeOverlay.renderOrder = 12;
       this.selectedFaceOverlay = new THREE.Mesh(new THREE.BufferGeometry(), new THREE.MeshBasicMaterial({ color: 0xffb95f, transparent: true, opacity: 0.32, depthTest: false, depthWrite: false, side: THREE.DoubleSide }));
+      this.selectedFaceOverlay.userData.forgeEditorHelper = true;
       this.selectedFaceOverlay.renderOrder = 11;
       this.vertexPoints.add(this.componentEdges, this.selectedVertexOverlay, this.selectedEdgeOverlay, this.selectedFaceOverlay);
       this.refreshComponents();
@@ -2544,7 +2550,12 @@ export class Editor extends EventTarget {
 
   stats() {
     let vertices = 0, triangles = 0;
-    this.content.traverse(o => { if (o instanceof THREE.Mesh) { vertices += o.geometry.getAttribute('position')?.count ?? 0; triangles += (o.geometry.index?.count ?? o.geometry.getAttribute('position')?.count ?? 0) / 3; } });
+    this.content.traverse(o => {
+      if (o instanceof THREE.Mesh && o.userData.forgeEditorHelper !== true) {
+        vertices += o.geometry.getAttribute('position')?.count ?? 0;
+        triangles += (o.geometry.index?.count ?? o.geometry.getAttribute('position')?.count ?? 0) / 3;
+      }
+    });
     return { objects: this.content.children.filter(object => !this.isCollection(object)).length + this.collections.reduce((count, collection) => count + collection.children.length, 0), vertices, triangles: Math.round(triangles), calls: this.renderer.info.render.calls, frames: this.renderedFrames };
   }
 }
