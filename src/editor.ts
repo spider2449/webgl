@@ -125,7 +125,7 @@ export class Editor extends EventTarget {
     this.boxSelectOverlay = document.createElement('div');
     this.boxSelectOverlay.className = 'viewport-box-select';
     this.boxSelectOverlay.hidden = true;
-    host.append(this.boxSelectOverlay);
+    this.renderer.domElement.after(this.boxSelectOverlay);
     this.gimbal = new GimbalControls(host, this.camera);
     this.gimbal.onDraggingChange = dragging => { this.orbit.enabled = !dragging; if (dragging) this.suppressClick = true; };
     this.gimbal.onChange = () => {
@@ -188,7 +188,7 @@ export class Editor extends EventTarget {
     this.renderer.domElement.addEventListener('pointerdown', e => {
       this.mouseDown.set(e.clientX, e.clientY);
       this.suppressClick = this.transform.dragging;
-      if (e.button === 0 && !this.transform.dragging && !this.playing && !this.modelingBusy && !this.snapTargetPending) {
+      if (e.button === 0 && !e.altKey && !this.transform.dragging && !this.playing && !this.modelingBusy && !this.snapTargetPending) {
         const rect = host.getBoundingClientRect();
         const start = new THREE.Vector2(e.clientX - rect.left, e.clientY - rect.top);
         this.boxSelectDrag = { pointerId: e.pointerId, start, current: start.clone(), add: e.shiftKey, active: false };
