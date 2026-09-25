@@ -752,7 +752,11 @@ export class Editor extends EventTarget {
     this.content.traverse(o => { if (!removedNodes.has(o)) collect(o,retained); });
     resources.forEach(r => { if (!retained.has(r)) r.dispose(); });
   }
-  setShading(value: string) { this.viewStyle = value; this.invalidate(); }
+  setShading(value: string) {
+    this.viewStyle = value;
+    this.refreshComponents();
+    this.invalidate();
+  }
   setQuality(value: string) { this.renderer.setPixelRatio(Math.min(devicePixelRatio, value === 'high' ? 2 : value === 'low' ? 1 : 1.5)); this.resize(); }
   view(axis: 'front' | 'right' | 'top' | 'perspective') {
     const distance = Math.max(0.001, this.camera.position.distanceTo(this.orbit.target));
@@ -1005,7 +1009,7 @@ export class Editor extends EventTarget {
       this.topology = preparedTopology ?? buildTopology(position.array, this.selected.geometry.index?.array);
       geometry.setAttribute('color', new THREE.Float32BufferAttribute(new Float32Array(position.count * 3).fill(1), 3));
       (this.vertexPoints.material as THREE.PointsMaterial).vertexColors = true;
-      this.componentEdges = new THREE.LineSegments(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({ color: 0x252a31, transparent: true, opacity: 0.88, depthTest: false }));
+      this.componentEdges = new THREE.LineSegments(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({ color: 0x454b54, transparent: true, opacity: 0.9, depthTest: false }));
       this.componentEdges.renderOrder = 9;
       this.selectedVertexOverlay = new THREE.Points(new THREE.BufferGeometry(), new THREE.PointsMaterial({ color: 0xffcf85, size: 10, sizeAttenuation: false, depthTest: false }));
       this.selectedVertexOverlay.userData.forgeEditorHelper = true;
@@ -1057,6 +1061,9 @@ export class Editor extends EventTarget {
   }
   private refreshComponents() {
     if (!this.vertexPoints || !this.componentEdges || !this.topology || !(this.selected instanceof THREE.Mesh)) return;
+    const edgeMaterial = this.componentEdges.material as THREE.LineBasicMaterial;
+    edgeMaterial.color.setHex(this.viewStyle === 'wire' ? 0x9aa1aa : 0x454b54);
+    edgeMaterial.opacity = this.viewStyle === 'wire' ? 1 : 0.9;
     const position = this.selected.geometry.getAttribute('position');
     let edges = this.componentEdges.geometry.getAttribute('position');
     if (!edges || edges.count !== this.topology.edges.length * 2) {
