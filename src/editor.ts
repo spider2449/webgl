@@ -1301,7 +1301,8 @@ export class Editor extends EventTarget {
   }
   extrudePlanarRegion(distance: number) {
     if (!this.editMode || this.componentMode !== 'face' || !this.selectedComponents.size || !(this.selected instanceof THREE.Mesh) || this.selected instanceof THREE.SkinnedMesh || this.playing || this.transform.dragging) throw new Error('Select connected coplanar faces in Edit Mode and finish the current drag first.');
-    const faces = [...this.selectedComponents].flatMap(face => this.componentFaceTriangles(face)), mesh = this.selected, original = mesh.geometry;
+    const polygons = [...this.selectedComponents];
+    const faces = polygons.flatMap(face => this.componentFaceTriangles(face)), mesh = this.selected, original = mesh.geometry;
     const geometry = extrudeRegion(original, faces, distance);
     if (this.stats().vertices + geometry.getAttribute('position').count - original.getAttribute('position').count > 2_000_000) {
       geometry.dispose(); throw new Error('Region extrusion would exceed the scene vertex limit.');
@@ -1313,10 +1314,9 @@ export class Editor extends EventTarget {
     this.content.traverse(object => { if (object instanceof THREE.Mesh && object.geometry === original) retained = true; });
     if (!retained) original.dispose();
     this.setEditMode(true);
-    const capPolygons = [...this.selectedComponents];
-    this.selectedComponents = new Set(capPolygons);
-    this.selectedFace = capPolygons.length === 1 ? capPolygons[0] : null;
-    this.selectComponentVertices(capPolygons.flatMap(face => this.topology!.polygons[face]));
+    this.selectedComponents = new Set(polygons);
+    this.selectedFace = polygons.length === 1 ? polygons[0] : null;
+    this.selectComponentVertices(polygons.flatMap(face => this.topology!.polygons[face]));
     this.commit();
   }
   subdivideSelectedEdge() {
