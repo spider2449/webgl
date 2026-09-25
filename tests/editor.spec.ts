@@ -49,6 +49,40 @@ test('default mesh shading uses neutral gray while preserving custom material ed
   expect(await page.evaluate(() => (window as any).__forge.selected.material.color.getHex())).toBe(0x336699);
 });
 
+test('legacy default primitive material migrates to neutral gray on project load', async ({ page }) => {
+  const result = await page.evaluate(() => {
+    const e = (window as any).__forge;
+    const material = e.selected.material;
+    material.color.setHex(0xb8b6b2);
+    material.roughness = 0.42;
+    material.metalness = 0.12;
+    const saved = JSON.parse(e.snapshot());
+    e.load(saved);
+    const migrated = e.selected.material;
+
+    migrated.color.setHex(0xb8b6b2);
+    migrated.roughness = 0.6;
+    migrated.metalness = 0.12;
+    const customSaved = JSON.parse(e.snapshot());
+    e.load(customSaved);
+    const custom = e.selected.material;
+
+    return {
+      migratedColor: migrated.color.getHex(),
+      migratedRoughness: migrated.roughness,
+      migratedMetalness: migrated.metalness,
+      customColor: custom.color.getHex(),
+      customRoughness: custom.roughness,
+    };
+  });
+
+  expect(result.migratedColor).toBe(0x888c92);
+  expect(result.migratedRoughness).toBeCloseTo(0.55);
+  expect(result.migratedMetalness).toBeCloseTo(0.05);
+  expect(result.customColor).toBe(0xb8b6b2);
+  expect(result.customRoughness).toBeCloseTo(0.6);
+});
+
 test('new scenes start with zero cube rotation', async ({ page }) => {
   const initial = await page.evaluate(() => {
     const e = (window as any).__forge;
