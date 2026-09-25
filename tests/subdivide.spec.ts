@@ -70,7 +70,7 @@ test('viewport selected edge subdivides, keeps split edges selected and restores
   await page.getByLabel('Mesh component').selectOption('edge');
   const target=await page.evaluate(()=>{
     const e=(window as any).__forge,m=e.selected,t=e.topology,a=m.geometry.attributes.position;
-    const edge=t.edges.find((vs:number[])=>vs.every(v=>a.getZ(t.vertices[v][0])===1 && a.getY(t.vertices[v][0])===1));
+    const edge=t.polygonEdges.find((vs:number[])=>vs.every(v=>a.getZ(t.vertices[v][0])===1 && a.getY(t.vertices[v][0])===1));
     const point=m.position.clone().set(0,0,0);
     for (const v of edge) point.add(m.position.clone().fromBufferAttribute(a,t.vertices[v][0])); point.multiplyScalar(0.5);
     const midpoint=point.toArray(); m.updateWorldMatrix(true,true); e.camera.updateMatrixWorld(true); m.localToWorld(point).project(e.camera);
