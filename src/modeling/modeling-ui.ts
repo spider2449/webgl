@@ -15,8 +15,8 @@ export function mountModelingUI(editor: Editor, toast: (message: string) => void
       <p class="field-help" id="modeling-state" role="status">Ready</p>
     </details>
     <details class="modeling-section"><summary>UV editor</summary>
-      <canvas id="uv-view" width="256" height="192" aria-label="Selected triangle UV layout"></canvas>
-      <p class="field-help">Select triangle faces in the viewport. The view fits their UV bounds and previews up to 2,000 triangles. Projection uses local units.</p>
+      <canvas id="uv-view" width="256" height="192" aria-label="Selected face UV layout"></canvas>
+      <p class="field-help">Select logical faces in the viewport. Quad faces preview both render triangles; the view fits up to 2,000 render triangles. Projection uses local units.</p>
       <label class="property-row">U offset<input id="uv-u" aria-label="UV U offset" type="number" step="0.1" value="0"></label>
       <label class="property-row">V offset<input id="uv-v" aria-label="UV V offset" type="number" step="0.1" value="0"></label>
       <label class="property-row">Rotation °<input id="uv-angle" aria-label="UV rotation" type="number" value="0"></label>
@@ -46,12 +46,25 @@ export function mountModelingUI(editor: Editor, toast: (message: string) => void
   const value = (id: string) => Number(el<HTMLInputElement>(id).value);
   const action = (id: string, fn: () => unknown | Promise<unknown>) => el(id).onclick = async () => { try { await fn(); toast('Modeling operation complete.'); } catch (error) { toast((error as Error).message); } };
   const requireSelection = (mode: 'edge' | 'face') => {
-    if (!editor.editMode || editor.componentMode !== mode || !editor.componentSelection.length) throw new Error(`Select ${mode === 'face' ? 'triangle faces' : 'edges'} in Edit Mode first.`);
+    if (!editor.editMode || editor.componentMode !== mode || !editor.componentSelection.length) throw new Error(`Select ${mode === 'face' ? 'faces' : 'edges'} in Edit Mode first.`);
     return editor.componentSelection;
   };
-  action('bevel-edges', () => editor.runModeling({ kind: 'bevel', edges: requireSelection('edge'), width: value('bevel-width') }));
-  action('loop-cut', () => { const edges = requireSelection('edge'); if (edges.length !== 1) throw new Error('Select exactly one quad boundary edge.'); return editor.runModeling({ kind: 'loop', edge: edges[0] }); });
-  for (const operation of ['project', 'transform'] as const) action(`uv-${operation}`, () => editor.runModeling({ kind: 'uv', faces: requireSelection('face'), operation, values: ['uv-u', 'uv-v', 'uv-angle', 'uv-su', 'uv-sv'].map(value) }));
+  action('bevel-edges', () => {
+    const edges = requireSelection('edge').map(edge => editor.componentEdgeToTriangleEdge(edge));
+    if (edges.some(edge => edge === undefined)) throw new Error('Selected logical edge has no render-edge mapping.');
+    return editor.runModeling({ kind: 'bevel', edges: edges as number[], width: value('bevel-width') });
+  });
+  action('loop-cut', () => {
+    const edges = requireSelection('edge');
+    if (edges.length !== 1) throw new Error('Select exactly one quad boundary edge.');
+    const edge = editor.componentEdgeToTriangleEdge(edges[0]);
+    if (edge === undefined) throw new Error('Selected logical edge has no render-edge mapping.');
+    return editor.runModeling({ kind: 'loop', edge });
+  });
+  for (const operation of ['project', 'transform'] as const) action(`uv-${operation}`, () => {
+    const faces = requireSelection('face').flatMap(face => editor.componentFaceTriangles(face));
+    return editor.runModeling({ kind: 'uv', faces, operation, values: ['uv-u', 'uv-v', 'uv-angle', 'uv-su', 'uv-sv'].map(value) });
+  });
   const stack = () => structuredClone((editor.selected?.userData.modifierStack as ModifierStack | undefined)?.items ?? []);
   action('modifier-add', () => editor.setModifiers([...stack(), { kind: el<HTMLSelectElement>('modifier-kind').value as Modifier['kind'], amount: value('modifier-amount'), enabled: true }]));
   action('modifier-apply', () => editor.applyModifiers());
@@ -94,7 +107,8 @@ export function mountModelingUI(editor: Editor, toast: (message: string) => void
     ctx.fillStyle = '#202329'; ctx.fillRect(0, 0, canvas.width, canvas.height);
     if (!(editor.selected instanceof THREE.Mesh) || !editor.editMode || editor.componentMode !== 'face') return;
     const geometry = editor.selected.geometry, uv = geometry.getAttribute('uv'); if (!uv) return;
-    const triangles = editor.componentSelection.slice(0, 2000).map(f => [0, 1, 2].map(j => { const i = geometry.index?.getX(f * 3 + j) ?? f * 3 + j; return [uv.getX(i), uv.getY(i)]; }));
+    const triangleFaces = editor.componentSelection.flatMap(face => editor.componentFaceTriangles(face)).slice(0, 2000);
+    const triangles = triangleFaces.map(f => [0, 1, 2].map(j => { const i = geometry.index?.getX(f * 3 + j) ?? f * 3 + j; return [uv.getX(i), uv.getY(i)]; }));
     if (!triangles.length) return;
     const points = triangles.flat(), min = [0, 1].map(j => Math.min(...points.map(p => p[j]))), max = [0, 1].map(j => Math.max(...points.map(p => p[j])));
     const scale = Math.min(224 / Math.max(1e-6, max[0] - min[0]), 160 / Math.max(1e-6, max[1] - min[1]));
