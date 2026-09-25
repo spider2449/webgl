@@ -189,5 +189,14 @@ export function createPrimitiveGeometry(settings: PrimitiveSettings): THREE.Buff
 
   const geometry = new THREE.BufferGeometry().copy(source);
   source.dispose();
+
+  if (value.kind === 'cube' || value.kind === 'plane') {
+    const triangleCount = (geometry.index?.count ?? geometry.getAttribute('position').count) / 3;
+    geometry.userData.forgePolygonTriangles = Array.from(
+      { length: triangleCount / 2 },
+      (_, polygon) => [polygon * 2, polygon * 2 + 1],
+    );
+  }
+
   return geometry;
 }
