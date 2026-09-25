@@ -71,7 +71,7 @@ $('#app').innerHTML = `
     <aside class="sidebar">
       <section class="outliner"><div class="panel-heading"><span class="panel-title">${icon('layers')} Scene Collection</span><span class="count" id="object-count">1</span>${button('add-outliner','plus','Add mesh')}</div><div class="search-field">${icon('search')}<input id="object-search" placeholder="Search objects…" aria-label="Search objects"><kbd>/</kbd></div><div class="collection-row">${icon('chevron-down')}${icon('folder-open')}<span>Scene Collection</span>${button('add-collection','plus','Create collection')}</div><div id="object-list" class="object-list"></div><div class="outliner-footer"><span id="selection-count">1 object selected</span>${button('delete-outliner','trash-2','Delete selected object')}<input id="collection-name" aria-label="New collection name" value="Collection" maxlength="100"><select id="collection-target" aria-label="Target collection"><option value="">Move selected to…</option></select>${button('move-to-collection','folder-open','Move selected to collection')}${button('unlink-collection','log-out','Unlink from collection')}${button('delete-collection','trash-2','Delete empty collection')}</div></section>
       <section class="properties"><div class="properties-tabs"><button class="active" data-panel="object">${icon('sliders-horizontal')} Object</button><button data-panel="material">${icon('circle')} Material</button><button data-panel="scene">${icon('settings-2')} Scene</button></div><div class="properties-content">
-        <div id="panel-object" class="property-panel"><div class="object-title">${icon('box')}<input id="object-name" aria-label="Object name" maxlength="100" value="Cube"><span class="object-type" id="object-type">MESH</span></div><div id="no-selection" class="empty-state hidden">Select an object to edit its properties.</div><div id="object-fields"><div class="section-heading"><span>${icon('chevron-down')} Transform</span><button id="reset-transform" title="Reset transform" aria-label="Reset transform">${icon('undo-2')}</button></div>${['position','rotation','scale'].map((group) => `<div class="transform-group"><label>${group === 'position' ? 'Location' : group[0].toUpperCase()+group.slice(1)}</label><div class="vector-inputs">${['x','y','z'].map(axis => `<label class="axis-input ${axis}"><span>${axis.toUpperCase()}</span><input type="number" step="${group === 'rotation' ? 1 : 0.1}" data-transform="${group}" data-axis="${axis}" aria-label="${group} ${axis}" value="0"></label>`).join('')}</div></div>`).join('')}<div class="property-note">${icon('globe')} Local object transform · Rotation in degrees · Gimbal edits Euler channels directly</div><div class="section-heading border-top"><span>${icon('chevron-down')} Geometry</span></div><div id="primitive-fields" class="hidden"><div class="section-heading"><span>Primitive parameters</span><span class="count" id="primitive-kind"></span></div><div id="primitive-parameters"></div><button class="wide-button" id="primitive-apply">Apply primitive</button><p class="field-help">Increase segments before skin binding for denser weight vertices. Starting a topology edit automatically applies these parameters.</p></div><div class="geometry-stats"><div><span>Vertices</span><strong id="mesh-vertices">24</strong></div><div><span>Triangles</span><strong id="mesh-triangles">12</strong></div></div><label class="property-row">Extrusion distance<input id="extrude-distance" aria-label="Extrusion distance" type="number" min="0.0001" max="1000" step="0.1" value="0.5"></label><p class="field-help">Tool setting for Face Context → Extrude Face / Extrude Region. Modeling actions live in the viewport context menu.</p><button class="wide-button" id="mirror">${icon('copy')} Mirror geometry on X</button><p class="field-help">Mirror is applied to the mesh. Use Edit Mode to move vertices, logical boundary edges or faces.</p></div></div>
+        <div id="panel-object" class="property-panel"><div class="object-title">${icon('box')}<input id="object-name" aria-label="Object name" maxlength="100" value="Cube"><span class="object-type" id="object-type">MESH</span></div><div id="no-selection" class="empty-state hidden">Select an object to edit its properties.</div><div id="object-fields"><div class="section-heading"><span>${icon('chevron-down')} Transform</span><button id="reset-transform" title="Reset transform" aria-label="Reset transform">${icon('undo-2')}</button></div>${['position','rotation','scale'].map((group) => `<div class="transform-group"><label>${group === 'position' ? 'Location' : group[0].toUpperCase()+group.slice(1)}</label><div class="vector-inputs">${['x','y','z'].map(axis => `<label class="axis-input ${axis}"><span>${axis.toUpperCase()}</span><input type="number" step="${group === 'rotation' ? 1 : 0.1}" data-transform="${group}" data-axis="${axis}" aria-label="${group} ${axis}" value="0"></label>`).join('')}</div></div>`).join('')}<div class="property-note">${icon('globe')} Local object transform · Rotation in degrees · Gimbal edits Euler channels directly</div><div class="section-heading border-top"><span>${icon('chevron-down')} Geometry</span></div><div id="primitive-fields" class="hidden"><div class="section-heading"><span>Primitive parameters</span><span class="count" id="primitive-kind"></span></div><div id="primitive-parameters"></div><button class="wide-button" id="primitive-apply">Apply primitive</button><p class="field-help">Increase segments before skin binding for denser weight vertices. Starting a topology edit automatically applies these parameters.</p></div><div class="geometry-stats"><div><span>Vertices</span><strong id="mesh-vertices">24</strong></div><div><span>Triangles</span><strong id="mesh-triangles">12</strong></div></div><button class="wide-button" id="mirror">${icon('copy')} Mirror geometry on X</button><p class="field-help">Mirror is applied to the mesh. Use Edit Mode to move vertices, logical boundary edges or faces.</p></div></div>
         <div id="panel-material" class="property-panel hidden"><div class="section-heading"><span>${icon('circle')} Surface material</span></div><div id="material-fields"><div class="material-swatch" id="material-preview"><span></span><small>STANDARD SURFACE</small></div><label class="property-row">Base color<input type="color" id="material-color" value="#b8b6b2"></label><label class="range-property">Roughness<output id="roughness-value">0.42</output><input type="range" id="roughness" min="0" max="1" step="0.01" value="0.42"></label><label class="range-property">Metallic<output id="metalness-value">0.12</output><input type="range" id="metalness" min="0" max="1" step="0.01" value="0.12"></label><p class="field-help">Edits the first standard material of the selected mesh. Lighting is provided by the studio environment.</p></div><div id="no-material" class="empty-state hidden">Select a mesh with a standard material.</div></div>
         <div id="panel-scene" class="property-panel hidden"><div class="section-heading"><span>${icon('settings-2')} Viewport settings</span></div><label class="property-row">Quality<select id="quality"><option value="low">Performance</option><option value="balanced" selected>Balanced</option><option value="high">High quality</option></select></label><label class="property-row">Background<input type="color" id="background" value="#25282e"></label><label class="range-property">Exposure<output id="exposure-value">1.30</output><input id="exposure" type="range" min="0.2" max="3" step="0.05" value="1.3"></label><div class="performance-card">${icon('activity')}<strong>Performance by design</strong><p>The viewport redraws only when something changes. Pixel density is capped to keep interaction responsive.</p></div><p class="field-help">Viewport settings are session-only. Projects store objects, materials and transform keyframes.</p><button class="wide-button" id="restore-local">${icon('folder-open')} Recover last local scene</button></div>
       </div></section><div class="sidebar-bottom">FORGE <span>EARLY ACCESS · 0.1</span></div>
@@ -1067,11 +1067,24 @@ document.querySelectorAll<HTMLInputElement>('[data-transform]').forEach(input =>
   editor.commit();
 });
 on('reset-transform', () => { if (editor.selected) { editor.selected.position.set(0,0,0); editor.selected.rotation.set(0,0,0); editor.selected.scale.set(1,1,1); rigSystem.captureEditedRest(); editor.commit(); } });
+
+let modelingSnapTarget: 'vertex' | 'edge' | 'surface' = 'vertex';
+const modelingToolSettings = {
+  extrudeDistance: 0.5,
+  insetDistance: 0.1,
+  bevelWidth: 0.1,
+  get snapTarget() { return modelingSnapTarget; },
+  set snapTarget(value: 'vertex' | 'edge' | 'surface') {
+    if (editor.snapTargetPending && value !== modelingSnapTarget) editor.cancelVertexSnap();
+    modelingSnapTarget = value;
+  },
+};
+
 async function extrudeSelectedFace() {
   try {
     if (!editor.editMode || editor.componentMode !== 'face' || editor.componentSelection.length !== 1 || !editor.meshTopology) throw new Error('Select exactly one face in Edit Mode first.');
     const polygon = editor.componentSelection[0];
-    const distance = Number($<HTMLInputElement>('#extrude-distance').value);
+    const distance = modelingToolSettings.extrudeDistance;
     await editor.runModeling({
       kind: 'extrude',
       face: polygon,
@@ -1085,23 +1098,21 @@ async function extrudeSelectedRegion() {
   try {
     if (!editor.editMode || editor.componentMode !== 'face' || !editor.componentSelection.length || !editor.meshTopology) throw new Error('Select connected coplanar faces in Edit Mode first.');
     const faces = editor.componentSelection.flatMap(id => editor.meshTopology!.polygonTriangles[id] ?? []);
-    await editor.runModeling({ kind: 'region', faces, distance: Number($<HTMLInputElement>('#extrude-distance').value) });
+    await editor.runModeling({ kind: 'region', faces, distance: modelingToolSettings.extrudeDistance });
     toast('Planar region extruded. The cap faces remain selected.');
   } catch (error) { toast((error as Error).message); }
 }
-$('#mirror').insertAdjacentHTML('beforebegin', '<label class="property-row">Inset distance<input id="inset-distance" aria-label="Inset distance" type="number" min="0.0001" max="1000" step="0.05" value="0.1"></label><p class="field-help">Tool setting for Face Context → Inset Face. Triangle faces only in this foundation; distance must be smaller than the triangle inradius.</p>');
 async function insetSelectedFace() {
   try {
     if (!editor.editMode || editor.componentMode !== 'face' || editor.componentSelection.length !== 1 || !editor.meshTopology) throw new Error('Select exactly one triangle face in Edit Mode first.');
     const triangles = editor.meshTopology.polygonTriangles[editor.componentSelection[0]];
     if (triangles?.length !== 1) throw new Error('Quad/polygon inset is not implemented yet; use a triangle face.');
-    await editor.runModeling({ kind: 'inset', face: triangles[0], distance: Number($<HTMLInputElement>('#inset-distance').value) });
+    await editor.runModeling({ kind: 'inset', face: triangles[0], distance: modelingToolSettings.insetDistance });
     toast('Triangle inset. The inner face remains selected.');
   } catch (error) { toast((error as Error).message); }
 }
 $('#mirror').insertAdjacentHTML('beforebegin', '<label class="property-row">Proportional editing<input id="proportional-enabled" aria-label="Proportional editing" type="checkbox"></label><label class="property-row">Influence radius<input id="proportional-radius" aria-label="Proportional radius" type="number" min="0.0001" step="0.1" value="2"></label><p class="field-help">Edit Mode: nearby vertices follow with smooth falloff. Radius uses local units and can reach disconnected geometry.</p>');
 $('#proportional-radius').closest('label')!.insertAdjacentHTML('afterend', '<label class="property-row">Connected only<input id="proportional-connected" aria-label="Connected only" type="checkbox"></label><p class="field-help">Connected only measures distance along selectable topology edges. Quad triangulation diagonals are skipped. Disconnected islands stay fixed.</p>');
-$('#mirror').insertAdjacentHTML('beforebegin', '<label class="property-row">Snap target<select id="snap-target-kind" aria-label="Snap target"><option value="vertex">Vertex</option><option value="edge">Edge midpoint</option><option value="surface">Surface point</option></select></label><p class="field-help">Tool setting for Vertex Context → Snap Selection. Pick a target in the viewport; Escape cancels. Grid and proportional settings do not affect this action.</p>');
 async function subdivideSelectedEdges() {
   try {
     if (!editor.editMode || editor.componentMode !== 'edge' || !editor.componentSelection.length || !editor.meshTopology) throw new Error('Select one or more edges in Edit Mode first.');
@@ -1113,14 +1124,13 @@ function startVertexSnap() {
   try {
     if (editor.snapTargetPending) editor.cancelVertexSnap();
     else {
-      const kind = $<HTMLSelectElement>('#snap-target-kind').value as 'vertex' | 'edge' | 'surface';
+      const kind = modelingToolSettings.snapTarget;
       editor.beginVertexSnap(kind);
       toast(kind === 'surface' ? 'Click a surface triangle with all vertices unselected. Escape cancels.' : kind === 'edge' ? 'Click an edge with both endpoints unselected. Escape cancels.' : 'Click an unselected vertex in the active mesh. Escape cancels.');
     }
   } catch (error) { toast((error as Error).message); }
 }
 editor.addEventListener('mode', () => { $<HTMLSelectElement>('#component-mode').value = editor.componentMode; });
-$('#snap-target-kind').onchange = () => editor.cancelVertexSnap();
 editor.addEventListener('snap-complete', () => toast(editor.snapTargetKind === 'surface' ? 'Selection center snapped to surface point.' : editor.snapTargetKind === 'edge' ? 'Selection center snapped to edge midpoint.' : 'Selection center snapped to vertex.'));
 editor.addEventListener('snap-error', event => toast((event as CustomEvent<string>).detail));
 let proportionalEnabled = false, proportionalRadius = 2, proportionalConnected = false;
@@ -1195,7 +1205,7 @@ async function bevelSelectedEdges() {
     await editor.runModeling({
       kind: 'bevel',
       edges: editor.componentSelection,
-      width: Number($<HTMLInputElement>('#bevel-width').value),
+      width: modelingToolSettings.bevelWidth,
       polygonTriangles: editor.meshTopology.polygonTriangles.map(group => [...group]),
     });
     toast('Bevel complete.');
@@ -1230,6 +1240,32 @@ type ViewportContextCommand = {
   separatorBefore?: boolean;
   danger?: boolean;
 };
+
+type ContextNumberParameter = {
+  kind: 'number';
+  label: string;
+  ariaLabel: string;
+  min: number;
+  max: number;
+  sliderMin: number;
+  sliderMax: number;
+  step: number;
+  get: () => number;
+  set: (value: number) => void;
+  run: () => void | Promise<void>;
+};
+
+type ContextSelectParameter = {
+  kind: 'select';
+  label: string;
+  ariaLabel: string;
+  get: () => string;
+  set: (value: string) => void;
+  options: Array<[string, string]>;
+  run: () => void | Promise<void>;
+};
+
+type ContextParameter = ContextNumberParameter | ContextSelectParameter;
 
 const viewportContextMenu = document.createElement('div');
 viewportContextMenu.id = 'viewport-context-menu';
@@ -1286,6 +1322,142 @@ function closeViewportContextMenu() {
   viewportContextMenu.classList.add('hidden');
 }
 
+function appendContextParameter(parameter: ContextParameter) {
+  const wrapper = document.createElement('div');
+  wrapper.className = 'context-parameter';
+  const header = document.createElement('label');
+  header.className = 'context-parameter-header';
+  const label = document.createElement('span');
+  label.textContent = parameter.label;
+  header.append(label);
+
+  const run = () => {
+    closeViewportContextMenu();
+    void parameter.run();
+  };
+
+  if (parameter.kind === 'select') {
+    const select = document.createElement('select');
+    select.setAttribute('aria-label', parameter.ariaLabel);
+    for (const [value, textValue] of parameter.options) {
+      const option = document.createElement('option');
+      option.value = value;
+      option.textContent = textValue;
+      select.append(option);
+    }
+    select.value = parameter.get();
+    select.onchange = () => parameter.set(select.value);
+    select.onkeydown = event => {
+      if (event.key === 'Enter') {
+        event.preventDefault();
+        event.stopPropagation();
+        parameter.set(select.value);
+        run();
+      }
+    };
+    header.append(select);
+    wrapper.append(header);
+  } else {
+    const number = document.createElement('input');
+    number.type = 'number';
+    number.min = String(parameter.min);
+    number.max = String(parameter.max);
+    number.step = String(parameter.step);
+    number.value = String(parameter.get());
+    number.setAttribute('aria-label', parameter.ariaLabel);
+
+    const slider = document.createElement('input');
+    slider.type = 'range';
+    slider.min = String(parameter.sliderMin);
+    slider.max = String(parameter.sliderMax);
+    slider.step = String(parameter.step);
+    slider.value = String(Math.min(Math.max(parameter.get(), parameter.sliderMin), parameter.sliderMax));
+    slider.setAttribute('aria-label', `${parameter.ariaLabel} slider`);
+
+    const commitNumber = () => {
+      const value = Number(number.value);
+      if (!Number.isFinite(value) || value < parameter.min || value > parameter.max) {
+        number.value = String(parameter.get());
+        toast(`${parameter.label} must be between ${parameter.min} and ${parameter.max}.`);
+        return false;
+      }
+      parameter.set(value);
+      slider.value = String(Math.min(Math.max(value, parameter.sliderMin), parameter.sliderMax));
+      return true;
+    };
+
+    number.onchange = commitNumber;
+    number.onkeydown = event => {
+      if (event.key === 'Enter') {
+        event.preventDefault();
+        event.stopPropagation();
+        if (commitNumber()) run();
+      }
+    };
+    slider.oninput = () => {
+      const value = Number(slider.value);
+      parameter.set(value);
+      number.value = String(value);
+    };
+    header.append(number);
+    wrapper.append(header, slider);
+  }
+
+  viewportContextMenu.append(wrapper);
+}
+
+function contextParameterBefore(mode: ViewportContextMode, command: ViewportContextCommand): ContextParameter | null {
+  if (mode === 'vertex' && command.label === 'Snap Selection…') return {
+    kind: 'select',
+    label: 'Snap Target',
+    ariaLabel: 'Context snap target',
+    get: () => modelingToolSettings.snapTarget,
+    set: value => { modelingToolSettings.snapTarget = value as 'vertex' | 'edge' | 'surface'; },
+    options: [['vertex', 'Vertex'], ['edge', 'Edge midpoint'], ['surface', 'Surface point']],
+    run: modelingCommands.vertexSnap,
+  };
+  if (mode === 'edge' && command.label === 'Bevel Edges') return {
+    kind: 'number',
+    label: 'Bevel Width',
+    ariaLabel: 'Context bevel width',
+    min: 0.0001,
+    max: 1000,
+    sliderMin: 0.05,
+    sliderMax: 2,
+    step: 0.05,
+    get: () => modelingToolSettings.bevelWidth,
+    set: value => { modelingToolSettings.bevelWidth = value; },
+    run: modelingCommands.bevelEdges,
+  };
+  if (mode === 'face' && command.label === 'Extrude Face') return {
+    kind: 'number',
+    label: 'Extrude Distance',
+    ariaLabel: 'Context extrude distance',
+    min: 0.0001,
+    max: 1000,
+    sliderMin: 0.1,
+    sliderMax: 10,
+    step: 0.1,
+    get: () => modelingToolSettings.extrudeDistance,
+    set: value => { modelingToolSettings.extrudeDistance = value; },
+    run: () => editor.componentSelection.length === 1 ? modelingCommands.extrudeFace() : modelingCommands.extrudeRegion(),
+  };
+  if (mode === 'face' && command.label === 'Inset Face') return {
+    kind: 'number',
+    label: 'Inset Distance',
+    ariaLabel: 'Context inset distance',
+    min: 0.0001,
+    max: 1000,
+    sliderMin: 0.05,
+    sliderMax: 2,
+    step: 0.05,
+    get: () => modelingToolSettings.insetDistance,
+    set: value => { modelingToolSettings.insetDistance = value; },
+    run: modelingCommands.insetFace,
+  };
+  return null;
+}
+
 function showViewportContextMenu(clientX: number, clientY: number) {
   if (editor.weightMode || editor.playing || editor.transform.dragging || editor.snapTargetPending) return;
   closeMenus();
@@ -1304,6 +1476,8 @@ function showViewportContextMenu(clientX: number, clientY: number) {
 
   for (const command of viewportContextCommands(mode)) {
     if (command.separatorBefore) viewportContextMenu.append(document.createElement('hr'));
+    const parameter = contextParameterBefore(mode, command);
+    if (parameter) appendContextParameter(parameter);
     const item = document.createElement('button');
     item.type = 'button';
     item.setAttribute('role', 'menuitem');
@@ -1344,10 +1518,17 @@ $('#viewport').addEventListener('contextmenu', event => {
 
 viewportContextMenu.addEventListener('click', event => event.stopPropagation());
 viewportContextMenu.addEventListener('keydown', event => {
-  // The context menu owns its keyboard interaction. Do not let Escape or
-  // operator shortcut keys fall through to the document-wide viewport
-  // shortcuts (which can clear selection or change tools underneath the menu).
+  // The context menu owns its keyboard interaction. Inputs keep their native
+  // arrows and text editing; menu navigation remains on operator buttons.
   event.stopPropagation();
+  if (event.target instanceof HTMLInputElement || event.target instanceof HTMLSelectElement) {
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      closeViewportContextMenu();
+      editor.renderer.domElement.focus();
+    }
+    return;
+  }
   const items = [...viewportContextMenu.querySelectorAll<HTMLButtonElement>('button:not(:disabled)')];
   if (!items.length) {
     if (event.key === 'Escape') {
@@ -2440,4 +2621,4 @@ document.addEventListener('keydown', e => {
 document.addEventListener('keyup', e => { if (e.key === 'Alt') editor.orbit.mouseButtons.LEFT = null as unknown as THREE.MOUSE; });
 window.addEventListener('blur', () => { editor.orbit.mouseButtons.LEFT = null as unknown as THREE.MOUSE; editor.cancelBoxSelection(); cancelTimelineKeyDrag(); cancelTimelineBoxDrag(); cancelTimelinePanDrag(); cancelTimelineScrollbarDrag(); if (editor.playing) editor.togglePlayback(); });
 document.addEventListener('visibilitychange', () => { if (document.hidden && editor.playing) editor.togglePlayback(); });
-if (import.meta.env.DEV) Object.assign(window, { __forge: editor, __rig: rigSystem, __forgeCommands: modelingCommands });
+if (import.meta.env.DEV) Object.assign(window, { __forge: editor, __rig: rigSystem, __forgeCommands: modelingCommands, __forgeModelingSettings: modelingToolSettings });

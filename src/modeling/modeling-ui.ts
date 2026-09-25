@@ -5,9 +5,8 @@ import type { Modifier, ModifierStack } from './modifiers';
 export function mountModelingUI(editor: Editor, toast: (message: string) => void) {
   const anchor = document.querySelector('#mirror')!;
   anchor.insertAdjacentHTML('beforebegin', `
-    <details class="modeling-section" open><summary>Tool settings</summary>
-      <label class="property-row">Bevel width<input id="bevel-width" aria-label="Bevel width" type="number" min="0.0001" step="0.05" value="0.1"></label>
-      <p class="field-help">Used by Edge Context → Bevel Edges. Loop Cut and Subdivide are launched directly from the viewport context menu.</p>
+    <details class="modeling-section" open><summary>Modeling status</summary>
+      <p class="field-help">Modeling operators and their active parameters are available directly from the viewport RMB context menu.</p>
       <button class="wide-button" id="cancel-modeling" disabled>Cancel operation</button>
       <p class="field-help" id="modeling-state" role="status">Ready</p>
     </details>

@@ -29,7 +29,7 @@ test('edge targets reject selected endpoints and cancel without mutation', async
   const before = await page.evaluate(() => {
     const e = (window as any).__forge; e.selectComponent(0); return e.snapshot();
   });
-  await page.getByLabel('Snap target', { exact: true }).selectOption('edge');
+  await page.evaluate(() => { (window as any).__forgeModelingSettings.snapTarget = 'edge'; });
   await page.evaluate(() => (window as any).__forgeCommands.vertexSnap());
   const result = await page.evaluate(() => {
     const e = (window as any).__forge, errors = [];
@@ -46,7 +46,7 @@ test('edge targets reject selected endpoints and cancel without mutation', async
   await page.keyboard.press('Escape');
   expect(await page.evaluate(() => (window as any).__forge.componentEdges.visible)).toBe(false);
   await page.evaluate(() => (window as any).__forgeCommands.vertexSnap());
-  await page.getByLabel('Snap target', { exact: true }).selectOption('vertex');
+  await page.evaluate(() => { (window as any).__forgeModelingSettings.snapTarget = 'vertex'; });
   expect(await page.evaluate(() => (window as any).__forge.snapTargetPending)).toBe(false);
   expect(await page.evaluate(() => (window as any).__forge.snapshot())).toBe(before);
 });
@@ -76,7 +76,7 @@ for (const mode of ['vertex', 'edge', 'face'] as const) test(`viewport edge midp
     return { before:e.snapshot(), positions:Array.from(a.array), indices:[...e.vertexIndices], delta,
       x:rect.left+(projected.x+1)*rect.width/2, y:rect.top+(1-projected.y)*rect.height/2 };
   }, mode);
-  await page.getByLabel('Snap target', {exact:true}).selectOption('edge');
+  await page.evaluate(() => { (window as any).__forgeModelingSettings.snapTarget = 'edge'; });
   await page.evaluate(() => (window as any).__forgeCommands.vertexSnap());
   expect(await page.evaluate(() => (window as any).__forge.snapTargetPending)).toBe(true);
   if (mode === 'vertex') await page.screenshot({path:'test-results/edge-midpoint-picking.png'});

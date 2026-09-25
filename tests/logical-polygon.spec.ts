@@ -59,7 +59,7 @@ test('Cube quad extrudes as logical polygons, keeps the cap selected, and surviv
     return { face, before: e.snapshot() };
   });
 
-  await page.getByLabel('Extrusion distance').fill('0.5');
+  await page.evaluate(() => { (window as any).__forgeModelingSettings.extrudeDistance = 0.5; });
   await page.evaluate(() => (window as any).__forgeCommands.extrudeFace());
   await page.waitForFunction(() => !(window as any).__forge.modelingBusy);
   await expect(page.locator('#toast')).toContainText('Face extruded');
@@ -137,7 +137,7 @@ test('Cube quad extrudes as logical polygons, keeps the cap selected, and surviv
   expect(await page.evaluate(() => (window as any).__forge.componentSelection)).toEqual([wallPoints.wall]);
   await page.evaluate(face => (window as any).__forge.selectComponent(face), setup.face);
 
-  await page.getByLabel('Extrusion distance').fill('0.25');
+  await page.evaluate(() => { (window as any).__forgeModelingSettings.extrudeDistance = 0.25; });
   await page.evaluate(() => (window as any).__forgeCommands.extrudeFace());
   await page.waitForFunction(() => !(window as any).__forge.modelingBusy);
   const second = await page.evaluate(face => {
@@ -346,7 +346,7 @@ test('beveling the Cube top preserves logical polygons across Edit Mode and proj
   });
   expect(selected).toHaveLength(4);
 
-  await page.locator('#bevel-width').fill('0.1');
+  await page.evaluate(() => { (window as any).__forgeModelingSettings.bevelWidth = 0.1; });
   await page.evaluate(() => (window as any).__forgeCommands.bevelEdges());
   await page.waitForFunction(() => !(window as any).__forge.modelingBusy);
   await expect(page.locator('#toast')).toContainText('Bevel complete.');
