@@ -313,11 +313,11 @@ export class Editor extends EventTarget {
     const top = Math.min(start.y, end.y), bottom = Math.max(start.y, end.y);
     const rect = this.host.getBoundingClientRect();
     const projectToScreen = (point: THREE.Vector3) => {
-      point.project(this.camera);
+      const projected = point.clone().project(this.camera);
       return {
-        x: (point.x + 1) * rect.width * 0.5,
-        y: (1 - point.y) * rect.height * 0.5,
-        z: point.z,
+        x: (projected.x + 1) * rect.width * 0.5,
+        y: (1 - projected.y) * rect.height * 0.5,
+        z: projected.z,
       };
     };
     const inside = (point: THREE.Vector3) => {
