@@ -202,6 +202,45 @@ for (const mode of ['vertex', 'edge', 'face'] as const) {
   });
 }
 
+test('face selection overlay does not change scene geometry stats', async ({ page }) => {
+  const before = await page.evaluate(() => {
+    const e = (window as any).__forge;
+    return e.stats();
+  });
+
+  await page.locator('#mode').selectOption('edit');
+  await page.getByLabel('Mesh component').selectOption('face');
+  await page.locator('#tool-select').click();
+
+  const point = await page.evaluate(() => {
+    const e = (window as any).__forge;
+    const mesh = e.selected, topology = e.meshTopology, position = mesh.geometry.getAttribute('position');
+    const face = topology.faces[0];
+    const center = face.reduce((sum: any, vertex: number) => {
+      const index = topology.vertices[vertex][0];
+      return sum.add(mesh.localToWorld(new THREE.Vector3(position.getX(index), position.getY(index), position.getZ(index))));
+    }, new THREE.Vector3()).multiplyScalar(1 / 3);
+    e.camera.updateMatrixWorld(true);
+    center.project(e.camera);
+    const rect = e.host.getBoundingClientRect();
+    return { x: rect.left + (center.x + 1) * rect.width / 2, y: rect.top + (1 - center.y) * rect.height / 2 };
+  });
+
+  await page.mouse.click(point.x, point.y);
+  const after = await page.evaluate(() => {
+    const e = (window as any).__forge;
+    return {
+      stats: e.stats(),
+      selectedFaces: e.componentSelection.length,
+      helper: e.selectedFaceOverlay?.userData.forgeEditorHelper === true,
+    };
+  });
+  expect(after.selectedFaces).toBe(1);
+  expect(after.helper).toBe(true);
+  expect(after.stats.vertices).toBe(before.vertices);
+  expect(after.stats.triangles).toBe(before.triangles);
+});
+
 test('Escape cancels an active viewport box without changing selection', async ({ page }) => {
   const box = await page.evaluate(() => {
     const e = (window as any).__forge;
