@@ -1013,7 +1013,7 @@ editor.addEventListener('mode', () => {
   $('#mode-hint').textContent = editor.weightMode
     ? 'Weight Mode · click or drag-box vertices; Shift adds; Ctrl toggles; choose a bone and assign influence.'
     : editor.editMode
-      ? `Select a ${editor.componentMode === 'face' ? 'face' : editor.componentMode}, drag-box to select more, Shift adds, Ctrl toggles; RMB opens ${editor.componentMode} operators.`
+      ? `Select a ${editor.componentMode === 'face' ? 'face' : editor.componentMode}, drag-box to select more, Shift adds, Ctrl toggles; G/R/S transform; RMB opens ${editor.componentMode} operators.`
       : 'Click or drag-box to select objects; Shift adds; Ctrl-drag toggles; RMB opens object operators.';
 });
 editor.addEventListener('view', () => { $('#view-label').textContent = editor.camera instanceof THREE.OrthographicCamera ? 'User Orthographic' : 'User Perspective'; });
@@ -1250,16 +1250,22 @@ function viewportContextCommands(mode: ViewportContextMode): ViewportContextComm
 
   if (mode === 'vertex') return [
     { label: 'Move', shortcut: 'G', action: () => tool('translate'), enabled: hasComponents },
+    { label: 'Rotate', shortcut: 'R', action: () => tool('rotate'), enabled: hasComponents },
+    { label: 'Scale', shortcut: 'S', action: () => tool('scale'), enabled: hasComponents },
     { label: 'Snap Selection…', action: modelingCommands.vertexSnap, enabled: hasComponents, separatorBefore: true },
   ];
   if (mode === 'edge') return [
     { label: 'Move', shortcut: 'G', action: () => tool('translate'), enabled: hasComponents },
+    { label: 'Rotate', shortcut: 'R', action: () => tool('rotate'), enabled: hasComponents },
+    { label: 'Scale', shortcut: 'S', action: () => tool('scale'), enabled: hasComponents },
     { label: 'Bevel Edges', action: modelingCommands.bevelEdges, enabled: hasComponents, separatorBefore: true },
     { label: 'Subdivide Edges', action: modelingCommands.subdivideEdges, enabled: hasComponents },
     { label: 'Loop Cut', action: modelingCommands.loopCut, enabled: oneComponent },
   ];
   if (mode === 'face') return [
     { label: 'Move', shortcut: 'G', action: () => tool('translate'), enabled: hasComponents },
+    { label: 'Rotate', shortcut: 'R', action: () => tool('rotate'), enabled: hasComponents },
+    { label: 'Scale', shortcut: 'S', action: () => tool('scale'), enabled: hasComponents },
     { label: 'Extrude Face', action: modelingCommands.extrudeFace, enabled: oneComponent, separatorBefore: true },
     { label: 'Extrude Region', action: modelingCommands.extrudeRegion, enabled: hasComponents },
     { label: 'Inset Face', action: modelingCommands.insetFace, enabled: oneComponent },
