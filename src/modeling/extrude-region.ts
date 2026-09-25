@@ -16,7 +16,7 @@ export function extrudeRegion(source: THREE.BufferGeometry, requested: number[],
   if (indices.some(i => !Number.isInteger(i) || i < 0 || i >= position.count)) throw new Error('Mesh contains invalid triangle indices.');
   const positions = Array.from({ length: position.count }, (_, i) => [position.getX(i), position.getY(i), position.getZ(i)]).flat();
   if (positions.some(v => !Number.isFinite(v))) throw new Error('Mesh contains invalid coordinates.');
-  const topology = buildTopology(positions, indices), selected = new Set(faces);
+  const topology = buildTopology(positions, indices, source.userData.forgePolygonTriangles), selected = new Set(faces);
   const read = (i: number) => new THREE.Vector3().fromBufferAttribute(position, i);
   const origin = read(indices[faces[0] * 3]);
   const normal = read(indices[faces[0] * 3 + 1]).sub(origin).cross(read(indices[faces[0] * 3 + 2]).sub(origin)).normalize();
@@ -96,6 +96,18 @@ export function extrudeRegion(source: THREE.BufferGeometry, requested: number[],
   result.setIndex(outputIndices);
   for (const group of source.groups) result.addGroup(group.start, group.count, group.materialIndex);
   if (source.groups.length) for (const group of wallGroups) result.addGroup(group.start, 6, group.material);
+  const completePolygons = topology.polygonTriangles.every(triangles => {
+    const selectedCount = triangles.filter(face => selected.has(face)).length;
+    return selectedCount === 0 || selectedCount === triangles.length;
+  });
+  if (completePolygons) {
+    const sourceTriangleCount = count / 3;
+    result.userData.forgePolygonTriangles = [
+      ...topology.polygonTriangles.map(triangles => [...triangles]),
+      ...boundary.map((_, wall) => [sourceTriangleCount + wall * 2, sourceTriangleCount + wall * 2 + 1]),
+    ];
+  }
+
   result.computeVertexNormals(); result.computeBoundingBox(); result.computeBoundingSphere();
   return result;
 }
