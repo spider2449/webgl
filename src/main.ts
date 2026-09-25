@@ -391,7 +391,6 @@ document.querySelectorAll<HTMLButtonElement>('[data-primitive]').forEach(b => b.
 let activeTool = 'translate';
 function tool(mode: 'select' | 'translate' | 'rotate' | 'scale') {
   if (editor.weightMode && mode !== 'select') { toast('Weight Mode uses vertex selection only.'); return; }
-  if (editor.editMode && mode !== 'select' && mode !== 'translate') { toast('Edit Mode currently supports Move.'); return; }
   activeTool = mode;
   editor.setTool(mode);
   document.querySelectorAll('.tool-rail button').forEach(b => b.classList.toggle('active', b.id === `tool-${mode}`));

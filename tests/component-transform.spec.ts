@@ -152,7 +152,10 @@ test('G R S shortcuts switch the selected component gizmo between translate rota
   await componentMode.evaluate((element: HTMLSelectElement) => element.blur());
 
   await page.keyboard.press('r');
-  expect(await page.evaluate(() => (window as any).__forge.transform.mode)).toBe('rotate');
+  expect(await page.evaluate(() => ({
+    mode: (window as any).__forge.transform.mode,
+    toast: document.querySelector('#toast')?.textContent ?? '',
+  }))).toMatchObject({ mode: 'rotate' });
   await page.keyboard.press('s');
   expect(await page.evaluate(() => (window as any).__forge.transform.mode)).toBe('scale');
   await page.keyboard.press('g');

@@ -88,6 +88,22 @@ test('Edit Mode RMB menu changes with Vertex, Edge and Face component mode', asy
   await expect(menu.getByRole('menuitem', { name: 'Bevel Edges' })).toHaveCount(0);
 });
 
+test('Edit Mode context Rotate and Scale commands switch the component gizmo', async ({ page }) => {
+  await page.locator('#mode').selectOption('edit');
+  await page.getByLabel('Mesh component').selectOption('face');
+  await page.evaluate(() => (window as any).__forge.selectComponent(0));
+
+  await rightClickViewport(page);
+  let menu = page.locator('#viewport-context-menu');
+  await menu.getByRole('menuitem', { name: 'Rotate R' }).click();
+  expect(await page.evaluate(() => (window as any).__forge.transform.mode)).toBe('rotate');
+
+  await rightClickViewport(page);
+  menu = page.locator('#viewport-context-menu');
+  await menu.getByRole('menuitem', { name: 'Scale S' }).click();
+  expect(await page.evaluate(() => (window as any).__forge.transform.mode)).toBe('scale');
+});
+
 test('Face context action reuses the existing polygon Extrude operator and closes the menu', async ({ page }) => {
   await page.locator('#mode').selectOption('edit');
   await page.getByLabel('Mesh component').selectOption('face');
