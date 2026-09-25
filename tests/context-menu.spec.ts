@@ -47,6 +47,9 @@ test('Edit Mode RMB menu changes with Vertex, Edge and Face component mode', asy
   await rightClickViewport(page);
   let menu = page.locator('#viewport-context-menu');
   await expect(menu.getByText('Vertex Context', { exact: true })).toBeVisible();
+  await expect(menu.getByRole('menuitem', { name: 'Move G' })).toBeVisible();
+  await expect(menu.getByRole('menuitem', { name: 'Rotate R' })).toBeVisible();
+  await expect(menu.getByRole('menuitem', { name: 'Scale S' })).toBeVisible();
   await expect(menu.getByRole('menuitem', { name: 'Snap Selection…' })).toBeVisible();
   await expect(menu.getByRole('menuitem', { name: 'Bevel Edges' })).toHaveCount(0);
   await page.keyboard.press('Escape');
@@ -62,6 +65,9 @@ test('Edit Mode RMB menu changes with Vertex, Edge and Face component mode', asy
   await rightClickViewport(page);
   menu = page.locator('#viewport-context-menu');
   await expect(menu.getByText('Edge Context', { exact: true })).toBeVisible();
+  await expect(menu.getByRole('menuitem', { name: 'Move G' })).toBeVisible();
+  await expect(menu.getByRole('menuitem', { name: 'Rotate R' })).toBeVisible();
+  await expect(menu.getByRole('menuitem', { name: 'Scale S' })).toBeVisible();
   await expect(menu.getByRole('menuitem', { name: 'Bevel Edges' })).toBeVisible();
   await expect(menu.getByRole('menuitem', { name: 'Subdivide Edges' })).toBeVisible();
   await expect(menu.getByRole('menuitem', { name: 'Loop Cut' })).toBeVisible();
@@ -73,6 +79,9 @@ test('Edit Mode RMB menu changes with Vertex, Edge and Face component mode', asy
   await rightClickViewport(page);
   menu = page.locator('#viewport-context-menu');
   await expect(menu.getByText('Face Context', { exact: true })).toBeVisible();
+  await expect(menu.getByRole('menuitem', { name: 'Move G' })).toBeVisible();
+  await expect(menu.getByRole('menuitem', { name: 'Rotate R' })).toBeVisible();
+  await expect(menu.getByRole('menuitem', { name: 'Scale S' })).toBeVisible();
   await expect(menu.getByRole('menuitem', { name: 'Extrude Face' })).toBeVisible();
   await expect(menu.getByRole('menuitem', { name: 'Extrude Region' })).toBeVisible();
   await expect(menu.getByRole('menuitem', { name: 'Inset Face' })).toBeVisible();
