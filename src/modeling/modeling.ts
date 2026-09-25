@@ -470,6 +470,40 @@ export function loopCutLogicalEdge(
   return finishDetailed([...output, ...extras]);
 }
 
+function mergeLogicalPolygonRegions(
+  source: THREE.BufferGeometry,
+  polygonTriangles: number[][],
+  unions: number[][],
+) {
+  const parent = polygonTriangles.map((_, face) => face);
+  const find = (face: number): number => parent[face] === face ? face : (parent[face] = find(parent[face]));
+  const join = (a: number, b: number) => {
+    const rootA = find(a), rootB = find(b);
+    if (rootA !== rootB) parent[rootB] = rootA;
+  };
+  for (const region of unions) {
+    if (!region.length) continue;
+    const first = region[0];
+    for (let i = 1; i < region.length; i++) join(first, region[i]);
+  }
+
+  const regions = new Map<number, number[]>();
+  for (let face = 0; face < polygonTriangles.length; face++) {
+    const root = find(face);
+    const region = regions.get(root) ?? [];
+    region.push(face);
+    regions.set(root, region);
+  }
+  const groups = [...regions.values()].map(region =>
+    region.flatMap(face => polygonTriangles[face])
+  );
+  const topology = inspectGeometry(source, groups).topology;
+  const geometry = source.clone();
+  geometry.computeBoundingBox();
+  geometry.computeBoundingSphere();
+  return { geometry, polygonTriangles: groups, topology };
+}
+
 export function deleteLogicalComponents(
   source: THREE.BufferGeometry,
   mode: 'vertex' | 'edge' | 'face',
@@ -482,25 +516,49 @@ export function deleteLogicalComponents(
   const selected = [...new Set(components)];
   if (!selected.length) throw new Error('Select mesh components to delete.');
 
-  const removed = new Set<number>();
-  if (mode === 'face') {
-    if (selected.some(face => !Number.isInteger(face) || !topology.polygons[face])) throw new Error('Invalid logical face selection.');
-    selected.forEach(face => removed.add(face));
-  } else if (mode === 'vertex') {
-    if (selected.some(vertex => !Number.isInteger(vertex) || !topology.vertices[vertex])) throw new Error('Invalid logical vertex selection.');
-    const vertices = new Set(selected);
-    topology.polygons.forEach((polygon, face) => {
-      if (polygon.some(vertex => vertices.has(vertex))) removed.add(face);
-    });
-  } else {
-    if (selected.some(edge => !Number.isInteger(edge) || !topology.polygonEdges[edge])) throw new Error('Invalid logical edge selection.');
-    const edges = new Set(selected.map(edge => edgeKey(...topology.polygonEdges[edge])));
-    topology.polygons.forEach((polygon, face) => {
-      if (polygon.some((vertex, i) => edges.has(edgeKey(vertex, polygon[(i + 1) % polygon.length])))) removed.add(face);
-    });
+  if (mode === 'vertex') {
+    if (selected.some(vertex => !Number.isInteger(vertex) || !topology.logicalVertices.includes(vertex))) {
+      throw new Error('Invalid logical vertex selection.');
+    }
+    const unions = selected.map(vertex =>
+      topology.polygons.flatMap((polygon, face) => polygon.includes(vertex) ? [face] : [])
+    );
+    if (unions.some(region => region.length < 2)) {
+      throw new Error('Boundary vertices that belong to only one face cannot be dissolved yet.');
+    }
+    const result = mergeLogicalPolygonRegions(source, topology.polygonTriangles, unions);
+    if (selected.some(vertex => result.topology.logicalVertices.includes(vertex))) {
+      result.geometry.dispose();
+      throw new Error('Selected vertex remains on the logical boundary and cannot be dissolved without changing the surface.');
+    }
+    return { geometry: result.geometry, polygonTriangles: result.polygonTriangles };
   }
 
-  if (!removed.size) throw new Error('Selected components do not remove any faces.');
+  if (mode === 'edge') {
+    if (selected.some(edge => !Number.isInteger(edge) || !topology.polygonEdges[edge])) {
+      throw new Error('Invalid logical edge selection.');
+    }
+    const unions = selected.map(edge => {
+      const [a, b] = topology.polygonEdges[edge];
+      const faces = topology.polygons.flatMap((polygon, face) =>
+        polygon.some((vertex, i) => edgeKey(vertex, polygon[(i + 1) % polygon.length]) === edgeKey(a, b)) ? [face] : []
+      );
+      if (faces.length !== 2) throw new Error('Delete Edge requires a manifold edge shared by exactly two faces.');
+      return faces;
+    });
+    const dissolvedKeys = new Set(selected.map(edge => edgeKey(...topology.polygonEdges[edge])));
+    const result = mergeLogicalPolygonRegions(source, topology.polygonTriangles, unions);
+    if (result.topology.polygonEdges.some(([a, b]) => dissolvedKeys.has(edgeKey(a, b)))) {
+      result.geometry.dispose();
+      throw new Error('Selected edge remains on the logical boundary and cannot be dissolved.');
+    }
+    return { geometry: result.geometry, polygonTriangles: result.polygonTriangles };
+  }
+
+  if (selected.some(face => !Number.isInteger(face) || !topology.polygons[face])) {
+    throw new Error('Invalid logical face selection.');
+  }
+  const removed = new Set(selected);
   const output = polygons.filter((_, face) => !removed.has(face));
   if (!output.length) throw new Error('Delete would remove the entire mesh; delete the object in Object Mode instead.');
   return finishDetailed(output);
@@ -511,49 +569,7 @@ export function dissolveLogicalEdge(
   edge: number,
   polygonTriangles?: number[][],
 ) {
-  const inspection = inspectGeometry(source, polygonTriangles ?? false);
-  const { topology } = inspection;
-  if (!Number.isInteger(edge) || edge < 0 || !topology.polygonEdges[edge]) throw new Error('Select one valid logical edge to dissolve.');
-
-  const [rawA, rawB] = topology.polygonEdges[edge];
-  const uses: { face: number; local: number; forward: boolean }[] = [];
-  topology.polygons.forEach((vertices, face) => {
-    vertices.forEach((vertex, local) => {
-      const next = vertices[(local + 1) % vertices.length];
-      if (vertex === rawA && next === rawB) uses.push({ face, local, forward: true });
-      else if (vertex === rawB && next === rawA) uses.push({ face, local, forward: false });
-    });
-  });
-  if (uses.length !== 2) throw new Error('Dissolve Edge requires one manifold edge shared by exactly two polygons.');
-
-  const first = uses.find(use => use.forward);
-  const second = uses.find(use => !use.forward);
-  if (!first || !second) throw new Error('Adjacent polygons must have consistent opposite winding.');
-
-  // Dissolve is a logical-topology operation. The two adjacent renderer
-  // surfaces may be non-planar (for example two 90-degree Cube sides), so
-  // rebuilding one boundary-only polygon would change the rendered surface.
-  // Keep every renderer triangle exactly as-is and only merge their logical
-  // ownership groups. The dissolved edge then becomes an internal renderer
-  // edge/crease, not a selectable modeling edge.
-  const mergedFace = Math.min(first.face, second.face);
-  const mergedTriangles = [
-    ...topology.polygonTriangles[first.face],
-    ...topology.polygonTriangles[second.face],
-  ];
-  const groups = topology.polygonTriangles
-    .filter((_, face) => face !== first.face && face !== second.face)
-    .map(group => [...group]);
-  groups.splice(mergedFace, 0, mergedTriangles);
-
-  // Validate that the combined renderer-triangle region has exactly one
-  // reconstructable logical boundary before returning it.
-  inspectGeometry(source, groups);
-
-  const geometry = source.clone();
-  geometry.computeBoundingBox();
-  geometry.computeBoundingSphere();
-  return { geometry, polygonTriangles: groups };
+  return deleteLogicalComponents(source, 'edge', [edge], polygonTriangles);
 }
 
 export function bevelLogicalEdges(source: THREE.BufferGeometry, edges: number[], width: number, polygonTriangles?: number[][]) {
