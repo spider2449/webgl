@@ -1613,7 +1613,22 @@ export class Editor extends EventTarget {
     if (!(root instanceof THREE.Group)) { this.disposeObject(root); throw new Error('Project scene must be a group.'); }
     let vertices = 0;
     try { root.traverse(o => {
-      if (o instanceof THREE.Mesh) vertices += o.geometry.getAttribute('position')?.count ?? 0;
+      if (o instanceof THREE.Mesh) {
+        vertices += o.geometry.getAttribute('position')?.count ?? 0;
+        for (const material of Array.isArray(o.material) ? o.material : [o.material]) {
+          if (
+            material instanceof THREE.MeshStandardMaterial &&
+            material.color.getHex() === 0xb8b6b2 &&
+            Math.abs(material.roughness - 0.42) < 1e-9 &&
+            Math.abs(material.metalness - 0.12) < 1e-9
+          ) {
+            material.color.setHex(0x888c92);
+            material.roughness = 0.55;
+            material.metalness = 0.05;
+            material.needsUpdate = true;
+          }
+        }
+      }
       if (o.userData.modifierStack !== undefined) {
         if (!(o instanceof THREE.Mesh) || o instanceof THREE.SkinnedMesh) throw new Error('Only ordinary meshes support modifiers.');
         validateModifierStack(o.userData.modifierStack);
@@ -1621,18 +1636,6 @@ export class Editor extends EventTarget {
       if (o.userData.forgePrimitive !== undefined) {
         if (!(o instanceof THREE.Mesh) || o instanceof THREE.SkinnedMesh) throw new Error('Only ordinary meshes support primitive parameters.');
         parsePrimitiveSettings(o.userData.forgePrimitive);
-        const material = Array.isArray(o.material) ? null : o.material;
-        if (
-          material instanceof THREE.MeshStandardMaterial &&
-          material.color.getHex() === 0xb8b6b2 &&
-          Math.abs(material.roughness - 0.42) < 1e-9 &&
-          Math.abs(material.metalness - 0.12) < 1e-9
-        ) {
-          material.color.setHex(0x888c92);
-          material.roughness = 0.55;
-          material.metalness = 0.05;
-          material.needsUpdate = true;
-        }
       }
       if ('animationInterpolation' in o.userData || 'animationChannelInterpolation' in o.userData || 'keyframes' in o.userData) {
         throw new Error('Legacy animation metadata is unsupported.');
