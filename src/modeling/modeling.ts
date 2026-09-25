@@ -7,7 +7,7 @@ const key = (v: number[]) => v.join(',');
 const edgeKey = (a: number, b: number) => `${Math.min(a, b)}:${Math.max(a, b)}`;
 const vector = (c: Corner) => new THREE.Vector3().fromArray(c.position);
 
-export function inspectGeometry(source: THREE.BufferGeometry) {
+export function inspectGeometry(source: THREE.BufferGeometry, pairTriangles = false) {
   const p = source.getAttribute('position'), count = source.index?.count ?? p?.count ?? 0;
   if (!p || p.itemSize !== 3 || p.count > 100_000 || !count || count > 600_000 || count % 3) throw new Error('Modeling requires at most 100,000 vertices and 200,000 triangles.');
   if (Object.keys(source.morphAttributes).length || source.drawRange.start || source.drawRange.count !== Infinity) throw new Error('Morph targets and partial draw ranges are not supported.');
@@ -26,7 +26,7 @@ export function inspectGeometry(source: THREE.BufferGeometry) {
     }
   }
   const coordinates = Array.from({ length: p.count }, (_, i) => [p.getX(i), p.getY(i), p.getZ(i)]).flat();
-  const topology = buildTopology(coordinates, indices);
+  const topology = buildTopology(coordinates, indices, pairTriangles);
   const read = (v: number) => new THREE.Vector3().fromBufferAttribute(p, topology.vertices[v][0]);
   const normals = topology.faces.map(face => {
     const [a, b, c] = face.map(read), n = b.sub(a).cross(c.sub(a));
