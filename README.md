@@ -322,6 +322,11 @@ The editor does not yet include polygon face editing, curved-surface region extr
 The development plan is [docs/plans/2026-09-08-forge-studio.md](docs/plans/2026-09-08-forge-studio.md).
 
 
+
+### Viewport box selection
+
+Left-drag in the 3D viewport draws a selection marquee. Object Mode selects object centers inside the box; Edit Mode selects logical vertex positions, edge midpoints, or triangle centroids according to the active component type. Weight Mode uses the same vertex box selection. Hold Shift while dragging to add to the current selection, and press Escape to cancel an active marquee. Alt-left orbit remains separate from box selection.
+
 ## Parametric primitives
 
 Cube, Plane, Sphere, Cylinder, Cone, Torus and Icosphere expose dimensions and subdivision controls in Object properties. Increase segments before skin binding when you need denser weight vertices. Applying the primitive or changing topology converts it to an ordinary mesh.
