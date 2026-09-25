@@ -47,7 +47,7 @@ Add Blender-style destructive mesh editing to Forge's logical polygon workflow.
 - One selected edge at a time.
 - Edge must be manifold and shared by exactly two polygons.
 - Adjacent polygons must have consistent opposite winding.
-- Material-boundary dissolve is rejected.
+- If adjacent polygons use different geometry material-group indices, the merged n-gon inherits the earlier logical face material deterministically.
 - Self-touching merged polygons are rejected.
 
 ## Validation
