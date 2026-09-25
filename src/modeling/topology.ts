@@ -2,10 +2,10 @@ export type ComponentMode = 'vertex' | 'edge' | 'face';
 export type MeshTopology = {
   vertices: number[][];
   bufferToVertex: number[];
-  // Renderer/modeling substrate: individual triangles and every triangle edge.
+  // Renderer substrate: individual triangles and every renderer triangle edge.
   edges: [number, number][];
   faces: [number, number, number][];
-  // Viewport modeling layer: logical polygons and only their boundary edges.
+  // Modeling layer: logical polygons and only their editable boundary edges.
   polygons: number[][];
   polygonTriangles: number[][];
   triangleToPolygon: number[];
@@ -15,47 +15,75 @@ export type MeshTopology = {
 
 const edgeKey = (a: number, b: number) => `${Math.min(a, b)}:${Math.max(a, b)}`;
 
-function orderedPairBoundary(a: [number, number, number], b: [number, number, number]): number[] | null {
+function orderedBoundary(faces: MeshTopology['faces'], triangleIds: number[]): number[] | null {
   const counts = new Map<string, { a: number; b: number; count: number }>();
-  for (const face of [a, b]) for (let i = 0; i < 3; i++) {
-    const x = face[i], y = face[(i + 1) % 3], key = edgeKey(x, y);
-    const entry = counts.get(key);
-    if (entry) entry.count++;
-    else counts.set(key, { a: x, b: y, count: 1 });
+  for (const faceId of triangleIds) {
+    const face = faces[faceId];
+    if (!face) return null;
+    for (let i = 0; i < 3; i++) {
+      const a = face[i], b = face[(i + 1) % 3], key = edgeKey(a, b);
+      const entry = counts.get(key);
+      if (entry) entry.count++;
+      else counts.set(key, { a, b, count: 1 });
+    }
   }
+
   const boundary = [...counts.values()].filter(edge => edge.count === 1);
-  if (boundary.length !== 4 || new Set([...a, ...b]).size !== 4) return null;
+  if (boundary.length < 3 || [...counts.values()].some(edge => edge.count > 2)) return null;
 
-  const neighbors = new Map<number, number[]>();
+  // Consistently oriented renderer triangles leave one directed cycle around the
+  // logical polygon once shared triangulation edges are removed.
+  const next = new Map<number, number>(), incoming = new Map<number, number>();
   for (const edge of boundary) {
-    neighbors.set(edge.a, [...(neighbors.get(edge.a) ?? []), edge.b]);
-    neighbors.set(edge.b, [...(neighbors.get(edge.b) ?? []), edge.a]);
+    if (next.has(edge.a) || incoming.has(edge.b)) return null;
+    next.set(edge.a, edge.b);
+    incoming.set(edge.b, edge.a);
   }
-  if ([...neighbors.values()].some(list => list.length !== 2)) return null;
+  if (next.size !== boundary.length || incoming.size !== boundary.length) return null;
 
-  const start = boundary[0].a;
-  const result = [start];
-  let previous = -1, current = start;
-  while (result.length < 4) {
-    const next = neighbors.get(current)!.find(vertex => vertex !== previous);
-    if (next === undefined || result.includes(next)) return null;
-    result.push(next);
-    previous = current;
-    current = next;
+  const start = boundary[0].a, result: number[] = [];
+  let current = start;
+  while (result.length <= boundary.length) {
+    if (result.includes(current)) break;
+    result.push(current);
+    const following = next.get(current);
+    if (following === undefined) return null;
+    current = following;
+    if (current === start) break;
   }
-  if (!neighbors.get(current)!.includes(start)) return null;
-  return result;
+  return current === start && result.length === boundary.length ? result : null;
 }
 
-// Triangle topology owns renderer/modeling connectivity. When pairTriangles is
-// enabled, consecutive triangle pairs are additionally exposed as logical quads.
-// Three.js PlaneGeometry and BoxGeometry emit exactly two consecutive triangles
-// per grid cell, so this mode is intentionally used only for Forge Plane/Cube
-// parametric primitives.
+function explicitPolygons(faces: MeshTopology['faces'], groups: number[][]) {
+  if (!groups.length) throw new Error('Logical polygon groups cannot be empty.');
+  const seen = new Set<number>();
+  const polygons: number[][] = [], polygonTriangles: number[][] = [];
+  const triangleToPolygon = new Array<number>(faces.length);
+
+  for (const group of groups) {
+    if (!Array.isArray(group) || !group.length || group.some(face => !Number.isInteger(face) || face < 0 || face >= faces.length || seen.has(face))) {
+      throw new Error('Invalid logical polygon triangle groups.');
+    }
+    const triangles = [...group];
+    const polygon = orderedBoundary(faces, triangles);
+    if (!polygon) throw new Error('Logical polygon triangles do not form one oriented boundary.');
+    const id = polygons.length;
+    polygons.push(polygon);
+    polygonTriangles.push(triangles);
+    for (const face of triangles) { seen.add(face); triangleToPolygon[face] = id; }
+  }
+  if (seen.size !== faces.length) throw new Error('Logical polygon groups must cover every renderer triangle exactly once.');
+  return { polygons, polygonTriangles, triangleToPolygon };
+}
+
+// The third argument controls only the modeling layer. false exposes renderer
+// triangles as logical triangles; true pairs the known consecutive triangle
+// layout emitted by Forge Cube/Plane; explicit groups preserve arbitrary logical
+// polygons after topology-changing polygon-native operations such as Bevel.
 export function buildTopology(
   positions: ArrayLike<number>,
   indices?: ArrayLike<number>,
-  pairTriangles = false,
+  logical: boolean | number[][] = false,
 ): MeshTopology {
   const vertices: number[][] = [], bufferToVertex: number[] = [];
   const byPosition = new Map<string, number>();
@@ -82,28 +110,30 @@ export function buildTopology(
     }
   }
 
-  const polygons: number[][] = [];
-  const polygonTriangles: number[][] = [];
-  const triangleToPolygon = new Array<number>(faces.length);
-
-  if (pairTriangles) {
+  let polygons: number[][] = [], polygonTriangles: number[][] = [], triangleToPolygon: number[] = [];
+  if (Array.isArray(logical)) {
+    ({ polygons, polygonTriangles, triangleToPolygon } = explicitPolygons(faces, logical));
+  } else if (logical) {
+    triangleToPolygon = new Array<number>(faces.length);
     for (let face = 0; face < faces.length; face += 2) {
       const next = face + 1;
-      const quad = next < faces.length ? orderedPairBoundary(faces[face], faces[next]) : null;
-      const polygon = quad ?? [...faces[face]];
-      const id = polygons.length;
-      polygons.push(polygon);
-      polygonTriangles.push(quad ? [face, next] : [face]);
-      triangleToPolygon[face] = id;
-      if (quad) triangleToPolygon[next] = id;
-      else if (next < faces.length) {
-        const fallback = polygons.length;
-        polygons.push([...faces[next]]);
-        polygonTriangles.push([next]);
-        triangleToPolygon[next] = fallback;
+      const pair = next < faces.length ? [face, next] : [face];
+      const quad = pair.length === 2 ? orderedBoundary(faces, pair) : null;
+      if (quad?.length === 4 && new Set([...faces[face], ...faces[next]]).size === 4) {
+        const id = polygons.length;
+        polygons.push(quad); polygonTriangles.push(pair);
+        triangleToPolygon[face] = id; triangleToPolygon[next] = id;
+      } else {
+        const id = polygons.length;
+        polygons.push([...faces[face]]); polygonTriangles.push([face]); triangleToPolygon[face] = id;
+        if (next < faces.length) {
+          const fallback = polygons.length;
+          polygons.push([...faces[next]]); polygonTriangles.push([next]); triangleToPolygon[next] = fallback;
+        }
       }
     }
   } else {
+    triangleToPolygon = new Array<number>(faces.length);
     faces.forEach((face, id) => {
       polygons.push([...face]);
       polygonTriangles.push([id]);
