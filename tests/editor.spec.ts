@@ -227,6 +227,7 @@ test('topology modeling preserves Edge mode and supports multiple Undo / Redo st
   expect(result.undoDepth).toBeGreaterThanOrEqual(3);
   await expect(page.locator('#primitive-fields')).toHaveClass(/hidden/);
 
+  await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
   await page.keyboard.press('Control+z');
   const undo1 = await page.evaluate(() => {
     const e = (window as any).__forge;
@@ -247,6 +248,7 @@ test('topology modeling preserves Edge mode and supports multiple Undo / Redo st
   expect(undo1.undoDepth).toBeGreaterThanOrEqual(2);
   expect(undo1.redoDepth).toBe(1);
 
+  await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
   await page.keyboard.press('Control+z');
   const undo2 = await page.evaluate(() => {
     const e = (window as any).__forge;
@@ -266,6 +268,7 @@ test('topology modeling preserves Edge mode and supports multiple Undo / Redo st
   expect(undo2.undoDepth).toBeGreaterThanOrEqual(1);
   expect(undo2.redoDepth).toBe(2);
 
+  await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
   await page.keyboard.press('Control+z');
   const undo3 = await page.evaluate(() => {
     const e = (window as any).__forge;
@@ -283,8 +286,11 @@ test('topology modeling preserves Edge mode and supports multiple Undo / Redo st
   expect(undo3.heightSegments).toBe(1);
   expect(undo3.canRedo).toBe(true);
 
+  await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
   await page.keyboard.press('Control+Shift+z');
+  await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
   await page.keyboard.press('Control+Shift+z');
+  await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
   await page.keyboard.press('Control+Shift+z');
   const redone = await page.evaluate(() => {
     const e = (window as any).__forge;
