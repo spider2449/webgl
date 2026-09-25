@@ -65,6 +65,12 @@ test('logical Cube bevel ignores renderer diagonals and returns persistent polyg
     .map(({ id }) => id);
   expect(topEdges).toHaveLength(4);
 
+  const single = bevelLogicalEdges(box, [topEdges[0]], 0.1, input.polygonTriangles);
+  closed(single.geometry);
+  const singleTopology = buildTopology(single.geometry.getAttribute('position').array, single.geometry.index?.array, single.polygonTriangles);
+  expect(singleTopology.polygons.length).toBeGreaterThan(6);
+  expect(singleTopology.vertices.length).toBeGreaterThan(8);
+
   const bevel = bevelLogicalEdges(box, topEdges, 0.1, input.polygonTriangles);
   closed(bevel.geometry);
   const output = buildTopology(bevel.geometry.getAttribute('position').array, bevel.geometry.index?.array, bevel.polygonTriangles);
