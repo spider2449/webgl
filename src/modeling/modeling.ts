@@ -470,6 +470,94 @@ export function loopCutLogicalEdge(
   return finishDetailed([...output, ...extras]);
 }
 
+export function deleteLogicalComponents(
+  source: THREE.BufferGeometry,
+  mode: 'vertex' | 'edge' | 'face',
+  components: number[],
+  polygonTriangles?: number[][],
+) {
+  const inspection = inspectGeometry(source, polygonTriangles ?? false);
+  const { topology } = inspection;
+  const { polygons } = logicalSurface(source, inspection);
+  const selected = [...new Set(components)];
+  if (!selected.length) throw new Error('Select mesh components to delete.');
+
+  const removed = new Set<number>();
+  if (mode === 'face') {
+    if (selected.some(face => !Number.isInteger(face) || !topology.polygons[face])) throw new Error('Invalid logical face selection.');
+    selected.forEach(face => removed.add(face));
+  } else if (mode === 'vertex') {
+    if (selected.some(vertex => !Number.isInteger(vertex) || !topology.vertices[vertex])) throw new Error('Invalid logical vertex selection.');
+    const vertices = new Set(selected);
+    topology.polygons.forEach((polygon, face) => {
+      if (polygon.some(vertex => vertices.has(vertex))) removed.add(face);
+    });
+  } else {
+    if (selected.some(edge => !Number.isInteger(edge) || !topology.polygonEdges[edge])) throw new Error('Invalid logical edge selection.');
+    const edges = new Set(selected.map(edge => edgeKey(...topology.polygonEdges[edge])));
+    topology.polygons.forEach((polygon, face) => {
+      if (polygon.some((vertex, i) => edges.has(edgeKey(vertex, polygon[(i + 1) % polygon.length])))) removed.add(face);
+    });
+  }
+
+  if (!removed.size) throw new Error('Selected components do not remove any faces.');
+  const output = polygons.filter((_, face) => !removed.has(face));
+  if (!output.length) throw new Error('Delete would remove the entire mesh; delete the object in Object Mode instead.');
+  return finishDetailed(output);
+}
+
+export function dissolveLogicalEdge(
+  source: THREE.BufferGeometry,
+  edge: number,
+  polygonTriangles?: number[][],
+) {
+  const inspection = inspectGeometry(source, polygonTriangles ?? false);
+  const { topology } = inspection;
+  const { polygons } = logicalSurface(source, inspection);
+  if (!Number.isInteger(edge) || edge < 0 || !topology.polygonEdges[edge]) throw new Error('Select one valid logical edge to dissolve.');
+
+  const [rawA, rawB] = topology.polygonEdges[edge];
+  const uses: { face: number; local: number; forward: boolean }[] = [];
+  topology.polygons.forEach((vertices, face) => {
+    vertices.forEach((vertex, local) => {
+      const next = vertices[(local + 1) % vertices.length];
+      if (vertex === rawA && next === rawB) uses.push({ face, local, forward: true });
+      else if (vertex === rawB && next === rawA) uses.push({ face, local, forward: false });
+    });
+  });
+  if (uses.length !== 2) throw new Error('Dissolve Edge requires one manifold edge shared by exactly two polygons.');
+
+  const first = uses.find(use => use.forward);
+  const second = uses.find(use => !use.forward);
+  if (!first || !second) throw new Error('Adjacent polygons must have consistent opposite winding.');
+  if (polygons[first.face].material !== polygons[second.face].material) throw new Error('Dissolve across a material boundary is not supported.');
+
+  const walk = (face: number, local: number) => {
+    const vertices = topology.polygons[face];
+    const corners = polygons[face].corners;
+    const resultVertices: number[] = [];
+    const resultCorners: Corner[] = [];
+    for (let offset = 1; offset <= vertices.length; offset++) {
+      const index = (local + offset) % vertices.length;
+      resultVertices.push(vertices[index]);
+      resultCorners.push(corners[index]);
+    }
+    return { vertices: resultVertices, corners: resultCorners };
+  };
+
+  const firstPath = walk(first.face, first.local);
+  const secondPath = walk(second.face, second.local);
+  const mergedVertices = [...firstPath.vertices, ...secondPath.vertices.slice(1, -1)];
+  const mergedCorners = [...firstPath.corners, ...secondPath.corners.slice(1, -1)];
+  if (mergedVertices.length < 3 || new Set(mergedVertices).size !== mergedVertices.length) {
+    throw new Error('Dissolve Edge would create a self-touching polygon.');
+  }
+
+  const output = polygons.filter((_, face) => face !== first.face && face !== second.face);
+  output.splice(Math.min(first.face, second.face), 0, { material: polygons[first.face].material, corners: mergedCorners });
+  return finishDetailed(output);
+}
+
 export function bevelLogicalEdges(source: THREE.BufferGeometry, edges: number[], width: number, polygonTriangles?: number[][]) {
   if (!Number.isFinite(width) || width < 0.0001 || width > 1000) throw new Error('Bevel width must be between 0.0001 and 1000.');
   const inspection = inspectGeometry(source, polygonTriangles ?? false);
