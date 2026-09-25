@@ -119,3 +119,62 @@ test('subdivided plane uses grid quads without render diagonals as modeling edge
     polygonEdges: 12,
   });
 });
+
+
+test('quad extrusion preserves one logical cap and creates quad walls across repeats', async ({ page }) => {
+  const result = await page.evaluate(async () => {
+    const e = (window as any).__forge;
+    e.selected.rotation.set(0, 0, 0);
+    e.setEditMode(true);
+    e.setComponentMode('face');
+
+    const positions = e.selected.geometry.getAttribute('position');
+    const front = e.meshTopology.polygons.findIndex((face: number[]) =>
+      face.every(vertex => positions.getZ(e.meshTopology.vertices[vertex][0]) === 1)
+    );
+    e.selectComponent(front);
+
+    const firstFaces = e.componentFaceTriangles(front);
+    await e.runModeling({ kind: 'region', faces: firstFaces, distance: 0.5 });
+    const firstSelection = e.componentSelection[0];
+    const first = {
+      triangles: e.stats().triangles,
+      polygons: e.meshTopology.polygons.length,
+      quads: e.meshTopology.polygons.filter((face: number[]) => face.length === 4).length,
+      capVertices: e.meshTopology.polygons[firstSelection].length,
+      capTriangles: e.componentFaceTriangles(firstSelection).length,
+      selected: [...e.componentSelection],
+    };
+
+    const secondFaces = e.componentFaceTriangles(firstSelection);
+    await e.runModeling({ kind: 'region', faces: secondFaces, distance: 0.5 });
+    const secondSelection = e.componentSelection[0];
+    const second = {
+      triangles: e.stats().triangles,
+      polygons: e.meshTopology.polygons.length,
+      quads: e.meshTopology.polygons.filter((face: number[]) => face.length === 4).length,
+      capVertices: e.meshTopology.polygons[secondSelection].length,
+      capTriangles: e.componentFaceTriangles(secondSelection).length,
+      selected: [...e.componentSelection],
+    };
+
+    return { front, first, second };
+  });
+
+  expect(result.first).toEqual({
+    triangles: 20,
+    polygons: 10,
+    quads: 10,
+    capVertices: 4,
+    capTriangles: 2,
+    selected: [result.front],
+  });
+  expect(result.second).toEqual({
+    triangles: 28,
+    polygons: 14,
+    quads: 14,
+    capVertices: 4,
+    capTriangles: 2,
+    selected: [result.front],
+  });
+});
