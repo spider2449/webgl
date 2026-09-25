@@ -90,7 +90,7 @@ test('invalid region requests leave source untouched',()=>{
 
 test('real Shift-selected planar faces repeat extrusion, move and round trip history/projects',async({page})=>{
   await page.goto('/');await page.waitForFunction(()=>(window as any).__forge?.selected);
-  await page.evaluate(()=>{const e=(window as any).__forge;e.selected.rotation.set(0,0,0);e.selected.scale.set(1.5,0.8,1.2);e.commit();e.view('front');});
+  await page.evaluate(()=>{const e=(window as any).__forge;delete e.selected.userData.forgePrimitive;delete e.selected.userData.forgeLogicalQuads;e.selected.rotation.set(0,0,0);e.selected.scale.set(1.5,0.8,1.2);e.commit();e.view('front');});
   await page.locator('#mode').selectOption('edit');await page.getByLabel('Mesh component').selectOption('face');
   const targets=await page.evaluate(()=>{
     const e=(window as any).__forge,m=e.selected,t=e.topology,p=m.geometry.attributes.position;

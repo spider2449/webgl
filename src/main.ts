@@ -1070,7 +1070,7 @@ document.querySelectorAll<HTMLInputElement>('[data-transform]').forEach(input =>
 on('reset-transform', () => { if (editor.selected) { editor.selected.position.set(0,0,0); editor.selected.rotation.set(0,0,0); editor.selected.scale.set(1,1,1); rigSystem.captureEditedRest(); editor.commit(); } });
 on('extrude-face', async () => {
   try {
-    if (!editor.editMode || editor.componentMode !== 'face' || editor.componentSelection.length !== 1 || !editor.meshTopology) throw new Error('Select exactly one face in Edit Mode first.');
+    if (!editor.editMode || editor.componentMode !== 'face' || editor.componentSelection.length !== 1 || !editor.meshTopology) throw new Error('Select exactly one triangle face in Edit Mode first.');
     const polygon = editor.componentSelection[0];
     const triangles = editor.meshTopology.polygonTriangles[polygon];
     const distance = Number($<HTMLInputElement>('#extrude-distance').value);
@@ -1092,7 +1092,7 @@ on('extrude-region', async () => {
 $('#mirror').insertAdjacentHTML('beforebegin', '<label class="property-row">Inset distance<input id="inset-distance" aria-label="Inset distance" type="number" min="0.0001" max="1000" step="0.05" value="0.1"></label><button class="wide-button" id="inset-face">Inset selected face</button><p class="field-help">Triangle faces only in this foundation. Distance must be smaller than the triangle inradius.</p>');
 on('inset-face', async () => {
   try {
-    if (!editor.editMode || editor.componentMode !== 'face' || editor.componentSelection.length !== 1 || !editor.meshTopology) throw new Error('Select exactly one face in Edit Mode first.');
+    if (!editor.editMode || editor.componentMode !== 'face' || editor.componentSelection.length !== 1 || !editor.meshTopology) throw new Error('Select exactly one triangle face in Edit Mode first.');
     const triangles = editor.meshTopology.polygonTriangles[editor.componentSelection[0]];
     if (triangles?.length !== 1) throw new Error('Quad/polygon inset is not implemented yet; use a triangle face.');
     await editor.runModeling({ kind: 'inset', face: triangles[0], distance: Number($<HTMLInputElement>('#inset-distance').value) });

@@ -1296,7 +1296,7 @@ export class Editor extends EventTarget {
   }
   extrudeFace(distance: number, inset = false) {
     if (!this.editMode || this.componentMode !== 'face' || this.selectedFace === null || !this.topology || !(this.selected instanceof THREE.Mesh) || this.selected instanceof THREE.SkinnedMesh || this.playing) {
-      throw new Error('Select exactly one face in Edit Mode first.');
+      throw new Error('Select exactly one triangle face in Edit Mode first.');
     }
     const mesh = this.selected, polygon = this.selectedFace;
     const triangles = this.topology.polygonTriangles[polygon];

@@ -31,6 +31,24 @@ test('Cube viewport topology exposes six quads and twelve boundary edges', async
   expect(result.logicalFlag).toBe(true);
 });
 
+test('quad face mutation tools stay explicitly staged in the topology foundation', async ({ page }) => {
+  await page.locator('#mode').selectOption('edit');
+  await page.getByLabel('Mesh component').selectOption('face');
+  const before = await page.evaluate(() => {
+    const e = (window as any).__forge;
+    e.selectComponent(0);
+    return e.snapshot();
+  });
+
+  await page.locator('#extrude-face').click();
+  await expect(page.locator('#toast')).toContainText('Quad/polygon extrude is not implemented yet');
+  expect(await page.evaluate(() => (window as any).__forge.snapshot())).toBe(before);
+
+  await page.locator('#inset-face').click();
+  await expect(page.locator('#toast')).toContainText('Quad/polygon inset is not implemented yet');
+  expect(await page.evaluate(() => (window as any).__forge.snapshot())).toBe(before);
+});
+
 test('both renderer triangles on a Cube side select the same logical quad', async ({ page }) => {
   await page.evaluate(() => {
     const e = (window as any).__forge;
@@ -145,6 +163,7 @@ test('modeling UI maps logical edge and face selections to renderer topology', a
     e.selectComponent(0);
     return [...e.meshTopology.polygonTriangles[0]];
   });
+  await page.locator('summary').filter({ hasText: 'UV editor' }).click();
   await page.locator('#uv-project').click();
   expect(await page.evaluate(() => (window as any).__modelingCalls[1])).toMatchObject({
     kind: 'uv',
@@ -156,6 +175,7 @@ test('UV editing restores the logical quad selection after renderer-triangle wor
   await page.locator('#mode').selectOption('edit');
   await page.getByLabel('Mesh component').selectOption('face');
   await page.evaluate(() => (window as any).__forge.selectComponent(0));
+  await page.locator('summary').filter({ hasText: 'UV editor' }).click();
 
   await page.locator('#uv-project').click();
   await expect(page.locator('#toast')).toContainText('Modeling operation complete.');

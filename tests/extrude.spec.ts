@@ -51,7 +51,7 @@ test('invalid extrusion requests leave source geometry untouched', () => {
 test('viewport-selected face extrudes repeatedly through UI with history and project recovery', async ({page}) => {
   await page.goto('/');
   await page.waitForFunction(()=>(window as any).__forge?.selected);
-  await page.evaluate(()=>{const e=(window as any).__forge;e.selected.rotation.set(0,0,0);e.commit();e.view('front');});
+  await page.evaluate(()=>{const e=(window as any).__forge;delete e.selected.userData.forgePrimitive;delete e.selected.userData.forgeLogicalQuads;e.selected.rotation.set(0,0,0);e.commit();e.view('front');});
   await page.locator('#mode').selectOption('edit');
   await page.getByLabel('Mesh component').selectOption('face');
   const point=await page.evaluate(()=>{
