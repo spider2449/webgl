@@ -61,6 +61,91 @@ test('Object Mode drag-box selects multiple objects and Shift adds', async ({ pa
   expect(await page.evaluate(() => [...(window as any).__forge.selectedObjects].map((object: any) => object.name).sort())).toEqual(['Cone', 'Cube', 'Sphere']);
 });
 
+test('Shift-click accumulates Object Mode selection and Select Tool stays gizmo-free', async ({ page }) => {
+  const points = await page.evaluate(() => {
+    const e = (window as any).__forge;
+    const sphere = e.add('sphere', false);
+    sphere.position.x = 3;
+    e.commit();
+    e.view('front');
+    e.setTool('select');
+    e.content.updateMatrixWorld(true);
+    e.camera.updateMatrixWorld(true);
+    const rect = e.host.getBoundingClientRect();
+    return e.content.children.map((object: any) => {
+      const point = object.getWorldPosition(object.position.clone().set(0, 0, 0)).project(e.camera);
+      return {
+        name: object.name,
+        x: rect.left + (point.x + 1) * rect.width / 2,
+        y: rect.top + (1 - point.y) * rect.height / 2,
+      };
+    });
+  });
+
+  const cube = points.find((point: any) => point.name === 'Cube')!;
+  const sphere = points.find((point: any) => point.name.startsWith('Sphere'))!;
+  await page.mouse.click(cube.x, cube.y);
+  await page.keyboard.down('Shift');
+  await page.mouse.click(sphere.x, sphere.y);
+  await page.keyboard.up('Shift');
+
+  const result = await page.evaluate(() => {
+    const e = (window as any).__forge;
+    return {
+      names: [...e.selectedObjects].map((object: any) => object.name).sort(),
+      active: e.selected?.name,
+      helperCount: e.secondarySelectionBoxes.size,
+      gizmoObject: e.transform.object?.name ?? null,
+    };
+  });
+  expect(result.names).toEqual(['Cube', 'Sphere']);
+  expect(result.active).toBe('Sphere');
+  expect(result.helperCount).toBe(1);
+  expect(result.gizmoObject).toBeNull();
+  await expect(page.locator('#selection-label')).toContainText('2 objects selected');
+});
+
+test('Select Tool does not attach Move gizmo after Edit Mode component selection', async ({ page }) => {
+  await page.evaluate(() => {
+    const e = (window as any).__forge;
+    e.selected.rotation.set(0, 0, 0);
+    e.commit();
+    e.view('front');
+    e.setTool('select');
+  });
+  await page.locator('#mode').selectOption('edit');
+  await page.getByLabel('Mesh component').selectOption('edge');
+
+  const point = await page.evaluate(() => {
+    const e = (window as any).__forge;
+    const mesh = e.selected, topology = e.meshTopology, position = mesh.geometry.getAttribute('position');
+    const edge = topology.edges[0];
+    const center = edge.reduce((sum: any, vertex: number) => {
+      const index = topology.vertices[vertex][0];
+      return sum.add(mesh.localToWorld(mesh.position.clone().set(position.getX(index), position.getY(index), position.getZ(index))));
+    }, mesh.position.clone().set(0, 0, 0)).multiplyScalar(0.5);
+    e.camera.updateMatrixWorld(true);
+    center.project(e.camera);
+    const rect = e.host.getBoundingClientRect();
+    return { x: rect.left + (center.x + 1) * rect.width / 2, y: rect.top + (1 - center.y) * rect.height / 2 };
+  });
+
+  await page.mouse.click(point.x, point.y);
+  const result = await page.evaluate(() => {
+    const e = (window as any).__forge;
+    return {
+      selected: e.componentSelection.length,
+      gizmoObject: e.transform.object?.name ?? null,
+      edgeOverlay: e.selectedEdgeOverlay?.visible ?? false,
+      edgeOverlayCount: e.selectedEdgeOverlay?.geometry.getAttribute('position')?.count ?? 0,
+    };
+  });
+  expect(result.selected).toBe(1);
+  expect(result.gizmoObject).toBeNull();
+  expect(result.edgeOverlay).toBe(true);
+  expect(result.edgeOverlayCount).toBe(2);
+});
+
 for (const mode of ['vertex', 'edge', 'face'] as const) {
   test(`Edit Mode drag-box selects ${mode} components without changing selection type`, async ({ page }) => {
     await page.evaluate(() => {
