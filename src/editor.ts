@@ -545,6 +545,7 @@ export class Editor extends EventTarget {
     const geometry = createPrimitiveGeometry(settings);
     const mesh = new THREE.Mesh(geometry, new THREE.MeshStandardMaterial({ color: 0x666a70, roughness: 0.8, metalness: 0, side: THREE.DoubleSide }));
     mesh.userData.forgePrimitive = settings;
+    if (kind === 'cube' || kind === 'plane') mesh.userData.forgeLogicalQuads = true;
     mesh.name = this.uniqueName(kind[0].toUpperCase() + kind.slice(1));
     mesh.position.y = kind === 'plane' ? 0 : kind === 'torus' ? 1.35 : kind === 'icosphere' ? 1.2 : 1;
     if (kind === 'plane') mesh.rotation.x = -Math.PI / 2;
@@ -589,6 +590,10 @@ export class Editor extends EventTarget {
   }
   private markPrimitiveApplied(mesh: THREE.Mesh) {
     if (mesh.userData.forgePrimitive !== undefined) delete mesh.userData.forgePrimitive;
+  }
+  private markTopologyChanged(mesh: THREE.Mesh) {
+    this.markPrimitiveApplied(mesh);
+    if (mesh.userData.forgeLogicalQuads !== undefined) delete mesh.userData.forgeLogicalQuads;
   }
   get collections(): THREE.Group[] {
     return this.content.children.filter((object): object is THREE.Group => object instanceof THREE.Group && object.userData.forgeCollection === true);
@@ -1008,7 +1013,8 @@ export class Editor extends EventTarget {
     this.modelingBusy = true; this.emit('modeling');
     try {
       const primitiveKind = (mesh.userData.forgePrimitive as { kind?: string } | undefined)?.kind;
-      const job = modelingJob(mesh.geometry, { kind: 'topology', pairTriangles: primitiveKind === 'cube' || primitiveKind === 'plane' }); this.cancelJob = job.cancel;
+      const pairTriangles = mesh.userData.forgeLogicalQuads === true || primitiveKind === 'cube' || primitiveKind === 'plane';
+      const job = modelingJob(mesh.geometry, { kind: 'topology', pairTriangles }); this.cancelJob = job.cancel;
       const result = await job.promise;
       if (this.selected !== mesh || this.snapshot() !== before || this.modelingVersion !== version) throw new Error('Scene changed; discarded topology result.');
       return this.setEditMode(true, result.topology);
@@ -1054,7 +1060,7 @@ export class Editor extends EventTarget {
       this.selected.add(this.vertexPoints);
       const position = this.selected.geometry.getAttribute('position');
       const primitiveKind = (this.selected.userData.forgePrimitive as { kind?: string } | undefined)?.kind;
-      const pairTriangles = primitiveKind === 'cube' || primitiveKind === 'plane';
+      const pairTriangles = this.selected.userData.forgeLogicalQuads === true || primitiveKind === 'cube' || primitiveKind === 'plane';
       this.topology = preparedTopology ?? buildTopology(position.array, this.selected.geometry.index?.array, pairTriangles);
       geometry.setAttribute('color', new THREE.Float32BufferAttribute(new Float32Array(position.count * 3).fill(1), 3));
       (this.vertexPoints.material as THREE.PointsMaterial).vertexColors = true;
@@ -1367,8 +1373,8 @@ export class Editor extends EventTarget {
   }
   snapSelectionToEdge(edge: number) {
     if (!this.editMode || !this.topology || !(this.selected instanceof THREE.Mesh) || !this.vertexIndices.length || this.playing || this.transform.dragging) throw new Error('Select mesh components in Edit Mode and finish the current drag first.');
-    if (!Number.isInteger(edge) || !this.topology.edges[edge]) throw new Error('Invalid snap target edge.');
-    const indices = this.topology.edges[edge].map(vertex => this.topology!.vertices[vertex][0]);
+    if (!Number.isInteger(edge) || !this.topology.polygonEdges[edge]) throw new Error('Invalid snap target edge.');
+    const indices = this.topology.polygonEdges[edge].map(vertex => this.topology!.vertices[vertex][0]);
     if (indices.some(index => this.vertexIndices.includes(index))) throw new Error('Choose an edge with both endpoints unselected.');
     const attribute = this.selected.geometry.getAttribute('position');
     const target = new THREE.Vector3().fromBufferAttribute(attribute, indices[0])
@@ -1443,7 +1449,7 @@ export class Editor extends EventTarget {
       const oldEdges = oldMode === 'edge' ? this.captureSubdivisionEdges(oldSelection) : [];
       const midpoint = meshes[0].geometry.getAttribute('position').count;
       this.setEditMode(false);
-      meshes.forEach(mesh => this.markPrimitiveApplied(mesh));
+      meshes.forEach(mesh => operation.kind === 'uv' ? this.markPrimitiveApplied(mesh) : this.markTopologyChanged(mesh));
       meshes.forEach((mesh, i) => this.replaceGeometry(mesh, results[i])); results.length = 0;
       if (editing) {
         this.setEditMode(true, topologies[0]);
@@ -1478,7 +1484,7 @@ export class Editor extends EventTarget {
       if (this.selected !== mesh || this.snapshot() !== before || this.modelingVersion !== version) throw new Error('Scene changed; discarded modifier result.');
       const geometry = new THREE.BufferGeometryLoader().parse(response.geometry!);
       if (this.stats().vertices - mesh.geometry.getAttribute('position').count + geometry.getAttribute('position').count > 2_000_000) { geometry.dispose(); throw new Error('Modifier exceeds the scene vertex budget.'); }
-      if (items.length) this.markPrimitiveApplied(mesh);
+      if (items.length) this.markTopologyChanged(mesh);
       this.setEditMode(false); this.replaceGeometry(mesh, geometry);
       if (items.length) mesh.userData.modifierStack = { source: sourceJSON, items: structuredClone(items) } satisfies ModifierStack;
       else delete mesh.userData.modifierStack;
