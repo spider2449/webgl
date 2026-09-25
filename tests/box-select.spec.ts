@@ -172,6 +172,7 @@ test('Edge box-select uses segment intersection instead of midpoint sampling', a
   await page.locator('#mode').selectOption('edit');
   await page.locator('#tool-select').click();
   await page.getByLabel('Mesh component').selectOption('edge');
+  await page.locator('#shading-wire').click();
 
   const target = await page.evaluate(() => {
     const e = (window as any).__forge;
@@ -237,10 +238,15 @@ test('Edge box-select limits Solid selection to visible edges but Wireframe sele
       const a = project(edge[0]), b = project(edge[1]);
       return { id, a, b, mx: (a.x+b.x)/2, my:(a.y+b.y)/2, mz:(a.z+b.z)/2 };
     });
+    const sameProjectedSegment = (a: any, b: any) => {
+      const direct = Math.hypot(a.a.x-b.a.x,a.a.y-b.a.y) + Math.hypot(a.b.x-b.b.x,a.b.y-b.b.y);
+      const reversed = Math.hypot(a.a.x-b.b.x,a.a.y-b.b.y) + Math.hypot(a.b.x-b.a.x,a.b.y-b.a.y);
+      return Math.min(direct, reversed) < 4;
+    };
     let pair: any = null;
     for (let i=0;i<projected.length&&!pair;i++) for (let j=i+1;j<projected.length;j++) {
       const a=projected[i], b=projected[j];
-      if (Math.hypot(a.mx-b.mx,a.my-b.my)<8 && Math.abs(a.mz-b.mz)>0.1) {
+      if (sameProjectedSegment(a,b) && Math.abs(a.mz-b.mz)>1e-5) {
         pair = a.mz < b.mz ? {front:a,back:b} : {front:b,back:a};
         break;
       }
@@ -346,6 +352,7 @@ for (const mode of ['vertex', 'edge', 'face'] as const) {
     });
     await page.locator('#mode').selectOption('edit');
     await page.getByLabel('Mesh component').selectOption(mode);
+    if (mode === 'edge') await page.locator('#shading-wire').click();
 
     const target = await page.evaluate((mode) => {
       const e = (window as any).__forge;
