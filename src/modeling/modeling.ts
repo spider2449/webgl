@@ -106,6 +106,77 @@ function clip(corners: Corner[], normal: THREE.Vector3, constant: number): { cor
   return { corners: result.filter((c, i) => key(c.position) !== key(result[(i + result.length - 1) % result.length].position)), cuts };
 }
 
+function triangulateBoundary(corners: Corner[]): Corner[][] {
+  if (corners.length === 3) return [corners];
+
+  // Ear clipping uses only existing boundary corners. Collinear boundary
+  // vertices are never discarded: they become valid ears after neighboring
+  // corners are clipped, so renderer tessellation cannot erase modeling
+  // vertices or introduce T-junctions.
+  const points = corners.map(vector);
+  const normal = new THREE.Vector3();
+  for (let i = 0; i < points.length; i++) {
+    const a = points[i], b = points[(i + 1) % points.length];
+    normal.x += (a.y - b.y) * (a.z + b.z);
+    normal.y += (a.z - b.z) * (a.x + b.x);
+    normal.z += (a.x - b.x) * (a.y + b.y);
+  }
+  if (normal.lengthSq() < 1e-16 || !Number.isFinite(normal.lengthSq())) throw new Error('Result polygon collapses at mesh coordinate precision.');
+
+  const axis = Math.abs(normal.x) >= Math.abs(normal.y) && Math.abs(normal.x) >= Math.abs(normal.z)
+    ? 0 : Math.abs(normal.y) >= Math.abs(normal.z) ? 1 : 2;
+  const projected = points.map(point => axis === 0 ? [point.y, point.z] : axis === 1 ? [point.x, point.z] : [point.x, point.y]);
+  const cross = (a: number, b: number, c: number) =>
+    (projected[b][0] - projected[a][0]) * (projected[c][1] - projected[a][1]) -
+    (projected[b][1] - projected[a][1]) * (projected[c][0] - projected[a][0]);
+  const signedArea = projected.reduce((sum, point, i) => {
+    const next = projected[(i + 1) % projected.length];
+    return sum + point[0] * next[1] - next[0] * point[1];
+  }, 0);
+  if (!Number.isFinite(signedArea) || Math.abs(signedArea) < 1e-16) throw new Error('Result polygon collapses at mesh coordinate precision.');
+  const winding = Math.sign(signedArea);
+  const minX = Math.min(...projected.map(point => point[0])), maxX = Math.max(...projected.map(point => point[0]));
+  const minY = Math.min(...projected.map(point => point[1])), maxY = Math.max(...projected.map(point => point[1]));
+  const extent = Math.max(maxX - minX, maxY - minY, 1);
+  const epsilon = extent * extent * 1e-12;
+
+  const remaining = corners.map((_, index) => index);
+  const triangles: Corner[][] = [];
+  while (remaining.length > 3) {
+    let clipped = false;
+    for (let i = 0; i < remaining.length; i++) {
+      const previous = remaining[(i + remaining.length - 1) % remaining.length];
+      const current = remaining[i];
+      const next = remaining[(i + 1) % remaining.length];
+      if (winding * cross(previous, current, next) <= epsilon) continue;
+
+      let containsVertex = false;
+      for (const candidate of remaining) {
+        if (candidate === previous || candidate === current || candidate === next) continue;
+        const a = winding * cross(previous, current, candidate);
+        const b = winding * cross(current, next, candidate);
+        const c = winding * cross(next, previous, candidate);
+        if (a >= -epsilon && b >= -epsilon && c >= -epsilon) {
+          containsVertex = true;
+          break;
+        }
+      }
+      if (containsVertex) continue;
+
+      triangles.push([corners[previous], corners[current], corners[next]]);
+      remaining.splice(i, 1);
+      clipped = true;
+      break;
+    }
+    if (!clipped) throw new Error('Result polygon cannot be tessellated without changing its boundary.');
+  }
+
+  const [a, b, c] = remaining;
+  if (winding * cross(a, b, c) <= epsilon) throw new Error('Result polygon collapses at mesh coordinate precision.');
+  triangles.push([corners[a], corners[b], corners[c]]);
+  return triangles;
+}
+
 function finishDetailed(polygons: Polygon[]) {
   const values: Record<string, number[]> = {}, sizes: Record<string, number> = {}, groups: { start: number; count: number; material: number }[] = [];
   const polygonTriangles: number[][] = [];
@@ -114,9 +185,7 @@ function finishDetailed(polygons: Polygon[]) {
     if (corners.length < 3) continue;
     // Rendering tessellation is not modeling topology. Triangulate only with
     // existing polygon corners: never create centroid/interior vertices.
-    const triangles = corners.length === 3
-      ? [corners]
-      : Array.from({ length: corners.length - 2 }, (_, i) => [corners[0], corners[i + 1], corners[i + 2]]);
+    const triangles = triangulateBoundary(corners);
     const triangleIds: number[] = [];
     for (const triangle of triangles) {
       const [a, b, c] = triangle.map(vector);
