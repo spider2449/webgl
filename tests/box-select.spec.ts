@@ -111,9 +111,10 @@ test('Select Tool does not attach Move gizmo after Edit Mode component selection
     e.selected.rotation.set(0, 0, 0);
     e.commit();
     e.view('front');
-    e.setTool('select');
   });
   await page.locator('#mode').selectOption('edit');
+  await page.locator('#tool-select').click();
+  await expect(page.locator('#tool-select')).toHaveClass(/active/);
   await page.getByLabel('Mesh component').selectOption('edge');
 
   const point = await page.evaluate(() => {
