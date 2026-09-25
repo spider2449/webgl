@@ -1511,7 +1511,13 @@ export class Editor extends EventTarget {
       });
       meshes.forEach((mesh, i) => this.replaceGeometry(mesh, results[i])); results.length = 0;
       if (editing) {
-        this.setEditMode(true, operation.kind === 'uv' ? undefined : topologies[0]);
+        // Polygon-native operations persist their logical face groups on the
+        // mesh, then rebuild topology from the exact geometry installed on the
+        // main thread. This keeps raycast faceIndex -> logical polygon mapping
+        // aligned with the parsed BufferGeometry rather than trusting a
+        // transient worker-side triangle numbering.
+        const rebuildFromStoredPolygons = operation.kind === 'bevel' || operation.kind === 'extrude';
+        this.setEditMode(true, operation.kind === 'uv' || rebuildFromStoredPolygons ? undefined : topologies[0]);
         if (operation.kind === 'subdivide') {
           this.restoreSubdivisionSelection(oldMode, oldEdges, midpoint);
         } else if (operation.kind === 'subdivide-all') {
