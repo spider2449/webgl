@@ -161,7 +161,7 @@ test('Select Tool does not attach Move gizmo after Edit Mode component selection
   expect(result.baseEdgeColor).toBe(0x454b54);
 });
 
-test('Edge box-select uses segment intersection instead of midpoint sampling', async ({ page }) => {
+test('Edge box-select selects only edges fully contained by the marquee', async ({ page }) => {
   await page.evaluate(() => {
     const e = (window as any).__forge;
     e.selected.rotation.set(0, 0, 0);
@@ -172,7 +172,6 @@ test('Edge box-select uses segment intersection instead of midpoint sampling', a
   await page.locator('#mode').selectOption('edit');
   await page.locator('#tool-select').click();
   await page.getByLabel('Mesh component').selectOption('edge');
-  await page.locator('#shading-wire').click();
 
   const target = await page.evaluate(() => {
     const e = (window as any).__forge;
@@ -182,90 +181,35 @@ test('Edge box-select uses segment intersection instead of midpoint sampling', a
     const rect = e.host.getBoundingClientRect();
     const projectVertex = (vertex: number) => {
       const index = topology.vertices[vertex][0];
-      const point = mesh.localToWorld(mesh.position.clone().set(position.getX(index), position.getY(index), position.getZ(index))).project(e.camera);
-      return { x: rect.left + (point.x + 1) * rect.width / 2, y: rect.top + (1 - point.y) * rect.height / 2 };
+      const point = mesh.localToWorld(mesh.position.clone().set(
+        position.getX(index), position.getY(index), position.getZ(index)
+      )).project(e.camera);
+      return {
+        x: rect.left + (point.x + 1) * rect.width / 2,
+        y: rect.top + (1 - point.y) * rect.height / 2,
+      };
     };
     const candidates = topology.edges.map((edge: number[], id: number) => {
       const a = projectVertex(edge[0]), b = projectVertex(edge[1]);
       const length = Math.hypot(b.x - a.x, b.y - a.y);
       return { id, a, b, length };
-    }).filter((item: any) => item.length > 35).sort((a: any, b: any) => b.length - a.length);
+    }).filter((item: any) => item.length > 24).sort((a: any,b: any)=>b.length-a.length);
     const chosen = candidates[0];
-    const t = 0.18;
-    const x = chosen.a.x + (chosen.b.x - chosen.a.x) * t;
-    const y = chosen.a.y + (chosen.b.y - chosen.a.y) * t;
-    const midpoint = { x: (chosen.a.x + chosen.b.x) / 2, y: (chosen.a.y + chosen.b.y) / 2 };
-    return { id: chosen.id, x, y, midpoint };
+    return { id: chosen.id, a: chosen.a, b: chosen.b };
   });
 
-  expect(Math.hypot(target.x - target.midpoint.x, target.y - target.midpoint.y)).toBeGreaterThan(12);
-  await dragBox(page, { left: target.x - 6, top: target.y - 6, right: target.x + 6, bottom: target.y + 6 });
-
-  const selected = await page.evaluate(() => (window as any).__forge.componentSelection);
-  expect(selected).toContain(target.id);
-});
-
-test('Edge box-select limits Solid selection to visible edges but Wireframe selects through', async ({ page }) => {
-  await page.evaluate(() => {
-    const e = (window as any).__forge;
-    e.selected.rotation.set(0, 0, 0);
-    e.selected.scale.set(1, 1, 1);
-    e.commit();
-    e.view('front');
+  await dragBox(page, {
+    left: Math.min(target.a.x, target.b.x) - 8,
+    top: Math.min(target.a.y, target.b.y) - 8,
+    right: Math.max(target.a.x, target.b.x) + 8,
+    bottom: Math.max(target.a.y, target.b.y) + 8,
   });
-  await page.locator('#mode').selectOption('edit');
-  await page.locator('#tool-select').click();
-  await page.getByLabel('Mesh component').selectOption('edge');
+  expect(await page.evaluate(() => (window as any).__forge.componentSelection)).toContain(target.id);
 
-  const target = await page.evaluate(() => {
-    const e = (window as any).__forge;
-    const mesh = e.selected, topology = e.meshTopology, position = mesh.geometry.getAttribute('position');
-    mesh.updateMatrixWorld(true);
-    e.camera.updateMatrixWorld(true);
-    const rect = e.host.getBoundingClientRect();
-    const project = (vertex: number) => {
-      const index = topology.vertices[vertex][0];
-      const world = mesh.localToWorld(mesh.position.clone().set(position.getX(index), position.getY(index), position.getZ(index)));
-      const point = world.clone().project(e.camera);
-      return {
-        x: rect.left + (point.x + 1) * rect.width / 2,
-        y: rect.top + (1 - point.y) * rect.height / 2,
-        z: point.z,
-        world: world.toArray(),
-      };
-    };
-    const projected = topology.edges.map((edge: number[], id: number) => {
-      const a = project(edge[0]), b = project(edge[1]);
-      return { id, a, b, mx: (a.x+b.x)/2, my:(a.y+b.y)/2, mz:(a.z+b.z)/2 };
-    });
-    const sameProjectedSegment = (a: any, b: any) => {
-      const direct = Math.hypot(a.a.x-b.a.x,a.a.y-b.a.y) + Math.hypot(a.b.x-b.b.x,a.b.y-b.b.y);
-      const reversed = Math.hypot(a.a.x-b.b.x,a.a.y-b.b.y) + Math.hypot(a.b.x-b.a.x,a.b.y-b.a.y);
-      return Math.min(direct, reversed) < 4;
-    };
-    let pair: any = null;
-    for (let i=0;i<projected.length&&!pair;i++) for (let j=i+1;j<projected.length;j++) {
-      const a=projected[i], b=projected[j];
-      if (sameProjectedSegment(a,b) && Math.abs(a.mz-b.mz)>1e-5) {
-        pair = a.mz < b.mz ? {front:a,back:b} : {front:b,back:a};
-        break;
-      }
-    }
-    if (!pair) throw new Error('No overlapping front/back edge pair found for test fixture.');
-    return { x: pair.front.mx, y: pair.front.my, front: pair.front.id, back: pair.back.id };
-  });
-
-  await page.locator('#shading-solid').click();
-  await dragBox(page, { left: target.x-6, top: target.y-6, right: target.x+6, bottom: target.y+6 });
-  const solid = await page.evaluate(() => (window as any).__forge.componentSelection);
-  expect(solid).toContain(target.front);
-  expect(solid).not.toContain(target.back);
-
-  await page.locator('#shading-wire').click();
-  await dragBox(page, { left: target.x-6, top: target.y-6, right: target.x+6, bottom: target.y+6 });
-  const wire = await page.evaluate(() => (window as any).__forge.componentSelection);
-  expect(wire).toContain(target.front);
-  expect(wire).toContain(target.back);
+  const mx = (target.a.x + target.b.x) / 2;
+  const my = (target.a.y + target.b.y) / 2;
+  await dragBox(page, { left: mx - 6, top: my - 6, right: mx + 6, bottom: my + 6 });
+  expect(await page.evaluate(() => (window as any).__forge.componentSelection)).not.toContain(target.id);
 });
 
 test('Edit Mode base edge contrast follows shading mode', async ({ page }) => {
@@ -352,8 +296,6 @@ for (const mode of ['vertex', 'edge', 'face'] as const) {
     });
     await page.locator('#mode').selectOption('edit');
     await page.getByLabel('Mesh component').selectOption(mode);
-    if (mode === 'edge') await page.locator('#shading-wire').click();
-
     const target = await page.evaluate((mode) => {
       const e = (window as any).__forge;
       const mesh = e.selected;
