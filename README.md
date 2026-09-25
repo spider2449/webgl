@@ -300,7 +300,7 @@ Rest-skeleton editing is intentionally locked after a skin is bound or bone anim
 
 Imported GLB animation clips are not loaded into the editable timeline. Draco/KTX2 assets and external model resources are not supported. Native `.blend` files are not supported. Scene settings and camera view are session-only.
 
-Small scenes recover through browser local storage. Local storage has browser-specific limits; larger scenes must be downloaded. Opening a project replaces the current scene and can be undone while the history budget permits. Project files are capped at 32 MB and two million vertices. Back up important work with **Save project**.
+Small scenes recover through browser local storage. Local storage has browser-specific limits; larger scenes must be downloaded. **Save project** or Ctrl+S opens a filename dialog before download; Forge adds the `.forge` extension automatically, strips a duplicated `.forge`, normalizes Windows-unsafe filename characters, and keeps the saved project name aligned with the chosen filename. Canceling the dialog changes nothing. Opening a project replaces the current scene and can be undone while the history budget permits. Project files are capped at 32 MB and two million vertices. Back up important work with **Save project**.
 
 ## Performance architecture
 
