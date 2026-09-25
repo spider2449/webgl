@@ -441,7 +441,7 @@ for (const mode of ['vertex', 'edge', 'face'] as const) {
           return sum.add(mesh.localToWorld(mesh.position.clone().set(
             position.getX(index), position.getY(index), position.getZ(index)
           )));
-        }, mesh.position.clone().set(0, 0, 0)).multiplyScalar(1 / 3).project(e.camera);
+        }, mesh.position.clone().set(0, 0, 0)).multiplyScalar(1 / face.length).project(e.camera);
         point = {
           x: rect.left + (worldPoint.x + 1) * rect.width / 2,
           y: rect.top + (1 - worldPoint.y) * rect.height / 2,
@@ -490,7 +490,7 @@ test('face selection overlay does not change scene geometry stats', async ({ pag
     const center = face.reduce((sum: any, vertex: number) => {
       const index = topology.vertices[vertex][0];
       return sum.add(mesh.localToWorld(mesh.position.clone().set(position.getX(index), position.getY(index), position.getZ(index))));
-    }, mesh.position.clone().set(0, 0, 0)).multiplyScalar(1 / 3);
+    }, mesh.position.clone().set(0, 0, 0)).multiplyScalar(1 / face.length);
     e.camera.updateMatrixWorld(true);
     center.project(e.camera);
     const rect = e.host.getBoundingClientRect();
