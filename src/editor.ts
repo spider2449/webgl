@@ -108,7 +108,7 @@ export class Editor extends EventTarget {
   private mouseDown = new THREE.Vector2();
   private suppressClick = false;
   private boxSelectOverlay!: HTMLDivElement;
-  private boxSelectDrag: { pointerId: number; start: THREE.Vector2; current: THREE.Vector2; add: boolean; active: boolean } | null = null;
+  private boxSelectDrag: { pointerId: number; start: THREE.Vector2; current: THREE.Vector2; mode: 'replace' | 'add' | 'toggle'; active: boolean } | null = null;
   private rotationDragObject: THREE.Object3D | null = null;
   private rotationDragReference = new THREE.Vector3();
   private rotationDragMatrix = new THREE.Matrix4();
@@ -184,7 +184,7 @@ export class Editor extends EventTarget {
     // Shift selection must also work where a selected component meets the gizmo.
     let selectionPointer: number | null = null;
     this.renderer.domElement.addEventListener('pointerdown', e => {
-      if ((e.shiftKey || (this.editMode && !this.weightMode && this.snapTargetPending)) && e.button === 0 && !this.transform.dragging) {
+      if ((e.shiftKey || e.ctrlKey || (this.editMode && !this.weightMode && this.snapTargetPending)) && e.button === 0 && !this.transform.dragging) {
         selectionPointer = e.pointerId;
         this.transform.enabled = false;
         this.renderer.domElement.setPointerCapture(e.pointerId);
@@ -199,7 +199,7 @@ export class Editor extends EventTarget {
       if (e.button === 0 && !e.altKey && !this.transform.dragging && !this.playing && !this.modelingBusy && !this.snapTargetPending) {
         const rect = host.getBoundingClientRect();
         const start = new THREE.Vector2(e.clientX - rect.left, e.clientY - rect.top);
-        this.boxSelectDrag = { pointerId: e.pointerId, start, current: start.clone(), add: e.shiftKey, active: false };
+        this.boxSelectDrag = { pointerId: e.pointerId, start, current: start.clone(), mode: e.ctrlKey ? 'toggle' : e.shiftKey ? 'add' : 'replace', active: false };
       } else this.boxSelectDrag = null;
     });
     this.renderer.domElement.addEventListener('pointermove', e => {
@@ -225,9 +225,9 @@ export class Editor extends EventTarget {
       if (box && box.pointerId === e.pointerId && box.active) {
         const end = box.current.clone();
         const start = box.start.clone();
-        const add = box.add;
+        const mode = box.mode;
         this.finishBoxSelection(e.pointerId);
-        this.applyBoxSelection(start, end, add);
+        this.applyBoxSelection(start, end, mode);
         return;
       }
       if (box && box.pointerId === e.pointerId) this.boxSelectDrag = null;
@@ -307,7 +307,7 @@ export class Editor extends EventTarget {
     this.boxSelectOverlay.style.width = `${Math.abs(end.x - start.x)}px`;
     this.boxSelectOverlay.style.height = `${Math.abs(end.y - start.y)}px`;
   }
-  private applyBoxSelection(start: THREE.Vector2, end: THREE.Vector2, add: boolean) {
+  private applyBoxSelection(start: THREE.Vector2, end: THREE.Vector2, mode: 'replace' | 'add' | 'toggle') {
     this.modelingVersion++;
     const left = Math.min(start.x, end.x), right = Math.max(start.x, end.x);
     const top = Math.min(start.y, end.y), bottom = Math.max(start.y, end.y);
@@ -375,8 +375,13 @@ export class Editor extends EventTarget {
           if (inside(center)) hits.push(id);
         });
       }
-      if (!add) this.selectedComponents.clear();
-      hits.forEach(id => this.selectedComponents.add(id));
+      if (mode === 'replace') this.selectedComponents.clear();
+      if (mode === 'toggle') {
+        hits.forEach(id => {
+          if (this.selectedComponents.has(id)) this.selectedComponents.delete(id);
+          else this.selectedComponents.add(id);
+        });
+      } else hits.forEach(id => this.selectedComponents.add(id));
       this.selectedFace = this.componentMode === 'face' && this.selectedComponents.size === 1 ? [...this.selectedComponents][0] : null;
       const vertices = [...this.selectedComponents].flatMap(id => this.componentMode === 'vertex' ? [id] : this.componentMode === 'edge' ? this.topology!.edges[id] : this.topology!.faces[id]);
       this.selectComponentVertices(vertices);
@@ -407,8 +412,13 @@ export class Editor extends EventTarget {
       const objectBottom = Math.max(...corners.map(point => (1 - point.y) * rect.height * 0.5));
       return objectRight >= left && objectLeft <= right && objectBottom >= top && objectTop <= bottom;
     });
-    if (!add) this.selectedObjects.clear();
-    hits.forEach(object => this.selectedObjects.add(object));
+    if (mode === 'replace') this.selectedObjects.clear();
+    if (mode === 'toggle') {
+      hits.forEach(object => {
+        if (this.selectedObjects.has(object)) this.selectedObjects.delete(object);
+        else this.selectedObjects.add(object);
+      });
+    } else hits.forEach(object => this.selectedObjects.add(object));
     this.selected = [...this.selectedObjects].at(-1) ?? null;
     this.syncTransformControls();
     this.updateSelection();
