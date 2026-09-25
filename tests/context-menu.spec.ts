@@ -154,7 +154,6 @@ test('Edit Mode RMB menu changes with Vertex, Edge and Face component mode', asy
   await expect(menu.getByRole('menuitem', { name: 'Bevel Edges' })).toBeVisible();
   await expect(menu.getByRole('menuitem', { name: 'Subdivide Edges' })).toBeVisible();
   await expect(menu.getByRole('menuitem', { name: 'Loop Cut' })).toBeVisible();
-  await expect(menu.getByRole('menuitem', { name: 'Dissolve Edge' })).toBeVisible();
   await expect(menu.getByRole('menuitem', { name: 'Delete Edges Del' })).toBeVisible();
   await expect(menu.getByRole('menuitem', { name: 'Extrude Face' })).toHaveCount(0);
   await page.keyboard.press('Escape');
@@ -297,35 +296,103 @@ test('Delete key removes selected Edit Mode faces without deleting the object', 
   expect(await page.evaluate(() => (window as any).__forge.snapshot())).toBe(before.snapshot);
 });
 
-test('RMB Dissolve Edge merges two Cube quads into one logical n-gon', async ({ page }) => {
+test('RMB Delete Edges removes one modeling edge while preserving the renderer surface', async ({ page }) => {
   await page.locator('#mode').selectOption('edit');
   await page.getByLabel('Mesh component').selectOption('edge');
-  await page.evaluate(() => (window as any).__forge.selectComponent(0));
+  const before = await page.evaluate(() => {
+    const e = (window as any).__forge;
+    e.selectComponent(0);
+    return {
+      positions: Array.from(e.selected.geometry.getAttribute('position').array),
+      indices: Array.from(e.selected.geometry.index.array),
+      triangles: e.meshTopology.faces.length,
+      rendererVertices: e.meshTopology.vertices.length,
+    };
+  });
 
   await rightClickViewport(page);
-  await page.locator('#viewport-context-menu').getByRole('menuitem', { name: 'Dissolve Edge' }).click();
+  await page.locator('#viewport-context-menu').getByRole('menuitem', { name: 'Delete Edges Del' }).click();
   await page.waitForFunction(() => !(window as any).__forge.modelingBusy);
-  await expect(page.locator('#toast')).toContainText('Edge dissolved');
+  await expect(page.locator('#toast')).toContainText('Edges deleted; adjacent faces merged');
 
   expect(await page.evaluate(() => {
     const e = (window as any).__forge, t = e.meshTopology;
     return {
+      positions: Array.from(e.selected.geometry.getAttribute('position').array),
+      indices: Array.from(e.selected.geometry.index.array),
       polygons: t.polygons.length,
       triangles: t.faces.length,
-      vertices: t.vertices.length,
+      rendererVertices: t.vertices.length,
+      logicalVertices: t.logicalVertices.length,
       edges: t.polygonEdges.length,
       sizes: t.polygons.map((polygon: number[]) => polygon.length).sort((a:number,b:number)=>a-b),
       selection: e.componentSelection,
       stored: e.selected.userData.forgePolygonTriangles?.length,
     };
   })).toEqual({
+    positions: before.positions,
+    indices: before.indices,
     polygons: 5,
-    triangles: 12,
-    vertices: 8,
+    triangles: before.triangles,
+    rendererVertices: before.rendererVertices,
+    logicalVertices: 8,
     edges: 11,
     sizes: [4,4,4,4,6],
     selection: [],
     stored: 5,
+  });
+});
+
+test('RMB Delete Vertices removes one modeling vertex without deleting its incident renderer faces', async ({ page }) => {
+  await page.locator('#mode').selectOption('edit');
+  await page.getByLabel('Mesh component').selectOption('vertex');
+  const before = await page.evaluate(() => {
+    const e = (window as any).__forge, t = e.meshTopology;
+    const vertex = t.logicalVertices[0];
+    e.selectComponent(vertex);
+    return {
+      vertex,
+      positions: Array.from(e.selected.geometry.getAttribute('position').array),
+      indices: Array.from(e.selected.geometry.index.array),
+      triangles: t.faces.length,
+      rendererVertices: t.vertices.length,
+    };
+  });
+
+  await rightClickViewport(page);
+  await page.locator('#viewport-context-menu').getByRole('menuitem', { name: 'Delete Vertices Del' }).click();
+  await page.waitForFunction(() => !(window as any).__forge.modelingBusy);
+  await expect(page.locator('#toast')).toContainText('Vertices deleted; surrounding faces reconnected');
+
+  expect(await page.evaluate(vertex => {
+    const e = (window as any).__forge, t = e.meshTopology;
+    return {
+      positions: Array.from(e.selected.geometry.getAttribute('position').array),
+      indices: Array.from(e.selected.geometry.index.array),
+      polygons: t.polygons.length,
+      triangles: t.faces.length,
+      rendererVertices: t.vertices.length,
+      logicalVertices: t.logicalVertices.length,
+      removedStillLogical: t.logicalVertices.includes(vertex),
+      edges: t.polygonEdges.length,
+      sizes: t.polygons.map((polygon: number[]) => polygon.length).sort((a:number,b:number)=>a-b),
+      helperPointCount: e.vertexPoints.geometry.index?.count ?? e.vertexPoints.geometry.getAttribute('position').count,
+      selection: e.componentSelection,
+      stored: e.selected.userData.forgePolygonTriangles?.length,
+    };
+  }, before.vertex)).toEqual({
+    positions: before.positions,
+    indices: before.indices,
+    polygons: 4,
+    triangles: before.triangles,
+    rendererVertices: before.rendererVertices,
+    logicalVertices: 7,
+    removedStillLogical: false,
+    edges: 9,
+    sizes: [4,4,4,6],
+    helperPointCount: 7,
+    selection: [],
+    stored: 4,
   });
 });
 
