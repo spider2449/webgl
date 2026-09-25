@@ -214,10 +214,18 @@ test('logical component deletion removes faces without promoting renderer triang
 test('dissolving one Cube logical edge merges two quads into one n-gon without changing the surface', () => {
   const box = new THREE.BoxGeometry(2, 2, 2);
   const before = JSON.stringify(box.toJSON());
+  const positions = Array.from(box.getAttribute('position').array);
+  const indices = Array.from(box.index!.array);
+  const groups = box.groups.map(group => ({ ...group }));
   const input = buildTopology(box.getAttribute('position').array, box.index?.array, true);
+  const dissolved = input.polygonEdges[0];
   const result = dissolveLogicalEdge(box, 0, input.polygonTriangles);
   expect(JSON.stringify(box.toJSON())).toBe(before);
   closed(result.geometry);
+
+  expect(Array.from(result.geometry.getAttribute('position').array)).toEqual(positions);
+  expect(Array.from(result.geometry.index!.array)).toEqual(indices);
+  expect(result.geometry.groups).toEqual(groups);
 
   const output = buildTopology(result.geometry.getAttribute('position').array, result.geometry.index?.array, result.polygonTriangles);
   expect(output.polygons).toHaveLength(5);
@@ -225,6 +233,7 @@ test('dissolving one Cube logical edge merges two quads into one n-gon without c
   expect(output.vertices).toHaveLength(8);
   expect(output.faces).toHaveLength(12);
   expect(output.polygonEdges).toHaveLength(11);
+  expect(output.polygonEdges.some(([a,b]) => (a === dissolved[0] && b === dissolved[1]) || (a === dissolved[1] && b === dissolved[0]))).toBe(false);
   expect(new Set(output.polygons.flat()).size).toBe(output.vertices.length);
 });
 
