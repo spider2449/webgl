@@ -196,7 +196,7 @@ test('worker mesh editing, UV and modifiers round trip history and projects', as
       const i = t.vertices[a][0], j = t.vertices[b][0]; return Math.hypot(p.getX(i)-p.getX(j),p.getY(i)-p.getY(j),p.getZ(i)-p.getZ(j)) === 2;
     }); e.selectComponent(edge); return e.snapshot();
   });
-  await page.locator('#bevel-edges').click(); await expect(page.locator('#toast')).toContainText('complete');
+  await page.evaluate(() => (window as any).__forgeCommands.bevelEdges()); await expect(page.locator('#toast')).toContainText('complete');
   const restored = await page.evaluate(() => {
     const e = (window as any).__forge, after = e.snapshot(); e.undo(); const undo = e.snapshot(); e.redo(); const redo = e.snapshot(); e.load(JSON.parse(after)); return { after, undo, redo, loaded:e.snapshot() };
   });

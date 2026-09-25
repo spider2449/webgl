@@ -40,7 +40,7 @@ test('quad inset stays explicitly staged while polygon extrusion is supported', 
     return e.snapshot();
   });
 
-  await page.locator('#inset-face').click();
+  await page.evaluate(() => (window as any).__forgeCommands.insetFace());
   await expect(page.locator('#toast')).toContainText('Quad/polygon inset is not implemented yet');
   expect(await page.evaluate(() => (window as any).__forge.snapshot())).toBe(before);
 });
@@ -60,7 +60,7 @@ test('Cube quad extrudes as logical polygons, keeps the cap selected, and surviv
   });
 
   await page.getByLabel('Extrusion distance').fill('0.5');
-  await page.locator('#extrude-face').click();
+  await page.evaluate(() => (window as any).__forgeCommands.extrudeFace());
   await page.waitForFunction(() => !(window as any).__forge.modelingBusy);
   await expect(page.locator('#toast')).toContainText('Face extruded');
 
@@ -138,7 +138,7 @@ test('Cube quad extrudes as logical polygons, keeps the cap selected, and surviv
   await page.evaluate(face => (window as any).__forge.selectComponent(face), setup.face);
 
   await page.getByLabel('Extrusion distance').fill('0.25');
-  await page.locator('#extrude-face').click();
+  await page.evaluate(() => (window as any).__forgeCommands.extrudeFace());
   await page.waitForFunction(() => !(window as any).__forge.modelingBusy);
   const second = await page.evaluate(face => {
     const e = (window as any).__forge, topology = e.meshTopology, position = e.selected.geometry.getAttribute('position');
@@ -284,7 +284,7 @@ test('modeling UI maps logical edge and face selections to renderer topology', a
     return { logicalEdge, groups: topology.polygonTriangles.map((group: number[]) => [...group]) };
   });
 
-  await page.locator('#bevel-edges').click();
+  await page.evaluate(() => (window as any).__forgeCommands.bevelEdges());
   expect(await page.evaluate(() => (window as any).__modelingCalls[0])).toMatchObject({
     kind: 'bevel',
     edges: [edgeMapping.logicalEdge],
@@ -347,9 +347,9 @@ test('beveling the Cube top preserves logical polygons across Edit Mode and proj
   expect(selected).toHaveLength(4);
 
   await page.locator('#bevel-width').fill('0.1');
-  await page.locator('#bevel-edges').click();
+  await page.evaluate(() => (window as any).__forgeCommands.bevelEdges());
   await page.waitForFunction(() => !(window as any).__forge.modelingBusy);
-  await expect(page.locator('#toast')).toContainText('Modeling operation complete.');
+  await expect(page.locator('#toast')).toContainText('Bevel complete.');
 
   const after = await page.evaluate(() => {
     const e = (window as any).__forge, topology = e.meshTopology;

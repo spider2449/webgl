@@ -11,6 +11,18 @@ async function rightClickViewport(page: import('@playwright/test').Page, x = 320
   await expect(page.locator('#viewport-context-menu')).toBeVisible();
 }
 
+test('replaced modeling actions are removed from the Properties panel while tool settings remain', async ({ page }) => {
+  for (const id of ['extrude-face','extrude-region','inset-face','bevel-edges','loop-cut','subdivide-edge','vertex-snap','smooth','flat']) {
+    await expect(page.locator(`#${id}`)).toHaveCount(0);
+  }
+  await expect(page.getByLabel('Extrusion distance')).toBeVisible();
+  await expect(page.getByLabel('Inset distance')).toBeVisible();
+  await expect(page.getByLabel('Bevel width')).toBeVisible();
+  await expect(page.getByLabel('Snap target', { exact: true })).toBeVisible();
+  await expect(page.locator('#mirror')).toBeVisible();
+  await expect(page.locator('summary').filter({ hasText: 'Tool settings' })).toBeVisible();
+});
+
 test('RMB opens a Blender-style object context menu and is reserved from viewport pan', async ({ page }) => {
   expect(await page.evaluate(() => (window as any).__forge.orbit.mouseButtons.RIGHT)).toBeNull();
 

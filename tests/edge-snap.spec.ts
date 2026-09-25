@@ -30,7 +30,7 @@ test('edge targets reject selected endpoints and cancel without mutation', async
     const e = (window as any).__forge; e.selectComponent(0); return e.snapshot();
   });
   await page.getByLabel('Snap target', { exact: true }).selectOption('edge');
-  await page.locator('#vertex-snap').click();
+  await page.evaluate(() => (window as any).__forgeCommands.vertexSnap());
   const result = await page.evaluate(() => {
     const e = (window as any).__forge, errors = [];
     const shared = e.topology.polygonEdges.findIndex((vs: number[]) => vs.includes(0));
@@ -45,9 +45,9 @@ test('edge targets reject selected endpoints and cancel without mutation', async
   expect(result.guides).toBe(true);
   await page.keyboard.press('Escape');
   expect(await page.evaluate(() => (window as any).__forge.componentEdges.visible)).toBe(false);
-  await page.locator('#vertex-snap').click();
+  await page.evaluate(() => (window as any).__forgeCommands.vertexSnap());
   await page.getByLabel('Snap target', { exact: true }).selectOption('vertex');
-  await expect(page.locator('#vertex-snap')).toHaveText('Pick snap target');
+  expect(await page.evaluate(() => (window as any).__forge.snapTargetPending)).toBe(false);
   expect(await page.evaluate(() => (window as any).__forge.snapshot())).toBe(before);
 });
 
@@ -77,12 +77,12 @@ for (const mode of ['vertex', 'edge', 'face'] as const) test(`viewport edge midp
       x:rect.left+(projected.x+1)*rect.width/2, y:rect.top+(1-projected.y)*rect.height/2 };
   }, mode);
   await page.getByLabel('Snap target', {exact:true}).selectOption('edge');
-  await page.locator('#vertex-snap').click();
-  await expect(page.locator('#vertex-snap')).toHaveText('Cancel snap target');
+  await page.evaluate(() => (window as any).__forgeCommands.vertexSnap());
+  expect(await page.evaluate(() => (window as any).__forge.snapTargetPending)).toBe(true);
   if (mode === 'vertex') await page.screenshot({path:'test-results/edge-midpoint-picking.png'});
   await page.mouse.click(state.x,state.y);
   await expect(page.locator('#toast')).toContainText('Selection center snapped to edge midpoint');
-  await expect(page.locator('#vertex-snap')).toHaveText('Pick snap target');
+  expect(await page.evaluate(() => (window as any).__forge.snapTargetPending)).toBe(false);
   const result = await page.evaluate(() => {
     const e = (window as any).__forge, positions = Array.from(e.selected.geometry.attributes.position.array), after = e.snapshot();
     e.undo(); const undone=e.snapshot(); e.redo(); const redone=e.snapshot();

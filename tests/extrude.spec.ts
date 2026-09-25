@@ -66,11 +66,11 @@ test('viewport-selected face extrudes repeatedly through UI with history and pro
   await page.mouse.click(point.x,point.y);
   const before=await page.evaluate(()=>(window as any).__forge.snapshot());
   await page.getByLabel('Extrusion distance').fill('0.5');
-  await page.locator('#extrude-face').click();
+  await page.evaluate(() => (window as any).__forgeCommands.extrudeFace());
   await page.waitForFunction(() => !(window as any).__forge.modelingBusy);
   await expect(page.locator('#toast')).toContainText('Face extruded');
   expect(await page.evaluate(()=>(window as any).__forge.stats().triangles)).toBe(18);
-  await page.locator('#extrude-face').click();
+  await page.evaluate(() => (window as any).__forgeCommands.extrudeFace());
   await page.waitForFunction(() => !(window as any).__forge.modelingBusy);
   expect(await page.evaluate(()=>(window as any).__forge.stats().triangles)).toBe(24);
   await page.screenshot({ path: 'test-results/extrusion.png' });
@@ -86,7 +86,7 @@ test('viewport-selected face extrudes repeatedly through UI with history and pro
   expect(result.original).toBe(before);
   expect(result.redone).toBe(result.after);
   expect(result.restored).toBe(result.after);
-  await page.locator('#extrude-face').click();
+  await page.evaluate(() => (window as any).__forgeCommands.extrudeFace());
   await page.waitForFunction(() => !(window as any).__forge.modelingBusy);
   await expect(page.locator('#toast')).toContainText('Select exactly one face');
 });

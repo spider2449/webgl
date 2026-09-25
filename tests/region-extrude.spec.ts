@@ -102,9 +102,9 @@ test('real Shift-selected planar faces repeat extrusion, move and round trip his
   });
   await page.mouse.click(targets[0].x,targets[0].y);await page.keyboard.down('Shift');await page.mouse.click(targets[1].x,targets[1].y);await page.keyboard.up('Shift');
   const before=await page.evaluate(()=>(window as any).__forge.snapshot());
-  await page.locator('#extrude-region').click();
+  await page.evaluate(() => (window as any).__forgeCommands.extrudeRegion());
   await page.waitForFunction(() => !(window as any).__forge.modelingBusy);await expect(page.locator('#toast')).toContainText('Planar region extruded');
-  await page.locator('#extrude-region').click();
+  await page.evaluate(() => (window as any).__forgeCommands.extrudeRegion());
   await page.waitForFunction(() => !(window as any).__forge.modelingBusy);
   const result=await page.evaluate(()=>{
     const e=(window as any).__forge,p=e.selected.geometry.attributes.position;
@@ -121,12 +121,12 @@ test('real Shift-selected planar faces repeat extrusion, move and round trip his
 
 test('UI region rejection preserves scene and face selection',async({page})=>{
   await page.goto('/');await page.waitForFunction(()=>(window as any).__forge?.selected);
-  await page.locator('#extrude-region').click();
+  await page.evaluate(() => (window as any).__forgeCommands.extrudeRegion());
   await page.waitForFunction(() => !(window as any).__forge.modelingBusy);await expect(page.locator('#toast')).toContainText('Select connected coplanar');
   await page.locator('#mode').selectOption('edit');await page.getByLabel('Mesh component').selectOption('face');
   await page.evaluate(()=>{const e=(window as any).__forge;e.selectComponent(0);e.selectComponent(2,true);});
   const before=await page.evaluate(()=>(window as any).__forge.snapshot());
-  await page.locator('#extrude-region').click();
+  await page.evaluate(() => (window as any).__forgeCommands.extrudeRegion());
   await page.waitForFunction(() => !(window as any).__forge.modelingBusy);await expect(page.locator('#toast')).toContainText('coplanar');
   expect(await page.evaluate(()=>(window as any).__forge.snapshot())).toBe(before);
   expect(await page.evaluate(()=>[...(window as any).__forge.selectedComponents])).toEqual([0,2]);

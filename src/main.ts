@@ -71,7 +71,7 @@ $('#app').innerHTML = `
     <aside class="sidebar">
       <section class="outliner"><div class="panel-heading"><span class="panel-title">${icon('layers')} Scene Collection</span><span class="count" id="object-count">1</span>${button('add-outliner','plus','Add mesh')}</div><div class="search-field">${icon('search')}<input id="object-search" placeholder="Search objects…" aria-label="Search objects"><kbd>/</kbd></div><div class="collection-row">${icon('chevron-down')}${icon('folder-open')}<span>Scene Collection</span>${button('add-collection','plus','Create collection')}</div><div id="object-list" class="object-list"></div><div class="outliner-footer"><span id="selection-count">1 object selected</span>${button('delete-outliner','trash-2','Delete selected object')}<input id="collection-name" aria-label="New collection name" value="Collection" maxlength="100"><select id="collection-target" aria-label="Target collection"><option value="">Move selected to…</option></select>${button('move-to-collection','folder-open','Move selected to collection')}${button('unlink-collection','log-out','Unlink from collection')}${button('delete-collection','trash-2','Delete empty collection')}</div></section>
       <section class="properties"><div class="properties-tabs"><button class="active" data-panel="object">${icon('sliders-horizontal')} Object</button><button data-panel="material">${icon('circle')} Material</button><button data-panel="scene">${icon('settings-2')} Scene</button></div><div class="properties-content">
-        <div id="panel-object" class="property-panel"><div class="object-title">${icon('box')}<input id="object-name" aria-label="Object name" maxlength="100" value="Cube"><span class="object-type" id="object-type">MESH</span></div><div id="no-selection" class="empty-state hidden">Select an object to edit its properties.</div><div id="object-fields"><div class="section-heading"><span>${icon('chevron-down')} Transform</span><button id="reset-transform" title="Reset transform" aria-label="Reset transform">${icon('undo-2')}</button></div>${['position','rotation','scale'].map((group) => `<div class="transform-group"><label>${group === 'position' ? 'Location' : group[0].toUpperCase()+group.slice(1)}</label><div class="vector-inputs">${['x','y','z'].map(axis => `<label class="axis-input ${axis}"><span>${axis.toUpperCase()}</span><input type="number" step="${group === 'rotation' ? 1 : 0.1}" data-transform="${group}" data-axis="${axis}" aria-label="${group} ${axis}" value="0"></label>`).join('')}</div></div>`).join('')}<div class="property-note">${icon('globe')} Local object transform · Rotation in degrees · Gimbal edits Euler channels directly</div><div class="section-heading border-top"><span>${icon('chevron-down')} Geometry</span></div><div id="primitive-fields" class="hidden"><div class="section-heading"><span>Primitive parameters</span><span class="count" id="primitive-kind"></span></div><div id="primitive-parameters"></div><button class="wide-button" id="primitive-apply">Apply primitive</button><p class="field-help">Increase segments before skin binding for denser weight vertices. Starting a topology edit automatically applies these parameters.</p></div><div class="geometry-stats"><div><span>Vertices</span><strong id="mesh-vertices">24</strong></div><div><span>Triangles</span><strong id="mesh-triangles">12</strong></div></div><div class="action-row"><button id="smooth">Shade smooth</button><button id="flat">Shade flat</button></div><label class="property-row">Extrusion distance<input id="extrude-distance" aria-label="Extrusion distance" type="number" min="0.0001" max="1000" step="0.1" value="0.5"></label><button class="wide-button" id="extrude-face">Extrude selected face</button><p class="field-help">Select a face in Edit Mode. Cube and Plane expose logical quads; extrusion maps the selected polygon back to renderer triangles.</p><button class="wide-button" id="mirror">${icon('copy')} Mirror geometry on X</button><p class="field-help">Mirror is applied to the mesh. Use Edit Mode to move vertices, logical boundary edges or faces.</p></div></div>
+        <div id="panel-object" class="property-panel"><div class="object-title">${icon('box')}<input id="object-name" aria-label="Object name" maxlength="100" value="Cube"><span class="object-type" id="object-type">MESH</span></div><div id="no-selection" class="empty-state hidden">Select an object to edit its properties.</div><div id="object-fields"><div class="section-heading"><span>${icon('chevron-down')} Transform</span><button id="reset-transform" title="Reset transform" aria-label="Reset transform">${icon('undo-2')}</button></div>${['position','rotation','scale'].map((group) => `<div class="transform-group"><label>${group === 'position' ? 'Location' : group[0].toUpperCase()+group.slice(1)}</label><div class="vector-inputs">${['x','y','z'].map(axis => `<label class="axis-input ${axis}"><span>${axis.toUpperCase()}</span><input type="number" step="${group === 'rotation' ? 1 : 0.1}" data-transform="${group}" data-axis="${axis}" aria-label="${group} ${axis}" value="0"></label>`).join('')}</div></div>`).join('')}<div class="property-note">${icon('globe')} Local object transform · Rotation in degrees · Gimbal edits Euler channels directly</div><div class="section-heading border-top"><span>${icon('chevron-down')} Geometry</span></div><div id="primitive-fields" class="hidden"><div class="section-heading"><span>Primitive parameters</span><span class="count" id="primitive-kind"></span></div><div id="primitive-parameters"></div><button class="wide-button" id="primitive-apply">Apply primitive</button><p class="field-help">Increase segments before skin binding for denser weight vertices. Starting a topology edit automatically applies these parameters.</p></div><div class="geometry-stats"><div><span>Vertices</span><strong id="mesh-vertices">24</strong></div><div><span>Triangles</span><strong id="mesh-triangles">12</strong></div></div><label class="property-row">Extrusion distance<input id="extrude-distance" aria-label="Extrusion distance" type="number" min="0.0001" max="1000" step="0.1" value="0.5"></label><p class="field-help">Tool setting for Face Context → Extrude Face / Extrude Region. Modeling actions live in the viewport context menu.</p><button class="wide-button" id="mirror">${icon('copy')} Mirror geometry on X</button><p class="field-help">Mirror is applied to the mesh. Use Edit Mode to move vertices, logical boundary edges or faces.</p></div></div>
         <div id="panel-material" class="property-panel hidden"><div class="section-heading"><span>${icon('circle')} Surface material</span></div><div id="material-fields"><div class="material-swatch" id="material-preview"><span></span><small>STANDARD SURFACE</small></div><label class="property-row">Base color<input type="color" id="material-color" value="#b8b6b2"></label><label class="range-property">Roughness<output id="roughness-value">0.42</output><input type="range" id="roughness" min="0" max="1" step="0.01" value="0.42"></label><label class="range-property">Metallic<output id="metalness-value">0.12</output><input type="range" id="metalness" min="0" max="1" step="0.01" value="0.12"></label><p class="field-help">Edits the first standard material of the selected mesh. Lighting is provided by the studio environment.</p></div><div id="no-material" class="empty-state hidden">Select a mesh with a standard material.</div></div>
         <div id="panel-scene" class="property-panel hidden"><div class="section-heading"><span>${icon('settings-2')} Viewport settings</span></div><label class="property-row">Quality<select id="quality"><option value="low">Performance</option><option value="balanced" selected>Balanced</option><option value="high">High quality</option></select></label><label class="property-row">Background<input type="color" id="background" value="#25282e"></label><label class="range-property">Exposure<output id="exposure-value">1.30</output><input id="exposure" type="range" min="0.2" max="3" step="0.05" value="1.3"></label><div class="performance-card">${icon('activity')}<strong>Performance by design</strong><p>The viewport redraws only when something changes. Pixel density is capped to keep interaction responsive.</p></div><p class="field-help">Viewport settings are session-only. Projects store objects, materials and transform keyframes.</p><button class="wide-button" id="restore-local">${icon('folder-open')} Recover last local scene</button></div>
       </div></section><div class="sidebar-bottom">FORGE <span>EARLY ACCESS · 0.1</span></div>
@@ -1068,7 +1068,7 @@ document.querySelectorAll<HTMLInputElement>('[data-transform]').forEach(input =>
   editor.commit();
 });
 on('reset-transform', () => { if (editor.selected) { editor.selected.position.set(0,0,0); editor.selected.rotation.set(0,0,0); editor.selected.scale.set(1,1,1); rigSystem.captureEditedRest(); editor.commit(); } });
-on('extrude-face', async () => {
+async function extrudeSelectedFace() {
   try {
     if (!editor.editMode || editor.componentMode !== 'face' || editor.componentSelection.length !== 1 || !editor.meshTopology) throw new Error('Select exactly one face in Edit Mode first.');
     const polygon = editor.componentSelection[0];
@@ -1081,18 +1081,17 @@ on('extrude-face', async () => {
     });
     toast('Face extruded. The cap remains selected for moving or repeated extrusion.');
   } catch (error) { toast((error as Error).message); }
-});
-$('#extrude-face').insertAdjacentHTML('afterend', '<button class="wide-button" id="extrude-region">Extrude planar region</button><p class="field-help">Shift-select connected coplanar faces. Logical polygons are expanded to their renderer triangles before region extrusion.</p>');
-on('extrude-region', async () => {
+}
+async function extrudeSelectedRegion() {
   try {
     if (!editor.editMode || editor.componentMode !== 'face' || !editor.componentSelection.length || !editor.meshTopology) throw new Error('Select connected coplanar faces in Edit Mode first.');
     const faces = editor.componentSelection.flatMap(id => editor.meshTopology!.polygonTriangles[id] ?? []);
     await editor.runModeling({ kind: 'region', faces, distance: Number($<HTMLInputElement>('#extrude-distance').value) });
     toast('Planar region extruded. The cap faces remain selected.');
   } catch (error) { toast((error as Error).message); }
-});
-$('#mirror').insertAdjacentHTML('beforebegin', '<label class="property-row">Inset distance<input id="inset-distance" aria-label="Inset distance" type="number" min="0.0001" max="1000" step="0.05" value="0.1"></label><button class="wide-button" id="inset-face">Inset selected face</button><p class="field-help">Triangle faces only in this foundation. Distance must be smaller than the triangle inradius.</p>');
-on('inset-face', async () => {
+}
+$('#mirror').insertAdjacentHTML('beforebegin', '<label class="property-row">Inset distance<input id="inset-distance" aria-label="Inset distance" type="number" min="0.0001" max="1000" step="0.05" value="0.1"></label><p class="field-help">Tool setting for Face Context → Inset Face. Triangle faces only in this foundation; distance must be smaller than the triangle inradius.</p>');
+async function insetSelectedFace() {
   try {
     if (!editor.editMode || editor.componentMode !== 'face' || editor.componentSelection.length !== 1 || !editor.meshTopology) throw new Error('Select exactly one triangle face in Edit Mode first.');
     const triangles = editor.meshTopology.polygonTriangles[editor.componentSelection[0]];
@@ -1100,15 +1099,18 @@ on('inset-face', async () => {
     await editor.runModeling({ kind: 'inset', face: triangles[0], distance: Number($<HTMLInputElement>('#inset-distance').value) });
     toast('Triangle inset. The inner face remains selected.');
   } catch (error) { toast((error as Error).message); }
-});
+}
 $('#mirror').insertAdjacentHTML('beforebegin', '<label class="property-row">Proportional editing<input id="proportional-enabled" aria-label="Proportional editing" type="checkbox"></label><label class="property-row">Influence radius<input id="proportional-radius" aria-label="Proportional radius" type="number" min="0.0001" step="0.1" value="2"></label><p class="field-help">Edit Mode: nearby vertices follow with smooth falloff. Radius uses local units and can reach disconnected geometry.</p>');
 $('#proportional-radius').closest('label')!.insertAdjacentHTML('afterend', '<label class="property-row">Connected only<input id="proportional-connected" aria-label="Connected only" type="checkbox"></label><p class="field-help">Connected only measures distance along selectable topology edges. Quad triangulation diagonals are skipped. Disconnected islands stay fixed.</p>');
-$('#mirror').insertAdjacentHTML('beforebegin', '<label class="property-row">Snap target<select id="snap-target-kind" aria-label="Snap target"><option value="vertex">Vertex</option><option value="edge">Edge midpoint</option><option value="surface">Surface point</option></select></label><button class="wide-button" id="vertex-snap">Pick snap target</button><p class="field-help">Edit Mode: move the selection center to a vertex, edge midpoint or clicked surface point in this mesh. Target vertices must be unselected. Click a target; Escape cancels. Grid and proportional settings do not affect this action.</p>');
-$('#mirror').insertAdjacentHTML('beforebegin', '<button class="wide-button" id="subdivide-edge">Subdivide selected edges</button><p class="field-help">Select edges in Edit Mode; Shift-click to select more. Splits adjacent triangles, keeps Edge mode, and selects the new split edge segments.</p>');
-on('subdivide-edge', async () => { try { if (!editor.editMode || editor.componentMode !== 'edge' || !editor.componentSelection.length) throw new Error('Select one or more edges in Edit Mode first.'); await editor.runModeling({kind:'subdivide',edges:editor.componentSelection.map(id=>editor.meshTopology!.polygonEdges[id].map(v=>editor.meshTopology!.vertices[v][0]) as [number,number])}); toast('Edges subdivided. Split edge segments selected.'); } catch (error) { toast((error as Error).message); } });
-editor.addEventListener('mode', () => { $<HTMLSelectElement>('#component-mode').value = editor.componentMode; });
-$('#snap-target-kind').onchange = () => editor.cancelVertexSnap();
-on('vertex-snap', () => {
+$('#mirror').insertAdjacentHTML('beforebegin', '<label class="property-row">Snap target<select id="snap-target-kind" aria-label="Snap target"><option value="vertex">Vertex</option><option value="edge">Edge midpoint</option><option value="surface">Surface point</option></select></label><p class="field-help">Tool setting for Vertex Context → Snap Selection. Pick a target in the viewport; Escape cancels. Grid and proportional settings do not affect this action.</p>');
+async function subdivideSelectedEdges() {
+  try {
+    if (!editor.editMode || editor.componentMode !== 'edge' || !editor.componentSelection.length || !editor.meshTopology) throw new Error('Select one or more edges in Edit Mode first.');
+    await editor.runModeling({kind:'subdivide',edges:editor.componentSelection.map(id=>editor.meshTopology!.polygonEdges[id].map(v=>editor.meshTopology!.vertices[v][0]) as [number,number])});
+    toast('Edges subdivided. Split edge segments selected.');
+  } catch (error) { toast((error as Error).message); }
+}
+function startVertexSnap() {
   try {
     if (editor.snapTargetPending) editor.cancelVertexSnap();
     else {
@@ -1117,11 +1119,9 @@ on('vertex-snap', () => {
       toast(kind === 'surface' ? 'Click a surface triangle with all vertices unselected. Escape cancels.' : kind === 'edge' ? 'Click an edge with both endpoints unselected. Escape cancels.' : 'Click an unselected vertex in the active mesh. Escape cancels.');
     }
   } catch (error) { toast((error as Error).message); }
-});
-editor.addEventListener('snap-target', () => {
-  $('#vertex-snap').textContent = editor.snapTargetPending ? 'Cancel snap target' : 'Pick snap target';
-  $('#vertex-snap').setAttribute('aria-pressed', String(editor.snapTargetPending));
-});
+}
+editor.addEventListener('mode', () => { $<HTMLSelectElement>('#component-mode').value = editor.componentMode; });
+$('#snap-target-kind').onchange = () => editor.cancelVertexSnap();
 editor.addEventListener('snap-complete', () => toast(editor.snapTargetKind === 'surface' ? 'Selection center snapped to surface point.' : editor.snapTargetKind === 'edge' ? 'Selection center snapped to edge midpoint.' : 'Selection center snapped to vertex.'));
 editor.addEventListener('snap-error', event => toast((event as CustomEvent<string>).detail));
 let proportionalEnabled = false, proportionalRadius = 2, proportionalConnected = false;
@@ -1181,7 +1181,6 @@ function deleteSelection() {
 }
 for (const id of ['delete','delete-outliner']) on(id, deleteSelection);
 on('menu-undo', () => editor.undo()); on('menu-redo', () => editor.redo());
-on('smooth', () => editor.smooth(false)); on('flat', () => editor.smooth(true));
 on('primitive-apply', () => {
   try {
     if (editor.applyPrimitive()) toast('Primitive parameters applied.');
@@ -1191,12 +1190,43 @@ on('primitive-apply', () => {
 });
 mountModelingUI(editor, toast);
 
+async function bevelSelectedEdges() {
+  try {
+    if (!editor.editMode || editor.componentMode !== 'edge' || !editor.componentSelection.length || !editor.meshTopology) throw new Error('Select edges in Edit Mode first.');
+    await editor.runModeling({
+      kind: 'bevel',
+      edges: editor.componentSelection,
+      width: Number($<HTMLInputElement>('#bevel-width').value),
+      polygonTriangles: editor.meshTopology.polygonTriangles.map(group => [...group]),
+    });
+    toast('Bevel complete.');
+  } catch (error) { toast((error as Error).message); }
+}
+async function loopCutSelectedEdge() {
+  try {
+    if (!editor.editMode || editor.componentMode !== 'edge' || editor.componentSelection.length !== 1 || !editor.meshTopology) throw new Error('Select exactly one quad boundary edge.');
+    const logicalEdge = editor.componentSelection[0];
+    const rendererEdge = editor.meshTopology.polygonEdgeToEdge[logicalEdge];
+    if (rendererEdge === undefined) throw new Error('Selected logical edge has no renderer edge.');
+    await editor.runModeling({ kind: 'loop', edge: rendererEdge });
+    toast('Loop cut complete.');
+  } catch (error) { toast((error as Error).message); }
+}
+const modelingCommands = {
+  extrudeFace: extrudeSelectedFace,
+  extrudeRegion: extrudeSelectedRegion,
+  insetFace: insetSelectedFace,
+  subdivideEdges: subdivideSelectedEdges,
+  vertexSnap: startVertexSnap,
+  bevelEdges: bevelSelectedEdges,
+  loopCut: loopCutSelectedEdge,
+};
+
 type ViewportContextMode = 'object' | 'vertex' | 'edge' | 'face';
 type ViewportContextCommand = {
   label: string;
   shortcut?: string;
-  target?: string;
-  action?: () => void;
+  action: () => void | Promise<void>;
   enabled?: () => boolean;
   separatorBefore?: boolean;
   danger?: boolean;
@@ -1220,30 +1250,30 @@ function viewportContextCommands(mode: ViewportContextMode): ViewportContextComm
 
   if (mode === 'vertex') return [
     { label: 'Move', shortcut: 'G', action: () => tool('translate'), enabled: hasComponents },
-    { label: 'Snap Selection…', target: 'vertex-snap', enabled: hasComponents, separatorBefore: true },
+    { label: 'Snap Selection…', action: modelingCommands.vertexSnap, enabled: hasComponents, separatorBefore: true },
   ];
   if (mode === 'edge') return [
     { label: 'Move', shortcut: 'G', action: () => tool('translate'), enabled: hasComponents },
-    { label: 'Bevel Edges', target: 'bevel-edges', enabled: hasComponents, separatorBefore: true },
-    { label: 'Subdivide Edges', target: 'subdivide-edge', enabled: hasComponents },
-    { label: 'Loop Cut', target: 'loop-cut', enabled: oneComponent },
+    { label: 'Bevel Edges', action: modelingCommands.bevelEdges, enabled: hasComponents, separatorBefore: true },
+    { label: 'Subdivide Edges', action: modelingCommands.subdivideEdges, enabled: hasComponents },
+    { label: 'Loop Cut', action: modelingCommands.loopCut, enabled: oneComponent },
   ];
   if (mode === 'face') return [
     { label: 'Move', shortcut: 'G', action: () => tool('translate'), enabled: hasComponents },
-    { label: 'Extrude Face', target: 'extrude-face', enabled: oneComponent, separatorBefore: true },
-    { label: 'Extrude Region', target: 'extrude-region', enabled: hasComponents },
-    { label: 'Inset Face', target: 'inset-face', enabled: oneComponent },
+    { label: 'Extrude Face', action: modelingCommands.extrudeFace, enabled: oneComponent, separatorBefore: true },
+    { label: 'Extrude Region', action: modelingCommands.extrudeRegion, enabled: hasComponents },
+    { label: 'Inset Face', action: modelingCommands.insetFace, enabled: oneComponent },
   ];
   return [
     { label: 'Move', shortcut: 'G', action: () => tool('translate'), enabled: hasObject },
     { label: 'Rotate', shortcut: 'R', action: () => tool('rotate'), enabled: hasObject },
     { label: 'Scale', shortcut: 'S', action: () => tool('scale'), enabled: hasObject },
-    { label: 'Frame Selected', shortcut: 'F', target: 'focus', enabled: hasObject, separatorBefore: true },
-    { label: 'Duplicate', shortcut: 'Shift D', target: 'duplicate', enabled: hasObject },
-    { label: 'Linked Duplicate', shortcut: 'Alt D', target: 'duplicate-linked', enabled: hasObject },
-    { label: 'Shade Smooth', target: 'smooth', enabled: hasObject, separatorBefore: true },
-    { label: 'Shade Flat', target: 'flat', enabled: hasObject },
-    { label: 'Delete', shortcut: 'Del', target: 'delete', enabled: hasObject, separatorBefore: true, danger: true },
+    { label: 'Frame Selected', shortcut: 'F', action: () => editor.focus(), enabled: hasObject, separatorBefore: true },
+    { label: 'Duplicate', shortcut: 'Shift D', action: () => editor.duplicate(), enabled: hasObject },
+    { label: 'Linked Duplicate', shortcut: 'Alt D', action: () => { if (!editor.duplicateLinked()) toast('Linked duplicate requires an ordinary mesh without modifiers.'); }, enabled: hasObject },
+    { label: 'Shade Smooth', action: () => editor.smooth(false), enabled: hasObject, separatorBefore: true },
+    { label: 'Shade Flat', action: () => editor.smooth(true), enabled: hasObject },
+    { label: 'Delete', shortcut: 'Del', action: deleteSelection, enabled: hasObject, separatorBefore: true, danger: true },
   ];
 }
 
@@ -1284,8 +1314,7 @@ function showViewportContextMenu(clientX: number, clientY: number) {
       event.stopPropagation();
       closeViewportContextMenu();
       if (item.disabled) return;
-      if (command.target) document.getElementById(command.target)?.click();
-      else command.action?.();
+      void command.action();
     };
     viewportContextMenu.append(item);
   }
@@ -2406,4 +2435,4 @@ document.addEventListener('keydown', e => {
 document.addEventListener('keyup', e => { if (e.key === 'Alt') editor.orbit.mouseButtons.LEFT = null as unknown as THREE.MOUSE; });
 window.addEventListener('blur', () => { editor.orbit.mouseButtons.LEFT = null as unknown as THREE.MOUSE; editor.cancelBoxSelection(); cancelTimelineKeyDrag(); cancelTimelineBoxDrag(); cancelTimelinePanDrag(); cancelTimelineScrollbarDrag(); if (editor.playing) editor.togglePlayback(); });
 document.addEventListener('visibilitychange', () => { if (document.hidden && editor.playing) editor.togglePlayback(); });
-if (import.meta.env.DEV) Object.assign(window, { __forge: editor, __rig: rigSystem });
+if (import.meta.env.DEV) Object.assign(window, { __forge: editor, __rig: rigSystem, __forgeCommands: modelingCommands });

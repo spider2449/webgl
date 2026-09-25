@@ -25,11 +25,11 @@ for (const mode of ['vertex', 'edge', 'face'] as const) test(`viewport vertex sn
     return { before:e.snapshot(), positions:Array.from(a.array), indices:[...e.vertexIndices], delta,
       x:rect.left+(projected.x+1)*rect.width/2, y:rect.top+(1-projected.y)*rect.height/2 };
   }, mode);
-  await page.locator('#vertex-snap').click();
-  await expect(page.locator('#vertex-snap')).toHaveText('Cancel snap target');
+  await page.evaluate(() => (window as any).__forgeCommands.vertexSnap());
+  expect(await page.evaluate(() => (window as any).__forge.snapTargetPending)).toBe(true);
   await page.mouse.click(state.x,state.y);
   await expect(page.locator('#toast')).toContainText('Selection center snapped');
-  await expect(page.locator('#vertex-snap')).toHaveText('Pick snap target');
+  expect(await page.evaluate(() => (window as any).__forge.snapTargetPending)).toBe(false);
   const result = await page.evaluate(() => {
     const e = (window as any).__forge, positions = Array.from(e.selected.geometry.attributes.position.array), after = e.snapshot();
     e.undo(); const undone=e.snapshot(); e.redo(); const redone=e.snapshot();
@@ -44,13 +44,13 @@ for (const mode of ['vertex', 'edge', 'face'] as const) test(`viewport vertex sn
 test('snap invalid targets and cancellation leave geometry and selection intact', async ({ page }) => {
   await page.goto('/');
   await page.waitForFunction(() => (window as any).__forge?.selected);
-  await page.locator('#vertex-snap').click();
+  await page.evaluate(() => (window as any).__forgeCommands.vertexSnap());
   await expect(page.locator('#toast')).toContainText('Select mesh components');
   await page.locator('#mode').selectOption('edit');
   const before = await page.evaluate(() => {
     const e=(window as any).__forge; e.selectComponent(0); return e.snapshot();
   });
-  await page.locator('#vertex-snap').click();
+  await page.evaluate(() => (window as any).__forgeCommands.vertexSnap());
   const invalid = await page.evaluate(() => {
     const e=(window as any).__forge, errors=[];
     for (const id of [-1,NaN,1000000,0]) { try { e.snapSelectionToVertex(id); } catch (error) { errors.push(String(error)); } }
@@ -60,17 +60,17 @@ test('snap invalid targets and cancellation leave geometry and selection intact'
   // Empty target clicks do not discard the source selection or pending action.
   const box=await page.getByLabel('Interactive 3D viewport').boundingBox();
   await page.mouse.click(box!.x+20,box!.y+100);
-  await expect(page.locator('#vertex-snap')).toHaveText('Cancel snap target');
+  expect(await page.evaluate(() => (window as any).__forge.snapTargetPending)).toBe(true);
   await page.keyboard.press('Escape');
-  await expect(page.locator('#vertex-snap')).toHaveText('Pick snap target');
+  expect(await page.evaluate(() => (window as any).__forge.snapTargetPending)).toBe(false);
   expect(await page.evaluate(()=>(window as any).__forge.snapshot())).toBe(before);
   expect(await page.evaluate(()=>(window as any).__forge.vertexIndices.length)).toBeGreaterThan(0);
-  await page.locator('#vertex-snap').click();
-  await page.locator('#vertex-snap').click();
-  await expect(page.locator('#vertex-snap')).toHaveText('Pick snap target');
-  await page.locator('#vertex-snap').click();
+  await page.evaluate(() => (window as any).__forgeCommands.vertexSnap());
+  await page.evaluate(() => (window as any).__forgeCommands.vertexSnap());
+  expect(await page.evaluate(() => (window as any).__forge.snapTargetPending)).toBe(false);
+  await page.evaluate(() => (window as any).__forgeCommands.vertexSnap());
   await page.getByLabel('Mesh component').selectOption('edge');
-  await expect(page.locator('#vertex-snap')).toHaveText('Pick snap target');
+  expect(await page.evaluate(() => (window as any).__forge.snapTargetPending)).toBe(false);
 });
 
 test('repeated multi-vertex snaps use local coordinates and reject overflow before mutation', async ({ page }) => {
