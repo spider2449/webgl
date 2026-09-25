@@ -156,7 +156,9 @@ export class Editor extends EventTarget {
     this.orbit = new OrbitControls(this.camera, this.renderer.domElement);
     this.orbit.target.set(0, 0.9, 0);
     this.orbit.enableDamping = false;
-    this.orbit.mouseButtons = { LEFT: null as unknown as THREE.MOUSE, MIDDLE: THREE.MOUSE.ROTATE, RIGHT: THREE.MOUSE.PAN };
+    // Blender-style viewport navigation: MMB orbits, Shift+MMB pans, and RMB
+    // is reserved for context-sensitive operator menus.
+    this.orbit.mouseButtons = { LEFT: null as unknown as THREE.MOUSE, MIDDLE: THREE.MOUSE.ROTATE, RIGHT: null as unknown as THREE.MOUSE };
     this.orbit.addEventListener('change', () => this.invalidate());
     this.orbit.update();
     this.transform = new TransformControls(this.camera, this.renderer.domElement);
