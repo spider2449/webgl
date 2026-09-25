@@ -117,8 +117,8 @@ export class Editor extends EventTarget {
   transformOrientation: TransformOrientation = 'world';
   private transformTool: 'select' | 'translate' | 'rotate' | 'scale' = 'translate';
   private viewStyle = 'material';
-  private solid = new THREE.MeshStandardMaterial({ color: 0xadb0b7, roughness: 0.8 });
-  private wire = new THREE.MeshBasicMaterial({ color: 0xaac7d7, wireframe: true });
+  private solid = new THREE.MeshStandardMaterial({ color: 0x888c92, roughness: 0.8 });
+  private wire = new THREE.MeshBasicMaterial({ color: 0x60656d, wireframe: true });
   private resizeObserver: ResizeObserver;
 
   constructor(readonly host: HTMLElement) {
@@ -497,7 +497,7 @@ export class Editor extends EventTarget {
     this.setEditMode(false);
     const settings = defaultPrimitiveSettings(kind);
     const geometry = createPrimitiveGeometry(settings);
-    const mesh = new THREE.Mesh(geometry, new THREE.MeshStandardMaterial({ color: 0xb8b6b2, roughness: 0.42, metalness: 0.12, side: THREE.DoubleSide }));
+    const mesh = new THREE.Mesh(geometry, new THREE.MeshStandardMaterial({ color: 0x888c92, roughness: 0.55, metalness: 0.05, side: THREE.DoubleSide }));
     mesh.userData.forgePrimitive = settings;
     mesh.name = this.uniqueName(kind[0].toUpperCase() + kind.slice(1));
     mesh.position.y = kind === 'plane' ? 0 : kind === 'torus' ? 1.35 : kind === 'icosphere' ? 1.2 : 1;
