@@ -1283,8 +1283,10 @@ export class Editor extends EventTarget {
     this.emit('component-selection');
   }
   extrudeFace(distance: number, inset = false) {
-    if (!this.editMode || this.componentMode !== 'face' || this.selectedFace === null || !(this.selected instanceof THREE.Mesh) || this.selected instanceof THREE.SkinnedMesh || this.playing) throw new Error('Select exactly one triangle face in Edit Mode first.');
-    const mesh = this.selected, face = this.selectedFace;
+    if (!this.editMode || this.componentMode !== 'face' || this.selectedFace === null || !(this.selected instanceof THREE.Mesh) || this.selected instanceof THREE.SkinnedMesh || this.playing) throw new Error('Select exactly one face in Edit Mode first.');
+    const mesh = this.selected, polygon = this.selectedFace, triangles = this.componentFaceTriangles(polygon);
+    if (triangles.length !== 1) throw new Error('Quad / polygon extrusion and inset are not implemented in this transition step.');
+    const face = triangles[0];
     if (this.stats().vertices + 15 > 2_000_000) throw new Error('Triangle editing would exceed the scene vertex limit.');
     const original = mesh.geometry;
     const geometry = inset ? insetTriangle(original, face, distance) : extrudeTriangle(original, face, distance);
@@ -1299,8 +1301,9 @@ export class Editor extends EventTarget {
     this.commit();
   }
   extrudePlanarRegion(distance: number) {
-    if (!this.editMode || this.componentMode !== 'face' || !this.selectedComponents.size || !(this.selected instanceof THREE.Mesh) || this.selected instanceof THREE.SkinnedMesh || this.playing || this.transform.dragging) throw new Error('Select connected coplanar triangle faces in Edit Mode and finish the current drag first.');
-    const faces = [...this.selectedComponents], mesh = this.selected, original = mesh.geometry;
+    if (!this.editMode || this.componentMode !== 'face' || !this.selectedComponents.size || !(this.selected instanceof THREE.Mesh) || this.selected instanceof THREE.SkinnedMesh || this.playing || this.transform.dragging) throw new Error('Select connected coplanar faces in Edit Mode and finish the current drag first.');
+    if (!this.selectedFacesAreTriangles()) throw new Error('Quad / polygon region extrusion is not implemented in this transition step.');
+    const faces = [...this.selectedComponents].flatMap(face => this.componentFaceTriangles(face)), mesh = this.selected, original = mesh.geometry;
     const geometry = extrudeRegion(original, faces, distance);
     if (this.stats().vertices + geometry.getAttribute('position').count - original.getAttribute('position').count > 2_000_000) {
       geometry.dispose(); throw new Error('Region extrusion would exceed the scene vertex limit.');
@@ -1460,7 +1463,7 @@ export class Editor extends EventTarget {
         } else if (['uv', 'inset', 'extrude', 'region'].includes(operation.kind)) {
           this.setComponentMode(oldMode); this.selectedComponents = new Set(oldSelection);
           this.selectedFace = oldSelection.length === 1 ? oldSelection[0] : null;
-          this.selectComponentVertices(oldSelection.flatMap(f => this.topology!.faces[f]));
+          this.selectComponentVertices(oldSelection.flatMap(f => this.topology!.polygons[f]));
         }
       }
       this.commit();
