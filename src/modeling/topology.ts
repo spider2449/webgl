@@ -11,26 +11,8 @@ export type MeshTopology = {
 export function buildTopology(positions: ArrayLike<number>, indices?: ArrayLike<number>): MeshTopology {
   const vertices: number[][] = [], bufferToVertex: number[] = [];
   const byPosition = new Map<string, number>();
-
-  // Three.js primitives duplicate vertices across UV/normal seams. Regenerating
-  // parametric geometry can move mathematically identical seam positions by a
-  // few Float32 ULPs, so exact string equality makes one visible vertex split
-  // into multiple logical vertices. Quantize per axis at one millionth of the
-  // local extent: safely below the supported primitive subdivision spacing,
-  // while keeping seam copies topologically stable after parameter changes.
-  const min = [Infinity, Infinity, Infinity], max = [-Infinity, -Infinity, -Infinity];
-  for (let i = 0; i < positions.length / 3; i++) for (let axis = 0; axis < 3; axis++) {
-    const value = positions[i * 3 + axis];
-    if (value < min[axis]) min[axis] = value;
-    if (value > max[axis]) max[axis] = value;
-  }
-  const epsilon = min.map((value, axis) => Math.max((max[axis] - value) * 1e-6, 1e-9));
-  const positionKey = (i: number) => [0, 1, 2]
-    .map(axis => Math.round((positions[i * 3 + axis] - min[axis]) / epsilon[axis]))
-    .join(':');
-
   for (let i = 0; i < positions.length / 3; i++) {
-    const key = positionKey(i);
+    const key = `${positions[i * 3]},${positions[i * 3 + 1]},${positions[i * 3 + 2]}`;
     let vertex = byPosition.get(key);
     if (vertex === undefined) { vertex = vertices.length; byPosition.set(key, vertex); vertices.push([]); }
     vertices[vertex].push(i);
