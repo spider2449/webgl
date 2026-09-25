@@ -14,7 +14,7 @@ self.onmessage = (event: MessageEvent<{ source: ReturnType<THREE.BufferGeometry[
     source = new THREE.BufferGeometryLoader().parse(event.data.source);
     const op = event.data.operation;
     switch (op.kind) {
-      case 'topology': self.postMessage({ topology: inspectGeometry(source).topology, milliseconds: performance.now() - start }); return;
+      case 'topology': self.postMessage({ topology: inspectGeometry(source, op.pairTriangles ?? false).topology, milliseconds: performance.now() - start }); return;
       case 'bevel': result = bevelEdges(source, op.edges, op.width); break;
       case 'loop': result = loopCut(source, op.edge); break;
       case 'uv': result = editUV(source, op.faces, op.operation, op.values); break;
