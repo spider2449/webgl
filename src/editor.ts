@@ -361,22 +361,34 @@ export class Editor extends EventTarget {
         this.topology.vertices.forEach((_, vertex) => { if (inside(vertexPoint(vertex))) hits.push(vertex); });
       } else if (this.componentMode === 'edge') {
         const visibilityRaycaster = new THREE.Raycaster();
-        const visibilityTolerance = Math.max(1e-4, this.camera.position.distanceTo(this.orbit.target) * 5e-4);
-        const edgeVisibleAt = (point: THREE.Vector3) => {
+        const edgeVisibleAt = (edge: [number, number], a: THREE.Vector3, b: THREE.Vector3, t: number) => {
           if (this.viewStyle === 'wire') return true;
-          const ndc = point.clone().project(this.camera);
-          visibilityRaycaster.setFromCamera(new THREE.Vector2(ndc.x, ndc.y), this.camera);
-          const hit = visibilityRaycaster.intersectObject(this.selected!, false)[0];
-          if (!hit) return true;
-          const edgeDistance = visibilityRaycaster.ray.origin.distanceTo(point);
-          return hit.distance >= edgeDistance - visibilityTolerance;
+
+          const sample = a.clone().lerp(b, t);
+          const screenA = projectToScreen(a), screenB = projectToScreen(b), screenSample = projectToScreen(sample);
+          const dx = screenB.x - screenA.x, dy = screenB.y - screenA.y;
+          const length = Math.hypot(dx, dy);
+          const nx = length > 1e-6 ? -dy / length : 0;
+          const ny = length > 1e-6 ? dx / length : 0;
+          const probes = [0, -2, 2];
+
+          for (const offset of probes) {
+            const px = screenSample.x + nx * offset;
+            const py = screenSample.y + ny * offset;
+            const ndc = new THREE.Vector2(px / rect.width * 2 - 1, -(py / rect.height * 2 - 1));
+            visibilityRaycaster.setFromCamera(ndc, this.camera);
+            const hit = visibilityRaycaster.intersectObject(this.selected!, false)[0];
+            if (hit?.faceIndex === undefined || hit.faceIndex === null) continue;
+            const face = this.topology!.faces[hit.faceIndex];
+            if (face && face.includes(edge[0]) && face.includes(edge[1])) return true;
+          }
+          return false;
         };
         this.topology.edges.forEach((edge, id) => {
           const a = vertexPoint(edge[0]), b = vertexPoint(edge[1]);
           const hitT = segmentBoxHit(a, b);
           if (hitT === null) return;
-          const sample = a.clone().lerp(b, hitT);
-          if (edgeVisibleAt(sample)) hits.push(id);
+          if (edgeVisibleAt(edge, a, b, hitT)) hits.push(id);
         });
       } else {
         this.topology.faces.forEach((face, id) => {
