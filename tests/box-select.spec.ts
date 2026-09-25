@@ -204,6 +204,64 @@ test('Edge box-select uses segment intersection instead of midpoint sampling', a
   expect(selected).toContain(target.id);
 });
 
+test('Edge box-select limits Solid selection to visible edges but Wireframe selects through', async ({ page }) => {
+  await page.evaluate(() => {
+    const e = (window as any).__forge;
+    e.selected.rotation.set(0, 0, 0);
+    e.selected.scale.set(1, 1, 1);
+    e.commit();
+    e.view('front');
+  });
+  await page.locator('#mode').selectOption('edit');
+  await page.locator('#tool-select').click();
+  await page.getByLabel('Mesh component').selectOption('edge');
+
+  const target = await page.evaluate(() => {
+    const e = (window as any).__forge;
+    const mesh = e.selected, topology = e.meshTopology, position = mesh.geometry.getAttribute('position');
+    mesh.updateMatrixWorld(true);
+    e.camera.updateMatrixWorld(true);
+    const rect = e.host.getBoundingClientRect();
+    const project = (vertex: number) => {
+      const index = topology.vertices[vertex][0];
+      const world = mesh.localToWorld(mesh.position.clone().set(position.getX(index), position.getY(index), position.getZ(index)));
+      const point = world.clone().project(e.camera);
+      return {
+        x: rect.left + (point.x + 1) * rect.width / 2,
+        y: rect.top + (1 - point.y) * rect.height / 2,
+        z: point.z,
+        world: world.toArray(),
+      };
+    };
+    const projected = topology.edges.map((edge: number[], id: number) => {
+      const a = project(edge[0]), b = project(edge[1]);
+      return { id, a, b, mx: (a.x+b.x)/2, my:(a.y+b.y)/2, mz:(a.z+b.z)/2 };
+    });
+    let pair: any = null;
+    for (let i=0;i<projected.length&&!pair;i++) for (let j=i+1;j<projected.length;j++) {
+      const a=projected[i], b=projected[j];
+      if (Math.hypot(a.mx-b.mx,a.my-b.my)<8 && Math.abs(a.mz-b.mz)>0.1) {
+        pair = a.mz < b.mz ? {front:a,back:b} : {front:b,back:a};
+        break;
+      }
+    }
+    if (!pair) throw new Error('No overlapping front/back edge pair found for test fixture.');
+    return { x: pair.front.mx, y: pair.front.my, front: pair.front.id, back: pair.back.id };
+  });
+
+  await page.locator('#shading-solid').click();
+  await dragBox(page, { left: target.x-6, top: target.y-6, right: target.x+6, bottom: target.y+6 });
+  const solid = await page.evaluate(() => (window as any).__forge.componentSelection);
+  expect(solid).toContain(target.front);
+  expect(solid).not.toContain(target.back);
+
+  await page.locator('#shading-wire').click();
+  await dragBox(page, { left: target.x-6, top: target.y-6, right: target.x+6, bottom: target.y+6 });
+  const wire = await page.evaluate(() => (window as any).__forge.componentSelection);
+  expect(wire).toContain(target.front);
+  expect(wire).toContain(target.back);
+});
+
 test('Edit Mode base edge contrast follows shading mode', async ({ page }) => {
   await page.locator('#mode').selectOption('edit');
   await page.getByLabel('Mesh component').selectOption('edge');
@@ -272,7 +330,7 @@ test('selected edge overlay stays high-contrast in Wireframe shading', async ({ 
   expect(result.activeWidth).toBeGreaterThanOrEqual(2);
   expect(result.activeDepthTest).toBe(false);
   expect(result.baseEdgeColor).toBe(0x9aa1aa);
-  expect(result.wireColor).toBe(0x60656d);
+  expect(result.wireColor).toBe(0x555a62);
   expect(result.baseEdgeColor).not.toBe(result.wireColor);
 });
 
