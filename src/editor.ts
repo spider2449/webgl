@@ -1007,7 +1007,8 @@ export class Editor extends EventTarget {
     const mesh = this.selected, before = this.snapshot(), version = this.modelingVersion;
     this.modelingBusy = true; this.emit('modeling');
     try {
-      const job = modelingJob(mesh.geometry, { kind: 'topology' }); this.cancelJob = job.cancel;
+      const primitiveKind = (mesh.userData.forgePrimitive as { kind?: string } | undefined)?.kind;
+      const job = modelingJob(mesh.geometry, { kind: 'topology', pairTriangles: primitiveKind === 'cube' || primitiveKind === 'plane' }); this.cancelJob = job.cancel;
       const result = await job.promise;
       if (this.selected !== mesh || this.snapshot() !== before || this.modelingVersion !== version) throw new Error('Scene changed; discarded topology result.');
       return this.setEditMode(true, result.topology);
@@ -1259,7 +1260,7 @@ export class Editor extends EventTarget {
         vertexByPosition.set(positionKey([positions.getX(index), positions.getY(index), positions.getZ(index)]), vertex);
       });
       const edgeKey = (a: number, b: number) => `${Math.min(a, b)}:${Math.max(a, b)}`;
-      const edgeByKey = new Map(this.topology.edges.map((edge, id) => [edgeKey(edge[0], edge[1]), id]));
+      const edgeByKey = new Map(this.topology.polygonEdges.map((edge, id) => [edgeKey(edge[0], edge[1]), id]));
       const splitEdges: number[] = [];
       for (const [aPosition, bPosition] of oldEdges) {
         const midpointPosition: [number, number, number] = [
@@ -1276,7 +1277,7 @@ export class Editor extends EventTarget {
         if (first !== undefined && second !== undefined) splitEdges.push(first, second);
       }
       this.selectedComponents = new Set(splitEdges);
-      this.selectComponentVertices([...this.selectedComponents].flatMap(id => this.topology!.edges[id]));
+      this.selectComponentVertices([...this.selectedComponents].flatMap(id => this.topology!.polygonEdges[id]));
     } else {
       this.selectedComponents.clear();
       this.selectedFace = null;
@@ -1323,7 +1324,7 @@ export class Editor extends EventTarget {
     if (!this.editMode || this.componentMode !== 'edge' || !this.selectedComponents.size || !this.topology || !(this.selected instanceof THREE.Mesh) || this.selected instanceof THREE.SkinnedMesh || this.playing || this.transform.dragging) throw new Error('Select one or more edges in Edit Mode and finish the current drag first.');
     const selectedEdgeIds = [...this.selectedComponents];
     const oldEdges = this.captureSubdivisionEdges(selectedEdgeIds);
-    const endpoints = selectedEdgeIds.map(id => this.topology!.edges[id].map(v => this.topology!.vertices[v][0]) as [number, number]);
+    const endpoints = selectedEdgeIds.map(id => this.topology!.polygonEdges[id].map(v => this.topology!.vertices[v][0]) as [number, number]);
     const mesh = this.selected, original = mesh.geometry, midpointIndex = original.getAttribute('position').count;
     const geometry = subdivideEdges(original, endpoints);
     if (this.stats().vertices + geometry.getAttribute('position').count - midpointIndex > 2_000_000) {
@@ -1451,9 +1452,14 @@ export class Editor extends EventTarget {
         } else if (operation.kind === 'subdivide-all') {
           this.setComponentMode(oldMode);
         } else if (['uv', 'inset', 'extrude', 'region'].includes(operation.kind)) {
-          this.setComponentMode(oldMode); this.selectedComponents = new Set(oldSelection);
-          this.selectedFace = oldSelection.length === 1 ? oldSelection[0] : null;
-          this.selectComponentVertices(oldSelection.flatMap(f => this.topology!.faces[f]));
+          const restoredFaces =
+            operation.kind === 'region' || operation.kind === 'uv' ? operation.faces :
+            operation.kind === 'inset' || operation.kind === 'extrude' ? [operation.face] :
+            oldSelection;
+          this.setComponentMode(oldMode);
+          this.selectedComponents = new Set(restoredFaces);
+          this.selectedFace = restoredFaces.length === 1 ? restoredFaces[0] : null;
+          this.selectComponentVertices(restoredFaces.flatMap(face => this.topology!.polygons[face] ?? []));
         }
       }
       this.commit();
