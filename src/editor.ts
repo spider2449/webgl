@@ -371,7 +371,7 @@ export class Editor extends EventTarget {
       const vertexPoint = (vertex: number) => this.selected!.localToWorld(new THREE.Vector3().fromBufferAttribute(positions, this.topology!.vertices[vertex][0]));
       const hits: number[] = [];
       if (this.componentMode === 'vertex') {
-        this.topology.vertices.forEach((_, vertex) => { if (inside(vertexPoint(vertex))) hits.push(vertex); });
+        this.topology.logicalVertices.forEach(vertex => { if (inside(vertexPoint(vertex))) hits.push(vertex); });
       } else if (this.componentMode === 'edge') {
         this.topology.polygonEdges.forEach((edge, id) => {
           const a = vertexPoint(edge[0]), b = vertexPoint(edge[1]);
@@ -1096,6 +1096,7 @@ export class Editor extends EventTarget {
       const storedPolygons = this.storedPolygonTriangles(this.selected);
       const pairTriangles = storedPolygons === undefined && (this.selected.userData.forgeLogicalQuads === true || primitiveKind === 'cube' || primitiveKind === 'plane');
       this.topology = preparedTopology ?? buildTopology(position.array, this.selected.geometry.index?.array, storedPolygons ?? pairTriangles);
+      geometry.setIndex(this.topology.logicalVertices.map(vertex => this.topology!.vertices[vertex][0]));
       geometry.setAttribute('color', new THREE.Float32BufferAttribute(new Float32Array(position.count * 3).fill(1), 3));
       (this.vertexPoints.material as THREE.PointsMaterial).vertexColors = true;
       this.componentEdges = new THREE.LineSegments(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({ color: 0x454b54, transparent: true, opacity: 0.9, depthTest: false }));
@@ -1286,7 +1287,8 @@ export class Editor extends EventTarget {
   private restoreSubdivisionSelection(mode: ComponentMode, oldEdges: [[number, number, number], [number, number, number]][], midpointIndex: number) {
     if (!this.topology || !(this.selected instanceof THREE.Mesh)) return;
     this.setComponentMode(mode);
-    const midpointVertices = new Set(this.topology.bufferToVertex.slice(midpointIndex));
+    const logical = new Set(this.topology.logicalVertices);
+    const midpointVertices = new Set(this.topology.bufferToVertex.slice(midpointIndex).filter(vertex => logical.has(vertex)));
     if (mode === 'vertex') {
       const vertices = [...midpointVertices];
       this.selectedComponents = new Set(vertices);
@@ -1427,7 +1429,7 @@ export class Editor extends EventTarget {
   }
   snapSelectionToVertex(vertex: number) {
     if (!this.editMode || !this.topology || !(this.selected instanceof THREE.Mesh) || !this.vertexIndices.length || this.playing || this.transform.dragging) throw new Error('Select mesh components in Edit Mode and finish the current drag first.');
-    if (!Number.isInteger(vertex) || !this.topology.vertices[vertex]) throw new Error('Invalid snap target vertex.');
+    if (!Number.isInteger(vertex) || !this.topology.vertices[vertex] || !this.topology.logicalVertices.includes(vertex)) throw new Error('Invalid logical snap target vertex.');
     const targetIndex = this.topology.vertices[vertex][0];
     if (this.vertexIndices.includes(targetIndex)) throw new Error('Choose an unselected target vertex.');
     const attribute = this.selected.geometry.getAttribute('position');
