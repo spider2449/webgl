@@ -594,9 +594,23 @@ export class Editor extends EventTarget {
   private markPrimitiveApplied(mesh: THREE.Mesh) {
     if (mesh.userData.forgePrimitive !== undefined) delete mesh.userData.forgePrimitive;
   }
+  private storedPolygonTriangles(mesh: THREE.Mesh): number[][] | undefined {
+    const value = mesh.userData.forgePolygonTriangles;
+    if (!Array.isArray(value) || !value.length || value.length > 200_000) return undefined;
+    let triangles = 0;
+    const groups: number[][] = [];
+    for (const group of value) {
+      if (!Array.isArray(group) || !group.length || group.some(face => !Number.isInteger(face) || face < 0)) return undefined;
+      triangles += group.length;
+      if (triangles > 200_000) return undefined;
+      groups.push([...group]);
+    }
+    return groups;
+  }
   private markTopologyChanged(mesh: THREE.Mesh) {
     this.markPrimitiveApplied(mesh);
     if (mesh.userData.forgeLogicalQuads !== undefined) delete mesh.userData.forgeLogicalQuads;
+    if (mesh.userData.forgePolygonTriangles !== undefined) delete mesh.userData.forgePolygonTriangles;
   }
   get collections(): THREE.Group[] {
     return this.content.children.filter((object): object is THREE.Group => object instanceof THREE.Group && object.userData.forgeCollection === true);
@@ -1016,8 +1030,9 @@ export class Editor extends EventTarget {
     this.modelingBusy = true; this.emit('modeling');
     try {
       const primitiveKind = (mesh.userData.forgePrimitive as { kind?: string } | undefined)?.kind;
-      const pairTriangles = mesh.userData.forgeLogicalQuads === true || primitiveKind === 'cube' || primitiveKind === 'plane';
-      const job = modelingJob(mesh.geometry, { kind: 'topology', pairTriangles }); this.cancelJob = job.cancel;
+      const storedPolygons = this.storedPolygonTriangles(mesh);
+      const pairTriangles = storedPolygons === undefined && (mesh.userData.forgeLogicalQuads === true || primitiveKind === 'cube' || primitiveKind === 'plane');
+      const job = modelingJob(mesh.geometry, storedPolygons ? { kind: 'topology', polygonTriangles: storedPolygons } : { kind: 'topology', pairTriangles }); this.cancelJob = job.cancel;
       const result = await job.promise;
       if (this.selected !== mesh || this.snapshot() !== before || this.modelingVersion !== version) throw new Error('Scene changed; discarded topology result.');
       return this.setEditMode(true, result.topology);
@@ -1063,8 +1078,9 @@ export class Editor extends EventTarget {
       this.selected.add(this.vertexPoints);
       const position = this.selected.geometry.getAttribute('position');
       const primitiveKind = (this.selected.userData.forgePrimitive as { kind?: string } | undefined)?.kind;
-      const pairTriangles = this.selected.userData.forgeLogicalQuads === true || primitiveKind === 'cube' || primitiveKind === 'plane';
-      this.topology = preparedTopology ?? buildTopology(position.array, this.selected.geometry.index?.array, pairTriangles);
+      const storedPolygons = this.storedPolygonTriangles(this.selected);
+      const pairTriangles = storedPolygons === undefined && (this.selected.userData.forgeLogicalQuads === true || primitiveKind === 'cube' || primitiveKind === 'plane');
+      this.topology = preparedTopology ?? buildTopology(position.array, this.selected.geometry.index?.array, storedPolygons ?? pairTriangles);
       geometry.setAttribute('color', new THREE.Float32BufferAttribute(new Float32Array(position.count * 3).fill(1), 3));
       (this.vertexPoints.material as THREE.PointsMaterial).vertexColors = true;
       this.componentEdges = new THREE.LineSegments(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({ color: 0x454b54, transparent: true, opacity: 0.9, depthTest: false }));
@@ -1469,7 +1485,17 @@ export class Editor extends EventTarget {
       const oldEdges = oldMode === 'edge' ? this.captureSubdivisionEdges(oldSelection) : [];
       const midpoint = meshes[0].geometry.getAttribute('position').count;
       this.setEditMode(false);
-      meshes.forEach(mesh => operation.kind === 'uv' ? this.markPrimitiveApplied(mesh) : this.markTopologyChanged(mesh));
+      meshes.forEach((mesh, i) => {
+        if (operation.kind === 'uv') {
+          this.markPrimitiveApplied(mesh);
+        } else if (operation.kind === 'bevel' && topologies[i]) {
+          this.markPrimitiveApplied(mesh);
+          if (mesh.userData.forgeLogicalQuads !== undefined) delete mesh.userData.forgeLogicalQuads;
+          mesh.userData.forgePolygonTriangles = topologies[i]!.polygonTriangles.map(group => [...group]);
+        } else {
+          this.markTopologyChanged(mesh);
+        }
+      });
       meshes.forEach((mesh, i) => this.replaceGeometry(mesh, results[i])); results.length = 0;
       if (editing) {
         this.setEditMode(true, operation.kind === 'uv' ? undefined : topologies[0]);

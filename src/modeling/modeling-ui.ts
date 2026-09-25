@@ -8,7 +8,7 @@ export function mountModelingUI(editor: Editor, toast: (message: string) => void
     <details class="modeling-section" open><summary>Mesh operations</summary>
       <label class="property-row">Bevel width<input id="bevel-width" aria-label="Bevel width" type="number" min="0.0001" step="0.05" value="0.1"></label>
       <button class="wide-button" id="bevel-edges">Bevel selected edges</button>
-      <p class="field-help">Closed convex mesh, sharp edges, one flat segment. Width is measured along the adjacent faces.</p>
+      <p class="field-help">Closed convex polygon mesh, sharp logical boundary edges, one flat segment. Renderer triangulation is ignored.</p>
       <button class="wide-button" id="loop-cut">Cut quad loop</button>
       <p class="field-help">Select one boundary edge of a planar quad. Cuts the complete ring or open strip at its midpoint.</p>
       <button class="wide-button" id="cancel-modeling" disabled>Cancel operation</button>
@@ -66,7 +66,10 @@ export function mountModelingUI(editor: Editor, toast: (message: string) => void
       return triangles;
     });
   };
-  action('bevel-edges', () => editor.runModeling({ kind: 'bevel', edges: rendererEdges(), width: value('bevel-width') }));
+  action('bevel-edges', () => {
+    const edges = requireSelection('edge'), topology = editor.meshTopology!;
+    return editor.runModeling({ kind: 'bevel', edges, width: value('bevel-width'), polygonTriangles: topology.polygonTriangles.map(group => [...group]) });
+  });
   action('loop-cut', () => { const logicalEdges = requireSelection('edge'); if (logicalEdges.length !== 1) throw new Error('Select exactly one quad boundary edge.'); return editor.runModeling({ kind: 'loop', edge: rendererEdges()[0] }); });
   for (const operation of ['project', 'transform'] as const) action(`uv-${operation}`, () => editor.runModeling({ kind: 'uv', faces: rendererTriangles(), operation, values: ['uv-u', 'uv-v', 'uv-angle', 'uv-su', 'uv-sv'].map(value) }));
   const stack = () => structuredClone((editor.selected?.userData.modifierStack as ModifierStack | undefined)?.items ?? []);
