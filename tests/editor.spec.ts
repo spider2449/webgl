@@ -36,9 +36,9 @@ test('default mesh shading uses neutral gray while preserving custom material ed
       wire: e.wire.color.getHex(),
     };
   });
-  expect(defaults.primitive).toBe(0x888c92);
-  expect(defaults.solid).toBe(0x888c92);
-  expect(defaults.wire).toBe(0x60656d);
+  expect(defaults.primitive).toBe(0x666a70);
+  expect(defaults.solid).toBe(0x666a70);
+  expect(defaults.wire).toBe(0x555a62);
 
   await page.evaluate(() => {
     const e = (window as any).__forge;
@@ -83,9 +83,9 @@ test('legacy default primitive material migrates to neutral gray on project load
     };
   });
 
-  expect(result.migratedColor).toBe(0x888c92);
-  expect(result.migratedRoughness).toBeCloseTo(0.55);
-  expect(result.migratedMetalness).toBeCloseTo(0.05);
+  expect(result.migratedColor).toBe(0x666a70);
+  expect(result.migratedRoughness).toBeCloseTo(0.8);
+  expect(result.migratedMetalness).toBeCloseTo(0);
   expect(result.customColor).toBe(0xb8b6b2);
   expect(result.customRoughness).toBeCloseTo(0.6);
 });
