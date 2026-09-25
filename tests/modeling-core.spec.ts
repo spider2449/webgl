@@ -41,8 +41,14 @@ test('cube and plane keep logical quads above triangulated render topology', () 
   expect(cubeTopology.polygonEdgeToEdge).toHaveLength(12);
   expect(new Set(cubeTopology.polygonEdgeToEdge).size).toBe(12);
 
-  const planeSettings = { ...defaultPrimitiveSettings('plane'), widthSegments: 2, heightSegments: 2 } as const;
-  const plane = createPrimitiveGeometry(planeSettings);
+  const plane = createPrimitiveGeometry({
+    version: 1,
+    kind: 'plane',
+    width: 4,
+    height: 4,
+    widthSegments: 2,
+    heightSegments: 2,
+  });
   const planeTopology = buildTopology(
     plane.getAttribute('position').array,
     plane.index?.array,
