@@ -1085,9 +1085,9 @@ export class Editor extends EventTarget {
       this.selectedVertexOverlay.visible = this.componentMode === 'vertex' && vertexValues.length > 0;
       this.selectedEdgeOverlay.visible = this.componentMode === 'edge' && edgeValues.length > 0;
       this.selectedFaceOverlay.visible = this.componentMode === 'face' && faceValues.length > 0;
-      this.selectedVertexOverlay.geometry.computeBoundingSphere();
-      this.selectedEdgeOverlay.geometry.computeBoundingSphere();
-      this.selectedFaceOverlay.geometry.computeBoundingSphere();
+      if (vertexValues.length) this.selectedVertexOverlay.geometry.computeBoundingSphere();
+      if (edgeValues.length) this.selectedEdgeOverlay.geometry.computeBoundingSphere();
+      if (faceValues.length) this.selectedFaceOverlay.geometry.computeBoundingSphere();
     }
   }
   private pickVertex(toggle = false) {
