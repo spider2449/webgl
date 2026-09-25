@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { bevelLogicalEdges, deleteLogicalComponents, dissolveLogicalEdge, extrudeLogicalFace, insetLogicalFace, loopCutLogicalEdge, editUV, inspectGeometry } from './modeling';
+import { bevelLogicalEdges, deleteLogicalComponents, extrudeLogicalFace, insetLogicalFace, loopCutLogicalEdge, editUV, inspectGeometry } from './modeling';
 import { evaluateModifiers } from './modifiers';
 import { extrudeRegion } from './extrude-region';
 import { subdivideEdges } from './subdivide';
@@ -44,12 +44,6 @@ self.onmessage = (event: MessageEvent<{ source: ReturnType<THREE.BufferGeometry[
         const deletion = deleteLogicalComponents(source, op.mode, op.components, op.polygonTriangles);
         result = deletion.geometry;
         logicalGroups = deletion.polygonTriangles;
-        break;
-      }
-      case 'dissolve-edge': {
-        const dissolution = dissolveLogicalEdge(source, op.edge, op.polygonTriangles);
-        result = dissolution.geometry;
-        logicalGroups = dissolution.polygonTriangles;
         break;
       }
       case 'region': result = extrudeRegion(source, op.faces, op.distance); break;
