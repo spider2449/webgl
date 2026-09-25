@@ -1318,10 +1318,12 @@ export class Editor extends EventTarget {
     const mesh = this.selected, polygon = this.selectedFace, original = mesh.geometry;
     let geometry: THREE.BufferGeometry;
     let logicalGroups: number[][] | undefined;
+    let selectedAfter = polygon;
     if (inset) {
       const triangles = this.topology.polygonTriangles[polygon];
       if (triangles?.length !== 1) throw new Error('Quad/polygon inset is not implemented yet; use a triangle face.');
       geometry = insetTriangle(original, triangles[0], distance);
+      selectedAfter = triangles[0];
     } else {
       const extrusion = extrudeLogicalFace(original, polygon, distance, this.topology.polygonTriangles);
       geometry = extrusion.geometry;
@@ -1344,10 +1346,9 @@ export class Editor extends EventTarget {
     this.content.traverse(object => { if (object instanceof THREE.Mesh && object.geometry === original) retained = true; });
     if (!retained) original.dispose();
     this.setEditMode(true);
-    const selected = logicalGroups ? polygon : this.topology!.triangleToPolygon[this.topology!.polygonTriangles[0]?.[0] ?? 0] ?? 0;
-    this.selectedComponents = new Set([selected]);
-    this.selectedFace = selected;
-    this.selectComponentVertices(this.topology!.polygons[selected] ?? []);
+    this.selectedComponents = new Set([selectedAfter]);
+    this.selectedFace = selectedAfter;
+    this.selectComponentVertices(this.topology!.polygons[selectedAfter] ?? []);
     this.commit();
   }
   extrudePlanarRegion(distance: number) {
