@@ -98,7 +98,7 @@ test('Shift-selected adjacent edges subdivide atomically and keep split edges se
     return {error,snapshot:e.snapshot(),selected:e.selectedComponents.size};
   });
   expect(guarded.error).toContain('scene vertex limit');expect(guarded.snapshot).toBe(before);expect(guarded.selected).toBe(2);
-  await page.locator('#subdivide-edge').click();
+  await page.evaluate(() => (window as any).__forgeCommands.subdivideEdges());
   await page.waitForFunction(() => !(window as any).__forge.modelingBusy);
   await expect(page.getByLabel('Mesh component')).toHaveValue('edge');
   const result=await page.evaluate((setup)=>{

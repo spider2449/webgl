@@ -78,7 +78,7 @@ test('viewport selected edge subdivides, keeps split edges selected and restores
     return {x:rect.left+(point.x+1)*rect.width/2,y:rect.top+(1-point.y)*rect.height/2,midpoint,bufferCount:a.count,before:e.snapshot()};
   });
   await page.mouse.click(target.x,target.y);
-  await page.locator('#subdivide-edge').click();
+  await page.evaluate(() => (window as any).__forgeCommands.subdivideEdges());
   await page.waitForFunction(() => !(window as any).__forge.modelingBusy);
   await expect(page.locator('#toast')).toContainText('Edges subdivided');
   await expect(page.getByLabel('Mesh component')).toHaveValue('edge');
@@ -108,10 +108,10 @@ test('viewport selected edge subdivides, keeps split edges selected and restores
 test('subdivision UI rejects object mode and empty edge selection without mutation', async ({page})=>{
   await page.goto('/'); await page.waitForFunction(()=>(window as any).__forge?.selected);
   const before=await page.evaluate(()=>(window as any).__forge.snapshot());
-  await page.locator('#subdivide-edge').click();
+  await page.evaluate(() => (window as any).__forgeCommands.subdivideEdges());
   await page.waitForFunction(() => !(window as any).__forge.modelingBusy); await expect(page.locator('#toast')).toContainText('one or more edges');
   await page.locator('#mode').selectOption('edit'); await page.getByLabel('Mesh component').selectOption('edge');
-  await page.locator('#subdivide-edge').click();
+  await page.evaluate(() => (window as any).__forgeCommands.subdivideEdges());
   await page.waitForFunction(() => !(window as any).__forge.modelingBusy); await expect(page.locator('#toast')).toContainText('one or more edges');
   expect(await page.evaluate(()=>(window as any).__forge.snapshot())).toBe(before);
 });

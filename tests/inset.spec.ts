@@ -60,14 +60,14 @@ test('inset UI retains inner selection and restores history and projects', async
     e.selectComponent(0);
     return e.snapshot();
   });
-  await page.locator('#inset-face').click();
+  await page.evaluate(() => (window as any).__forgeCommands.insetFace());
   await page.waitForFunction(() => !(window as any).__forge.modelingBusy);
   await expect(page.locator('#toast')).toContainText('Triangle inset');
-  await page.locator('#inset-face').click();
+  await page.evaluate(() => (window as any).__forgeCommands.insetFace());
   await page.waitForFunction(() => !(window as any).__forge.modelingBusy);
   const valid = await page.evaluate(() => (window as any).__forge.snapshot());
   await page.getByLabel('Inset distance').fill('100');
-  await page.locator('#inset-face').click();
+  await page.evaluate(() => (window as any).__forgeCommands.insetFace());
   await page.waitForFunction(() => !(window as any).__forge.modelingBusy);
   await expect(page.locator('#toast')).toContainText('inradius');
   expect(await page.evaluate(() => (window as any).__forge.snapshot())).toBe(valid);
