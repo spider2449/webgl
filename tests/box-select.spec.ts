@@ -304,29 +304,52 @@ for (const mode of ['vertex', 'edge', 'face'] as const) {
       mesh.updateMatrixWorld(true);
       e.camera.updateMatrixWorld(true);
       const rect = e.host.getBoundingClientRect();
-      const world = (vertex: number) => mesh.localToWorld(mesh.position.clone().set(
-        position.getX(topology.vertices[vertex][0]),
-        position.getY(topology.vertices[vertex][0]),
-        position.getZ(topology.vertices[vertex][0]),
-      ));
+      const projectVertex = (vertex: number) => {
+        const point = mesh.localToWorld(mesh.position.clone().set(
+          position.getX(topology.vertices[vertex][0]),
+          position.getY(topology.vertices[vertex][0]),
+          position.getZ(topology.vertices[vertex][0]),
+        )).project(e.camera);
+        return {
+          x: rect.left + (point.x + 1) * rect.width / 2,
+          y: rect.top + (1 - point.y) * rect.height / 2,
+        };
+      };
+      if (mode === 'edge') {
+        const edge = topology.edges[Math.floor(topology.edges.length / 2)];
+        const a = projectVertex(edge[0]), b = projectVertex(edge[1]);
+        return {
+          left: Math.min(a.x, b.x) - 8,
+          top: Math.min(a.y, b.y) - 8,
+          right: Math.max(a.x, b.x) + 8,
+          bottom: Math.max(a.y, b.y) + 8,
+        };
+      }
       let point;
       if (mode === 'vertex') {
-        point = world(topology.vertices.length - 1);
-      } else if (mode === 'edge') {
-        const edge = topology.edges[Math.floor(topology.edges.length / 2)];
-        point = world(edge[0]).add(world(edge[1])).multiplyScalar(0.5);
+        point = projectVertex(topology.vertices.length - 1);
       } else {
         const face = topology.faces[Math.floor(topology.faces.length / 2)];
-        point = face.reduce((sum: any, vertex: number) => sum.add(world(vertex)), mesh.position.clone().set(0, 0, 0)).multiplyScalar(1 / 3);
+        const worldPoint = face.reduce((sum: any, vertex: number) => {
+          const index = topology.vertices[vertex][0];
+          return sum.add(mesh.localToWorld(mesh.position.clone().set(
+            position.getX(index), position.getY(index), position.getZ(index)
+          )));
+        }, mesh.position.clone().set(0, 0, 0)).multiplyScalar(1 / 3).project(e.camera);
+        point = {
+          x: rect.left + (worldPoint.x + 1) * rect.width / 2,
+          y: rect.top + (1 - worldPoint.y) * rect.height / 2,
+        };
       }
-      point.project(e.camera);
       return {
-        x: rect.left + (point.x + 1) * rect.width / 2,
-        y: rect.top + (1 - point.y) * rect.height / 2,
+        left: point.x - 14,
+        top: point.y - 14,
+        right: point.x + 14,
+        bottom: point.y + 14,
       };
     }, mode);
 
-    await dragBox(page, { left: target.x - 14, top: target.y - 14, right: target.x + 14, bottom: target.y + 14 });
+    await dragBox(page, target);
 
     const result = await page.evaluate(() => {
       const e = (window as any).__forge;
