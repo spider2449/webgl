@@ -5,7 +5,7 @@ for (const mode of ['vertex','edge','face']) test(`surface click snaps ${mode} s
   const state=await page.evaluate(mode=>{
     const e=(window as any).__forge,m=e.selected; m.rotation.set(0.1,0.2,0.15); m.scale.set(1.4,0.8,1.2); e.commit(); e.view('front'); e.setEditMode(true); e.setComponentMode(mode);
     const t=e.meshTopology,p=m.geometry.attributes.position;
-    const components=mode==='vertex'?t.vertices.map((_:unknown,i:number)=>[i]):mode==='edge'?t.edges:t.faces;
+    const components=mode==='vertex'?t.vertices.map((_:unknown,i:number)=>[i]):mode==='edge'?t.polygonEdges:t.polygons;
     const source=components.findIndex((vs:number[])=>vs.every(v=>p.getZ(t.vertices[v][0])===-1)); e.selectComponent(source);
     const face=t.faces.findIndex((vs:number[])=>vs.every(v=>p.getZ(t.vertices[v][0])===1));
     const weights=[0.2,0.3,0.5],point=m.position.clone().set(0,0,0);
