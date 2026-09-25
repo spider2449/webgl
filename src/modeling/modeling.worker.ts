@@ -28,7 +28,12 @@ self.onmessage = (event: MessageEvent<{ source: ReturnType<THREE.BufferGeometry[
         result = subdivideEdges(source, t.edges.map(edge => edge.map(v => t.vertices[v][0]) as [number, number])); break;
       }
     }
-    const topology = op.kind === 'modifiers' ? undefined : buildTopology(result.getAttribute('position').array, result.index?.array);
+    if (op.kind === 'uv' && source.userData.forgePolygonTriangles) {
+      result.userData.forgePolygonTriangles = structuredClone(source.userData.forgePolygonTriangles);
+    }
+    const topology = op.kind === 'modifiers'
+      ? undefined
+      : buildTopology(result.getAttribute('position').array, result.index?.array, result.userData.forgePolygonTriangles);
     const geometry = result.toJSON();
     if (JSON.stringify(geometry).length > 32 * 1024 * 1024) throw new Error('Worker result exceeds 32 MB.');
     self.postMessage({ geometry, topology, milliseconds: performance.now() - start });
