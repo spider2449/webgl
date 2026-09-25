@@ -161,6 +161,58 @@ test('Select Tool does not attach Move gizmo after Edit Mode component selection
   expect(result.baseEdgeColor).toBe(0x454b54);
 });
 
+test('Edge box-select remains stable after primitive parameter regeneration', async ({ page }) => {
+  await page.evaluate(() => {
+    const e = (window as any).__forge;
+    e.setPrimitiveParameter('width', 2.37);
+    e.setPrimitiveParameter('height', 1.83);
+    e.setPrimitiveParameter('depth', 2.11);
+    e.view('front');
+  });
+  await page.locator('#mode').selectOption('edit');
+  await page.locator('#tool-select').click();
+  await page.getByLabel('Mesh component').selectOption('edge');
+
+  const target = await page.evaluate(() => {
+    const e = (window as any).__forge;
+    const mesh = e.selected, topology = e.meshTopology, position = mesh.geometry.getAttribute('position');
+    mesh.updateMatrixWorld(true);
+    e.camera.updateMatrixWorld(true);
+    const rect = e.host.getBoundingClientRect();
+    const projectVertex = (vertex: number) => {
+      const index = topology.vertices[vertex][0];
+      const point = mesh.localToWorld(mesh.position.clone().set(
+        position.getX(index), position.getY(index), position.getZ(index)
+      )).project(e.camera);
+      return {
+        x: rect.left + (point.x + 1) * rect.width / 2,
+        y: rect.top + (1 - point.y) * rect.height / 2,
+      };
+    };
+    const candidates = topology.edges.map((edge: number[], id: number) => {
+      const a = projectVertex(edge[0]), b = projectVertex(edge[1]);
+      return { id, a, b, length: Math.hypot(b.x-a.x,b.y-a.y) };
+    }).filter((item: any) => item.length > 20).sort((a: any,b: any)=>b.length-a.length);
+    const chosen = candidates[0];
+    return {
+      id: chosen.id,
+      box: {
+        left: Math.min(chosen.a.x, chosen.b.x) - 8,
+        top: Math.min(chosen.a.y, chosen.b.y) - 8,
+        right: Math.max(chosen.a.x, chosen.b.x) + 8,
+        bottom: Math.max(chosen.a.y, chosen.b.y) + 8,
+      },
+      logicalVertices: topology.vertices.length,
+      duplicateGroups: topology.vertices.filter((copies: number[]) => copies.length > 1).length,
+    };
+  });
+
+  expect(target.logicalVertices).toBe(8);
+  expect(target.duplicateGroups).toBeGreaterThan(0);
+  await dragBox(page, target.box);
+  expect(await page.evaluate(() => (window as any).__forge.componentSelection)).toContain(target.id);
+});
+
 test('Edge box-select selects only edges fully contained by the marquee', async ({ page }) => {
   await page.evaluate(() => {
     const e = (window as any).__forge;
