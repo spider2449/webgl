@@ -14,7 +14,7 @@ for (const mode of ['vertex', 'edge', 'face'] as const) test(`Shift-click ${mode
     m.updateWorldMatrix(true, true);
     e.camera.updateMatrixWorld(true);
     const read = (v: number) => m.position.clone().fromBufferAttribute(m.geometry.attributes.position, t.vertices[v][0]);
-    const components: number[][] = mode === 'vertex' ? t.vertices.map((_: unknown, i: number) => [i]) : mode === 'edge' ? t.edges : t.faces;
+    const components: number[][] = mode === 'vertex' ? t.vertices.map((_: unknown, i: number) => [i]) : mode === 'edge' ? t.polygonEdges : t.polygons;
     const front = components.map((vs, id) => ({vs, id})).filter(c => c.vs.every(v => read(v).z === 1));
     const first = front[0], second = front.find(c => c.id !== first.id && (mode === 'vertex' || c.vs.some(v => first.vs.includes(v))))!;
     const rect = e.host.getBoundingClientRect();
