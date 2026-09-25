@@ -9,7 +9,7 @@ export type ModelingOperation =
   | { kind: 'region'; faces: number[]; distance: number }
   | { kind: 'subdivide'; edges: [number, number][] }
   | { kind: 'subdivide-all' }
-  | { kind: 'topology' };
+  | { kind: 'topology'; pairTriangles?: boolean };
 
 export function modelingJob(geometry: THREE.BufferGeometry, operation: ModelingOperation) {
   const source = geometry.toJSON();
