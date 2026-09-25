@@ -92,6 +92,51 @@ test('Cube quad extrudes as logical polygons, keeps the cap selected, and surviv
     boundaryVertices: 12,
   });
 
+  // Real viewport regression: after extrusion, both renderer triangles of a
+  // newly created side Quad must raycast back to one logical polygon.
+  const wallPoints = await page.evaluate(() => {
+    const e = (window as any).__forge, mesh = e.selected, topology = e.meshTopology;
+    const position = mesh.geometry.getAttribute('position');
+    e.selected.rotation.set(0, 0, 0);
+    e.selected.scale.set(1, 1, 1);
+    e.view('front');
+    e.setTool('select');
+
+    const wall = topology.polygons.findIndex((polygon: number[]) => {
+      const ys = polygon.map((vertex: number) => position.getY(topology.vertices[vertex][0]));
+      return polygon.every((vertex: number) => position.getZ(topology.vertices[vertex][0]) === 1)
+        && Math.min(...ys) === 1
+        && Math.max(...ys) === 1.5;
+    });
+    if (wall < 0) throw new Error('Expected an extruded front side Quad.');
+    const triangles = topology.polygonTriangles[wall];
+    if (triangles.length !== 2) throw new Error('Extruded side must remain one logical Quad backed by two renderer triangles.');
+
+    mesh.updateWorldMatrix(true, true);
+    const rect = e.host.getBoundingClientRect();
+    const center = (triangle: number) => {
+      const point = topology.faces[triangle].reduce((sum: any, vertex: number) => {
+        const index = topology.vertices[vertex][0];
+        return sum.add(mesh.localToWorld(mesh.position.clone().set(
+          position.getX(index),
+          position.getY(index),
+          position.getZ(index),
+        )));
+      }, mesh.position.clone().set(0, 0, 0)).multiplyScalar(1 / 3).project(e.camera);
+      return {
+        x: rect.left + (point.x + 1) * rect.width / 2,
+        y: rect.top + (1 - point.y) * rect.height / 2,
+      };
+    };
+    return { wall, a: center(triangles[0]), b: center(triangles[1]) };
+  });
+
+  await page.mouse.click(wallPoints.a.x, wallPoints.a.y);
+  expect(await page.evaluate(() => (window as any).__forge.componentSelection)).toEqual([wallPoints.wall]);
+  await page.mouse.click(wallPoints.b.x, wallPoints.b.y);
+  expect(await page.evaluate(() => (window as any).__forge.componentSelection)).toEqual([wallPoints.wall]);
+  await page.evaluate(face => (window as any).__forge.selectComponent(face), setup.face);
+
   await page.getByLabel('Extrusion distance').fill('0.25');
   await page.locator('#extrude-face').click();
   await page.waitForFunction(() => !(window as any).__forge.modelingBusy);
