@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import * as THREE from 'three';
-import { bevelEdges, bevelLogicalEdges, loopCut, editUV } from '../src/modeling/modeling';
+import { bevelEdges, bevelLogicalEdges, extrudeLogicalFace, loopCut, editUV } from '../src/modeling/modeling';
 import { buildTopology } from '../src/modeling/topology';
 import { evaluateModifiers } from '../src/modeling/modifiers';
 
@@ -77,6 +77,46 @@ test('logical Cube bevel ignores renderer diagonals and returns persistent polyg
   // centroid/interior geometry vertices. Every unique render vertex is a
   // logical polygon boundary vertex.
   expect(new Set(output.polygons.flat()).size).toBe(output.vertices.length);
+});
+
+test('logical Cube face extrudes as a cap plus side quads without renderer topology leaking into modeling', () => {
+  const box = new THREE.BoxGeometry(2, 2, 2);
+  const before = JSON.stringify(box.toJSON());
+  const input = buildTopology(box.getAttribute('position').array, box.index?.array, true);
+  const position = box.getAttribute('position');
+  const top = input.polygons.findIndex(polygon => polygon.every(vertex => position.getY(input.vertices[vertex][0]) === 1));
+  expect(top).toBeGreaterThanOrEqual(0);
+
+  const extrusion = extrudeLogicalFace(box, top, 0.5, input.polygonTriangles);
+  expect(JSON.stringify(box.toJSON())).toBe(before);
+  closed(extrusion.geometry);
+
+  const output = buildTopology(
+    extrusion.geometry.getAttribute('position').array,
+    extrusion.geometry.index?.array,
+    extrusion.polygonTriangles,
+  );
+  expect(output.polygons).toHaveLength(10);
+  expect(output.polygons.every(polygon => polygon.length === 4)).toBe(true);
+  expect(output.vertices).toHaveLength(12);
+  expect(output.faces).toHaveLength(20);
+  expect(output.polygonEdges).toHaveLength(20);
+  expect(new Set(output.polygons.flat()).size).toBe(output.vertices.length);
+
+  const outPosition = extrusion.geometry.getAttribute('position');
+  expect(output.polygons[top].every(vertex => outPosition.getY(output.vertices[vertex][0]) === 1.5)).toBe(true);
+
+  const repeated = extrudeLogicalFace(extrusion.geometry, top, 0.25, extrusion.polygonTriangles);
+  const repeatedTopology = buildTopology(
+    repeated.geometry.getAttribute('position').array,
+    repeated.geometry.index?.array,
+    repeated.polygonTriangles,
+  );
+  const repeatedPosition = repeated.geometry.getAttribute('position');
+  expect(repeatedTopology.polygons).toHaveLength(14);
+  expect(repeatedTopology.vertices).toHaveLength(16);
+  expect(repeatedTopology.faces).toHaveLength(28);
+  expect(repeatedTopology.polygons[top].every(vertex => repeatedPosition.getY(repeatedTopology.vertices[vertex][0]) === 1.75)).toBe(true);
 });
 
 test('adjacent and all-edge bevels remain closed; planar grid cuts reach both boundaries', () => {

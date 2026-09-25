@@ -31,7 +31,7 @@ test('Cube viewport topology exposes six quads and twelve boundary edges', async
   expect(result.logicalFlag).toBe(true);
 });
 
-test('quad face mutation tools stay explicitly staged in the topology foundation', async ({ page }) => {
+test('quad inset stays explicitly staged while polygon extrusion is supported', async ({ page }) => {
   await page.locator('#mode').selectOption('edit');
   await page.getByLabel('Mesh component').selectOption('face');
   const before = await page.evaluate(() => {
@@ -40,13 +40,101 @@ test('quad face mutation tools stay explicitly staged in the topology foundation
     return e.snapshot();
   });
 
-  await page.locator('#extrude-face').click();
-  await expect(page.locator('#toast')).toContainText('Quad/polygon extrude is not implemented yet');
-  expect(await page.evaluate(() => (window as any).__forge.snapshot())).toBe(before);
-
   await page.locator('#inset-face').click();
   await expect(page.locator('#toast')).toContainText('Quad/polygon inset is not implemented yet');
   expect(await page.evaluate(() => (window as any).__forge.snapshot())).toBe(before);
+});
+
+test('Cube quad extrudes as logical polygons, keeps the cap selected, and survives repeat and reload', async ({ page }) => {
+  await page.locator('#mode').selectOption('edit');
+  await page.getByLabel('Mesh component').selectOption('face');
+
+  const setup = await page.evaluate(() => {
+    const e = (window as any).__forge, topology = e.meshTopology, position = e.selected.geometry.getAttribute('position');
+    const face = topology.polygons.findIndex((polygon: number[]) =>
+      polygon.every((vertex: number) => position.getY(topology.vertices[vertex][0]) === 1)
+    );
+    if (face < 0) throw new Error('Expected a top logical quad.');
+    e.selectComponent(face);
+    return { face, before: e.snapshot() };
+  });
+
+  await page.getByLabel('Extrusion distance').fill('0.5');
+  await page.locator('#extrude-face').click();
+  await page.waitForFunction(() => !(window as any).__forge.modelingBusy);
+  await expect(page.locator('#toast')).toContainText('Face extruded');
+
+  const first = await page.evaluate(face => {
+    const e = (window as any).__forge, topology = e.meshTopology, position = e.selected.geometry.getAttribute('position');
+    return {
+      selection: e.componentSelection,
+      polygons: topology.polygons.length,
+      polygonEdges: topology.polygonEdges.length,
+      triangles: topology.faces.length,
+      vertices: topology.vertices.length,
+      sizes: topology.polygons.map((polygon: number[]) => polygon.length),
+      capY: topology.polygons[face].map((vertex: number) => position.getY(topology.vertices[vertex][0])),
+      stored: e.selected.userData.forgePolygonTriangles?.length,
+      logicalFlag: e.selected.userData.forgeLogicalQuads,
+      boundaryVertices: new Set(topology.polygons.flat()).size,
+    };
+  }, setup.face);
+  expect(first).toEqual({
+    selection: [setup.face],
+    polygons: 10,
+    polygonEdges: 20,
+    triangles: 20,
+    vertices: 12,
+    sizes: new Array(10).fill(4),
+    capY: new Array(4).fill(1.5),
+    stored: 10,
+    logicalFlag: undefined,
+    boundaryVertices: 12,
+  });
+
+  await page.getByLabel('Extrusion distance').fill('0.25');
+  await page.locator('#extrude-face').click();
+  await page.waitForFunction(() => !(window as any).__forge.modelingBusy);
+  const second = await page.evaluate(face => {
+    const e = (window as any).__forge, topology = e.meshTopology, position = e.selected.geometry.getAttribute('position');
+    const snapshot = e.snapshot();
+    return {
+      selection: e.componentSelection,
+      polygons: topology.polygons.length,
+      triangles: topology.faces.length,
+      vertices: topology.vertices.length,
+      capY: topology.polygons[face].map((vertex: number) => position.getY(topology.vertices[vertex][0])),
+      stored: e.selected.userData.forgePolygonTriangles?.length,
+      snapshot,
+    };
+  }, setup.face);
+  expect(second.selection).toEqual([setup.face]);
+  expect(second.polygons).toBe(14);
+  expect(second.triangles).toBe(28);
+  expect(second.vertices).toBe(16);
+  expect(second.capY).toEqual(new Array(4).fill(1.75));
+  expect(second.stored).toBe(14);
+
+  await page.locator('#mode').selectOption('object');
+  await page.evaluate(snapshot => (window as any).__forge.load(JSON.parse(snapshot)), second.snapshot);
+  await page.locator('#mode').selectOption('edit');
+  const restored = await page.evaluate(face => {
+    const e = (window as any).__forge, topology = e.meshTopology, position = e.selected.geometry.getAttribute('position');
+    return {
+      polygons: topology.polygons.length,
+      triangles: topology.faces.length,
+      vertices: topology.vertices.length,
+      capY: topology.polygons[face].map((vertex: number) => position.getY(topology.vertices[vertex][0])),
+      stored: e.selected.userData.forgePolygonTriangles?.length,
+    };
+  }, setup.face);
+  expect(restored).toEqual({
+    polygons: 14,
+    triangles: 28,
+    vertices: 16,
+    capY: new Array(4).fill(1.75),
+    stored: 14,
+  });
 });
 
 test('both renderer triangles on a Cube side select the same logical quad', async ({ page }) => {
