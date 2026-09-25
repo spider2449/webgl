@@ -324,32 +324,6 @@ export class Editor extends EventTarget {
       const screen = projectToScreen(point);
       return screen.z >= -1 && screen.z <= 1 && screen.x >= left && screen.x <= right && screen.y >= top && screen.y <= bottom;
     };
-    const segmentBoxHit = (a: THREE.Vector3, b: THREE.Vector3): number | null => {
-      const start = projectToScreen(a), endPoint = projectToScreen(b);
-      if ((start.z < -1 && endPoint.z < -1) || (start.z > 1 && endPoint.z > 1)) return null;
-      let t0 = 0, t1 = 1;
-      const dx = endPoint.x - start.x, dy = endPoint.y - start.y;
-      const clip = (p: number, q: number) => {
-        if (Math.abs(p) < 1e-12) return q >= 0;
-        const r = q / p;
-        if (p < 0) {
-          if (r > t1) return false;
-          if (r > t0) t0 = r;
-        } else {
-          if (r < t0) return false;
-          if (r < t1) t1 = r;
-        }
-        return true;
-      };
-      if (
-        !clip(-dx, start.x - left) ||
-        !clip(dx, right - start.x) ||
-        !clip(-dy, start.y - top) ||
-        !clip(dy, bottom - start.y) ||
-        t0 > t1
-      ) return null;
-      return (t0 + t1) * 0.5;
-    };
     this.camera.updateMatrixWorld(true);
     this.content.updateMatrixWorld(true);
 
@@ -360,35 +334,8 @@ export class Editor extends EventTarget {
       if (this.componentMode === 'vertex') {
         this.topology.vertices.forEach((_, vertex) => { if (inside(vertexPoint(vertex))) hits.push(vertex); });
       } else if (this.componentMode === 'edge') {
-        const visibilityRaycaster = new THREE.Raycaster();
-        const edgeVisibleAt = (edge: [number, number], a: THREE.Vector3, b: THREE.Vector3, t: number) => {
-          if (this.viewStyle === 'wire') return true;
-
-          const sample = a.clone().lerp(b, t);
-          const screenA = projectToScreen(a), screenB = projectToScreen(b), screenSample = projectToScreen(sample);
-          const dx = screenB.x - screenA.x, dy = screenB.y - screenA.y;
-          const length = Math.hypot(dx, dy);
-          const nx = length > 1e-6 ? -dy / length : 0;
-          const ny = length > 1e-6 ? dx / length : 0;
-          const probes = [0, -2, 2];
-
-          for (const offset of probes) {
-            const px = screenSample.x + nx * offset;
-            const py = screenSample.y + ny * offset;
-            const ndc = new THREE.Vector2(px / rect.width * 2 - 1, -(py / rect.height * 2 - 1));
-            visibilityRaycaster.setFromCamera(ndc, this.camera);
-            const hit = visibilityRaycaster.intersectObject(this.selected!, false)[0];
-            if (hit?.faceIndex === undefined || hit.faceIndex === null) continue;
-            const face = this.topology!.faces[hit.faceIndex];
-            if (face && face.includes(edge[0]) && face.includes(edge[1])) return true;
-          }
-          return false;
-        };
         this.topology.edges.forEach((edge, id) => {
-          const a = vertexPoint(edge[0]), b = vertexPoint(edge[1]);
-          const hitT = segmentBoxHit(a, b);
-          if (hitT === null) return;
-          if (edgeVisibleAt(edge, a, b, hitT)) hits.push(id);
+          if (inside(vertexPoint(edge[0])) && inside(vertexPoint(edge[1]))) hits.push(id);
         });
       } else {
         this.topology.faces.forEach((face, id) => {
