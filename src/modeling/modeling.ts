@@ -530,7 +530,13 @@ export function dissolveLogicalEdge(
   const first = uses.find(use => use.forward);
   const second = uses.find(use => !use.forward);
   if (!first || !second) throw new Error('Adjacent polygons must have consistent opposite winding.');
-  if (polygons[first.face].material !== polygons[second.face].material) throw new Error('Dissolve across a material boundary is not supported.');
+  // A dissolved edge produces one logical polygon, so only one material index
+  // can remain. THREE.BoxGeometry assigns separate material-group indices to
+  // Cube sides even when Forge renders them with the same material. Do not
+  // reject that common case: inherit the earlier logical face material
+  // deterministically when the adjacent indices differ.
+  const mergedFace = Math.min(first.face, second.face);
+  const mergedMaterial = polygons[mergedFace].material;
 
   const walk = (face: number, local: number) => {
     const vertices = topology.polygons[face];
@@ -554,7 +560,7 @@ export function dissolveLogicalEdge(
   }
 
   const output = polygons.filter((_, face) => face !== first.face && face !== second.face);
-  output.splice(Math.min(first.face, second.face), 0, { material: polygons[first.face].material, corners: mergedCorners });
+  output.splice(mergedFace, 0, { material: mergedMaterial, corners: mergedCorners });
   return finishDetailed(output);
 }
 
