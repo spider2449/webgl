@@ -77,9 +77,9 @@ $('#app').innerHTML = `
       </div></section><div class="sidebar-bottom">FORGE <span>EARLY ACCESS · 0.1</span></div>
     </aside>
   </main>
-  <footer class="statusbar"><span class="status-ready"><span></span> Ready</span><span id="scene-stats">1 object · 24 vertices · 12 triangles</span><div class="status-spacer"></div><span class="navigation-help"><kbd>MMB</kbd> Orbit <kbd>Shift MMB</kbd> Pan <kbd>Scroll</kbd> Zoom</span><span class="webgl-label">WebGL 2</span>${button('help','help-circle','Keyboard shortcuts')}</footer>
+  <footer class="statusbar"><span class="status-ready"><span></span> Ready</span><span id="scene-stats">1 object · 24 vertices · 12 triangles</span><div class="status-spacer"></div><span class="navigation-help"><kbd>MMB</kbd> Orbit <kbd>Shift MMB</kbd> Pan <kbd>RMB</kbd> Context <kbd>Scroll</kbd> Zoom</span><span class="webgl-label">WebGL 2</span>${button('help','help-circle','Keyboard shortcuts')}</footer>
   <div class="toast hidden" id="toast" role="status"></div>
-  <dialog id="help-dialog"><div class="dialog-heading"><span>Make yourself at home.</span>${button('close-help','x','Close shortcuts')}</div><p>A familiar workflow, right in your browser.</p><div class="shortcut-grid">${[['Select','Q'],['Move / Rotate / Scale','G / R / S'],['Frame selection','F'],['Duplicate','Shift D'],['Linked duplicate','Alt D'],['Delete','Delete'],['Object / Edit mode','Tab'],['Insert keyframe','I'],['Play / Pause','Space'],['Front / Right / Top','1 / 3 / 7'],['Perspective / Orthographic','5'],['Undo / Redo','Ctrl Z / Ctrl Shift Z'],['Save / Open project','Ctrl S / Ctrl O'],['Orbit','Middle mouse / Alt drag'],['Pan','Right mouse / Shift MMB']].map(([label,key])=>`<span>${label}</span><kbd>${key}</kbd>`).join('')}</div><p class="dialog-note">This release supports object and vertex editing. Face modeling, sculpting, rigging, simulation and native .blend files are planned.</p></dialog>
+  <dialog id="help-dialog"><div class="dialog-heading"><span>Make yourself at home.</span>${button('close-help','x','Close shortcuts')}</div><p>A familiar workflow, right in your browser.</p><div class="shortcut-grid">${[['Select','Q'],['Move / Rotate / Scale','G / R / S'],['Frame selection','F'],['Duplicate','Shift D'],['Linked duplicate','Alt D'],['Delete','Delete'],['Object / Edit mode','Tab'],['Insert keyframe','I'],['Play / Pause','Space'],['Front / Right / Top','1 / 3 / 7'],['Perspective / Orthographic','5'],['Undo / Redo','Ctrl Z / Ctrl Shift Z'],['Save / Open project','Ctrl S / Ctrl O'],['Orbit','Middle mouse / Alt drag'],['Pan','Shift MMB'],['Context menu','Right mouse']].map(([label,key])=>`<span>${label}</span><kbd>${key}</kbd>`).join('')}</div><p class="dialog-note">Modeling uses logical vertices, edges and polygon faces. Renderer triangulation remains display-only. Additional Blender-style operators are being added incrementally.</p></dialog>
   <dialog id="new-dialog"><div class="dialog-heading"><span>Create a new scene?</span></div><p>Download your project first if you want to keep a permanent copy. You can undo this action in the current session.</p><div class="dialog-actions"><button id="cancel-new">Cancel</button><button id="confirm-new" class="primary-button">New scene</button></div></dialog>
   <dialog id="save-dialog">
     <form id="save-form" method="dialog">
@@ -1013,8 +1013,8 @@ editor.addEventListener('mode', () => {
   $('#mode-hint').textContent = editor.weightMode
     ? 'Weight Mode · click or drag-box vertices; Shift adds; Ctrl toggles; choose a bone and assign influence.'
     : editor.editMode
-      ? `Select a ${editor.componentMode === 'face' ? 'face' : editor.componentMode}, drag-box to select more, Shift adds, Ctrl toggles; drag the move gizmo.`
-      : 'Click or drag-box to select objects; Shift adds; Ctrl-drag toggles.';
+      ? `Select a ${editor.componentMode === 'face' ? 'face' : editor.componentMode}, drag-box to select more, Shift adds, Ctrl toggles; RMB opens ${editor.componentMode} operators.`
+      : 'Click or drag-box to select objects; Shift adds; Ctrl-drag toggles; RMB opens object operators.';
 });
 editor.addEventListener('view', () => { $('#view-label').textContent = editor.camera instanceof THREE.OrthographicCamera ? 'User Orthographic' : 'User Perspective'; });
 let cachedStats = '';
@@ -1190,6 +1190,151 @@ on('primitive-apply', () => {
   }
 });
 mountModelingUI(editor, toast);
+
+type ViewportContextMode = 'object' | 'vertex' | 'edge' | 'face';
+type ViewportContextCommand = {
+  label: string;
+  shortcut?: string;
+  target?: string;
+  action?: () => void;
+  enabled?: () => boolean;
+  separatorBefore?: boolean;
+  danger?: boolean;
+};
+
+const viewportContextMenu = document.createElement('div');
+viewportContextMenu.id = 'viewport-context-menu';
+viewportContextMenu.className = 'menu viewport-context-menu hidden';
+viewportContextMenu.setAttribute('role', 'menu');
+viewportContextMenu.setAttribute('aria-label', 'Viewport context menu');
+$('#viewport').append(viewportContextMenu);
+
+function viewportContextMode(): ViewportContextMode {
+  return editor.editMode && !editor.weightMode ? editor.componentMode : 'object';
+}
+
+function viewportContextCommands(mode: ViewportContextMode): ViewportContextCommand[] {
+  const hasComponents = () => editor.componentSelection.length > 0 && !editor.modelingBusy;
+  const oneComponent = () => editor.componentSelection.length === 1 && !editor.modelingBusy;
+  const hasObject = () => !!editor.selected && !editor.modelingBusy;
+
+  if (mode === 'vertex') return [
+    { label: 'Move', shortcut: 'G', action: () => tool('translate'), enabled: hasComponents },
+    { label: 'Snap Selection…', target: 'vertex-snap', enabled: hasComponents, separatorBefore: true },
+  ];
+  if (mode === 'edge') return [
+    { label: 'Move', shortcut: 'G', action: () => tool('translate'), enabled: hasComponents },
+    { label: 'Bevel Edges', target: 'bevel-edges', enabled: hasComponents, separatorBefore: true },
+    { label: 'Subdivide Edges', target: 'subdivide-edge', enabled: hasComponents },
+    { label: 'Loop Cut', target: 'loop-cut', enabled: oneComponent },
+  ];
+  if (mode === 'face') return [
+    { label: 'Move', shortcut: 'G', action: () => tool('translate'), enabled: hasComponents },
+    { label: 'Extrude Face', target: 'extrude-face', enabled: oneComponent, separatorBefore: true },
+    { label: 'Extrude Region', target: 'extrude-region', enabled: hasComponents },
+    { label: 'Inset Face', target: 'inset-face', enabled: oneComponent },
+  ];
+  return [
+    { label: 'Move', shortcut: 'G', action: () => tool('translate'), enabled: hasObject },
+    { label: 'Rotate', shortcut: 'R', action: () => tool('rotate'), enabled: hasObject },
+    { label: 'Scale', shortcut: 'S', action: () => tool('scale'), enabled: hasObject },
+    { label: 'Frame Selected', shortcut: 'F', target: 'focus', enabled: hasObject, separatorBefore: true },
+    { label: 'Duplicate', shortcut: 'Shift D', target: 'duplicate', enabled: hasObject },
+    { label: 'Linked Duplicate', shortcut: 'Alt D', target: 'duplicate-linked', enabled: hasObject },
+    { label: 'Shade Smooth', target: 'smooth', enabled: hasObject, separatorBefore: true },
+    { label: 'Shade Flat', target: 'flat', enabled: hasObject },
+    { label: 'Delete', shortcut: 'Del', target: 'delete', enabled: hasObject, separatorBefore: true, danger: true },
+  ];
+}
+
+function closeViewportContextMenu() {
+  viewportContextMenu.classList.add('hidden');
+}
+
+function showViewportContextMenu(clientX: number, clientY: number) {
+  if (editor.weightMode || editor.playing || editor.transform.dragging || editor.snapTargetPending) return;
+  closeMenus();
+  const mode = viewportContextMode();
+  const titles: Record<ViewportContextMode, string> = {
+    object: 'Object Context',
+    vertex: 'Vertex Context',
+    edge: 'Edge Context',
+    face: 'Face Context',
+  };
+  viewportContextMenu.replaceChildren();
+  const title = document.createElement('span');
+  title.className = 'menu-label viewport-context-title';
+  title.textContent = titles[mode];
+  viewportContextMenu.append(title);
+
+  for (const command of viewportContextCommands(mode)) {
+    if (command.separatorBefore) viewportContextMenu.append(document.createElement('hr'));
+    const item = document.createElement('button');
+    item.type = 'button';
+    item.setAttribute('role', 'menuitem');
+    item.textContent = command.label;
+    item.disabled = command.enabled ? !command.enabled() : false;
+    if (command.danger) item.classList.add('context-danger');
+    if (command.shortcut) {
+      const key = document.createElement('kbd');
+      key.textContent = command.shortcut;
+      item.append(key);
+    }
+    item.onclick = event => {
+      event.stopPropagation();
+      closeViewportContextMenu();
+      if (item.disabled) return;
+      if (command.target) document.getElementById(command.target)?.click();
+      else command.action?.();
+    };
+    viewportContextMenu.append(item);
+  }
+
+  viewportContextMenu.classList.remove('hidden');
+  const viewport = $('#viewport').getBoundingClientRect();
+  const width = viewportContextMenu.offsetWidth;
+  const height = viewportContextMenu.offsetHeight;
+  const margin = 6;
+  viewportContextMenu.style.left = `${Math.max(margin, Math.min(clientX - viewport.left, viewport.width - width - margin))}px`;
+  viewportContextMenu.style.top = `${Math.max(margin, Math.min(clientY - viewport.top, viewport.height - height - margin))}px`;
+  viewportContextMenu.querySelector<HTMLButtonElement>('button:not(:disabled)')?.focus();
+}
+
+$('#viewport').addEventListener('contextmenu', event => {
+  const target = event.target as HTMLElement;
+  if (target.closest('button, input, select, dialog, .menu')) return;
+  event.preventDefault();
+  event.stopPropagation();
+  showViewportContextMenu(event.clientX, event.clientY);
+});
+
+viewportContextMenu.addEventListener('click', event => event.stopPropagation());
+viewportContextMenu.addEventListener('keydown', event => {
+  // The context menu owns its keyboard interaction. Do not let Escape or
+  // operator shortcut keys fall through to the document-wide viewport
+  // shortcuts (which can clear selection or change tools underneath the menu).
+  event.stopPropagation();
+  const items = [...viewportContextMenu.querySelectorAll<HTMLButtonElement>('button:not(:disabled)')];
+  if (!items.length) {
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      closeViewportContextMenu();
+      editor.renderer.domElement.focus();
+    }
+    return;
+  }
+  const current = items.indexOf(document.activeElement as HTMLButtonElement);
+  if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+    event.preventDefault();
+    const direction = event.key === 'ArrowDown' ? 1 : -1;
+    items[(current + direction + items.length) % items.length].focus();
+  } else if (event.key === 'Escape') {
+    event.preventDefault();
+    closeViewportContextMenu();
+    editor.renderer.domElement.focus();
+  }
+});
+
 on('mirror', () => toast(editor.mirror() ? 'Mirrored mesh geometry on the local X axis.' : 'Select a mesh to mirror.'));
 on('add-outliner', () => { $('#add-menu').classList.toggle('hidden'); });
 $('#add-outliner').addEventListener('click', e => e.stopPropagation());
