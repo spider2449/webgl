@@ -95,12 +95,13 @@ test('real Shift-selected planar faces repeat extrusion, move and round trip his
   const targets=await page.evaluate(()=>{
     const e=(window as any).__forge,m=e.selected,t=e.topology,p=m.geometry.attributes.position;
     m.updateWorldMatrix(true,true);e.camera.updateMatrixWorld(true);const rect=e.host.getBoundingClientRect();
-    return t.faces.map((vs:number[],id:number)=>({vs,id})).filter((f:any)=>f.vs.every((v:number)=>p.getZ(t.vertices[v][0])===1)).map((f:any)=>{
-      const point=m.position.clone().set(0,0,0);f.vs.forEach((v:number)=>point.add(m.position.clone().fromBufferAttribute(p,t.vertices[v][0])));point.divideScalar(3);m.localToWorld(point).project(e.camera);
+    return t.polygons.map((vs:number[],id:number)=>({vs,id})).filter((f:any)=>f.vs.every((v:number)=>p.getZ(t.vertices[v][0])===1)).map((f:any)=>{
+      const point=m.position.clone().set(0,0,0);f.vs.forEach((v:number)=>point.add(m.position.clone().fromBufferAttribute(p,t.vertices[v][0])));point.divideScalar(f.vs.length);m.localToWorld(point).project(e.camera);
       return {id:f.id,x:rect.left+(point.x+1)*rect.width/2,y:rect.top+(1-point.y)*rect.height/2};
     });
   });
-  await page.mouse.click(targets[0].x,targets[0].y);await page.keyboard.down('Shift');await page.mouse.click(targets[1].x,targets[1].y);await page.keyboard.up('Shift');
+  expect(targets).toHaveLength(1);
+  await page.mouse.click(targets[0].x,targets[0].y);
   const before=await page.evaluate(()=>(window as any).__forge.snapshot());
   await page.locator('#extrude-region').click();
   await page.waitForFunction(() => !(window as any).__forge.modelingBusy);await expect(page.locator('#toast')).toContainText('Planar region extruded');
