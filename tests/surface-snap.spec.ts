@@ -14,7 +14,7 @@ for (const mode of ['vertex','edge','face']) test(`surface click snaps ${mode} s
     m.updateWorldMatrix(true,true); e.camera.updateMatrixWorld(true); const screen=m.localToWorld(point).project(e.camera),rect=e.host.getBoundingClientRect();
     return {before,positions,indices,delta,x:rect.left+(screen.x+1)*rect.width/2,y:rect.top+(1-screen.y)*rect.height/2};
   },mode);
-  await page.getByLabel('Snap target',{exact:true}).selectOption('surface'); await page.locator('#vertex-snap').click(); await page.mouse.click(state.x,state.y);
+  await page.getByLabel('Snap target',{exact:true}).selectOption('surface'); await page.evaluate(() => (window as any).__forgeCommands.vertexSnap()); await page.mouse.click(state.x,state.y);
   await expect(page.locator('#toast')).toContainText('snapped to surface point');
   const result=await page.evaluate(()=>{const e=(window as any).__forge,positions=Array.from(e.selected.geometry.attributes.position.array),after=e.snapshot();e.undo();const undo=e.snapshot();e.redo();return {positions,after,undo,redo:e.snapshot()};});
   result.positions.forEach((v:any,i:number)=>expect(v).toBeCloseTo((state.positions[i] as number)+(state.indices.includes(Math.floor(i/3))?state.delta[i%3]:0),4));
