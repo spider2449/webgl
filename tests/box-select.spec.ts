@@ -194,14 +194,11 @@ test('Edge box-select remains stable after primitive parameter regeneration', as
       return { id, a, b, length: Math.hypot(b.x-a.x,b.y-a.y) };
     }).filter((item: any) => item.length > 20).sort((a: any,b: any)=>b.length-a.length);
     const chosen = candidates[0];
+    const mx = (chosen.a.x + chosen.b.x) / 2;
+    const my = (chosen.a.y + chosen.b.y) / 2;
     return {
       id: chosen.id,
-      box: {
-        left: Math.min(chosen.a.x, chosen.b.x) - 8,
-        top: Math.min(chosen.a.y, chosen.b.y) - 8,
-        right: Math.max(chosen.a.x, chosen.b.x) + 8,
-        bottom: Math.max(chosen.a.y, chosen.b.y) + 8,
-      },
+      box: { left: mx - 6, top: my - 6, right: mx + 6, bottom: my + 6 },
       logicalVertices: topology.vertices.length,
       duplicateGroups: topology.vertices.filter((copies: number[]) => copies.length > 1).length,
     };
@@ -213,7 +210,7 @@ test('Edge box-select remains stable after primitive parameter regeneration', as
   expect(await page.evaluate(() => (window as any).__forge.componentSelection)).toContain(target.id);
 });
 
-test('Edge box-select selects only edges fully contained by the marquee', async ({ page }) => {
+test('Edge box-select selects a substantial screen-space segment without requiring both endpoints', async ({ page }) => {
   await page.evaluate(() => {
     const e = (window as any).__forge;
     e.selected.rotation.set(0, 0, 0);
@@ -261,7 +258,7 @@ test('Edge box-select selects only edges fully contained by the marquee', async 
   const mx = (target.a.x + target.b.x) / 2;
   const my = (target.a.y + target.b.y) / 2;
   await dragBox(page, { left: mx - 6, top: my - 6, right: mx + 6, bottom: my + 6 });
-  expect(await page.evaluate(() => (window as any).__forge.componentSelection)).not.toContain(target.id);
+  expect(await page.evaluate(() => (window as any).__forge.componentSelection)).toContain(target.id);
 });
 
 test('Edit Mode base edge contrast follows shading mode', async ({ page }) => {
@@ -370,12 +367,8 @@ for (const mode of ['vertex', 'edge', 'face'] as const) {
       if (mode === 'edge') {
         const edge = topology.edges[Math.floor(topology.edges.length / 2)];
         const a = projectVertex(edge[0]), b = projectVertex(edge[1]);
-        return {
-          left: Math.min(a.x, b.x) - 8,
-          top: Math.min(a.y, b.y) - 8,
-          right: Math.max(a.x, b.x) + 8,
-          bottom: Math.max(a.y, b.y) + 8,
-        };
+        const x = (a.x + b.x) / 2, y = (a.y + b.y) / 2;
+        return { left: x - 14, top: y - 14, right: x + 14, bottom: y + 14 };
       }
       let point;
       if (mode === 'vertex') {
