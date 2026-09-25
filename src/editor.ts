@@ -312,12 +312,40 @@ export class Editor extends EventTarget {
     const left = Math.min(start.x, end.x), right = Math.max(start.x, end.x);
     const top = Math.min(start.y, end.y), bottom = Math.max(start.y, end.y);
     const rect = this.host.getBoundingClientRect();
-    const inside = (point: THREE.Vector3) => {
+    const projectToScreen = (point: THREE.Vector3) => {
       point.project(this.camera);
-      if (point.z < -1 || point.z > 1) return false;
-      const x = (point.x + 1) * rect.width * 0.5;
-      const y = (1 - point.y) * rect.height * 0.5;
-      return x >= left && x <= right && y >= top && y <= bottom;
+      return {
+        x: (point.x + 1) * rect.width * 0.5,
+        y: (1 - point.y) * rect.height * 0.5,
+        z: point.z,
+      };
+    };
+    const inside = (point: THREE.Vector3) => {
+      const screen = projectToScreen(point);
+      return screen.z >= -1 && screen.z <= 1 && screen.x >= left && screen.x <= right && screen.y >= top && screen.y <= bottom;
+    };
+    const segmentIntersectsBox = (a: THREE.Vector3, b: THREE.Vector3) => {
+      const start = projectToScreen(a), endPoint = projectToScreen(b);
+      if ((start.z < -1 && endPoint.z < -1) || (start.z > 1 && endPoint.z > 1)) return false;
+      let t0 = 0, t1 = 1;
+      const dx = endPoint.x - start.x, dy = endPoint.y - start.y;
+      const clip = (p: number, q: number) => {
+        if (p === 0) return q >= 0;
+        const r = q / p;
+        if (p < 0) {
+          if (r > t1) return false;
+          if (r > t0) t0 = r;
+        } else {
+          if (r < t0) return false;
+          if (r < t1) t1 = r;
+        }
+        return true;
+      };
+      return clip(-dx, start.x - left) &&
+        clip(dx, right - start.x) &&
+        clip(-dy, start.y - top) &&
+        clip(dy, bottom - start.y) &&
+        t0 <= t1;
     };
     this.camera.updateMatrixWorld(true);
     this.content.updateMatrixWorld(true);
@@ -330,8 +358,7 @@ export class Editor extends EventTarget {
         this.topology.vertices.forEach((_, vertex) => { if (inside(vertexPoint(vertex))) hits.push(vertex); });
       } else if (this.componentMode === 'edge') {
         this.topology.edges.forEach((edge, id) => {
-          const center = vertexPoint(edge[0]).add(vertexPoint(edge[1])).multiplyScalar(0.5);
-          if (inside(center)) hits.push(id);
+          if (segmentIntersectsBox(vertexPoint(edge[0]), vertexPoint(edge[1]))) hits.push(id);
         });
       } else {
         this.topology.faces.forEach((face, id) => {
@@ -1594,6 +1621,18 @@ export class Editor extends EventTarget {
       if (o.userData.forgePrimitive !== undefined) {
         if (!(o instanceof THREE.Mesh) || o instanceof THREE.SkinnedMesh) throw new Error('Only ordinary meshes support primitive parameters.');
         parsePrimitiveSettings(o.userData.forgePrimitive);
+        const material = Array.isArray(o.material) ? null : o.material;
+        if (
+          material instanceof THREE.MeshStandardMaterial &&
+          material.color.getHex() === 0xb8b6b2 &&
+          Math.abs(material.roughness - 0.42) < 1e-9 &&
+          Math.abs(material.metalness - 0.12) < 1e-9
+        ) {
+          material.color.setHex(0x888c92);
+          material.roughness = 0.55;
+          material.metalness = 0.05;
+          material.needsUpdate = true;
+        }
       }
       if ('animationInterpolation' in o.userData || 'animationChannelInterpolation' in o.userData || 'keyframes' in o.userData) {
         throw new Error('Legacy animation metadata is unsupported.');
