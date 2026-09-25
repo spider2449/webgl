@@ -5,12 +5,9 @@ import type { Modifier, ModifierStack } from './modifiers';
 export function mountModelingUI(editor: Editor, toast: (message: string) => void) {
   const anchor = document.querySelector('#mirror')!;
   anchor.insertAdjacentHTML('beforebegin', `
-    <details class="modeling-section" open><summary>Mesh operations</summary>
+    <details class="modeling-section" open><summary>Tool settings</summary>
       <label class="property-row">Bevel width<input id="bevel-width" aria-label="Bevel width" type="number" min="0.0001" step="0.05" value="0.1"></label>
-      <button class="wide-button" id="bevel-edges">Bevel selected edges</button>
-      <p class="field-help">Closed convex polygon mesh, sharp logical boundary edges, one flat segment. Renderer triangulation is ignored.</p>
-      <button class="wide-button" id="loop-cut">Cut quad loop</button>
-      <p class="field-help">Select one boundary edge of a planar quad. Cuts the complete ring or open strip at its midpoint.</p>
+      <p class="field-help">Used by Edge Context → Bevel Edges. Loop Cut and Subdivide are launched directly from the viewport context menu.</p>
       <button class="wide-button" id="cancel-modeling" disabled>Cancel operation</button>
       <p class="field-help" id="modeling-state" role="status">Ready</p>
     </details>
@@ -50,14 +47,6 @@ export function mountModelingUI(editor: Editor, toast: (message: string) => void
     if (!editor.meshTopology) throw new Error('Mesh topology is unavailable.');
     return editor.componentSelection;
   };
-  const rendererEdges = () => {
-    const selected = requireSelection('edge'), topology = editor.meshTopology!;
-    return selected.map(id => {
-      const edge = topology.polygonEdgeToEdge[id];
-      if (edge === undefined) throw new Error('Selected logical edge has no renderer edge.');
-      return edge;
-    });
-  };
   const rendererTriangles = () => {
     const selected = requireSelection('face'), topology = editor.meshTopology!;
     return selected.flatMap(id => {
@@ -66,11 +55,6 @@ export function mountModelingUI(editor: Editor, toast: (message: string) => void
       return triangles;
     });
   };
-  action('bevel-edges', () => {
-    const edges = requireSelection('edge'), topology = editor.meshTopology!;
-    return editor.runModeling({ kind: 'bevel', edges, width: value('bevel-width'), polygonTriangles: topology.polygonTriangles.map(group => [...group]) });
-  });
-  action('loop-cut', () => { const logicalEdges = requireSelection('edge'); if (logicalEdges.length !== 1) throw new Error('Select exactly one quad boundary edge.'); return editor.runModeling({ kind: 'loop', edge: rendererEdges()[0] }); });
   for (const operation of ['project', 'transform'] as const) action(`uv-${operation}`, () => editor.runModeling({ kind: 'uv', faces: rendererTriangles(), operation, values: ['uv-u', 'uv-v', 'uv-angle', 'uv-su', 'uv-sv'].map(value) }));
   const stack = () => structuredClone((editor.selected?.userData.modifierStack as ModifierStack | undefined)?.items ?? []);
   action('modifier-add', () => editor.setModifiers([...stack(), { kind: el<HTMLSelectElement>('modifier-kind').value as Modifier['kind'], amount: value('modifier-amount'), enabled: true }]));
@@ -82,7 +66,7 @@ export function mountModelingUI(editor: Editor, toast: (message: string) => void
   const render = () => {
     el('modeling-state').textContent = editor.modelingBusy ? 'Calculating mesh changes…' : 'Ready';
     el<HTMLButtonElement>('cancel-modeling').disabled = !editor.modelingBusy;
-    for (const id of ['bevel-edges','loop-cut','uv-project','uv-transform','modifier-add','modifier-apply','batch-transform','batch-subdivide','extrude-face','inset-face','extrude-region','subdivide-edge']) el<HTMLButtonElement>(id).disabled = editor.modelingBusy;
+    for (const id of ['uv-project','uv-transform','modifier-add','modifier-apply','batch-transform','batch-subdivide']) el<HTMLButtonElement>(id).disabled = editor.modelingBusy;
     el('object-selection-count').textContent = `${editor.selectedObjects.size} objects selected`;
     const list = el('modifier-list'); list.replaceChildren();
     stack().forEach((modifier, i) => {
