@@ -227,6 +227,8 @@ test('beveling the Cube top preserves logical polygons across Edit Mode and proj
       multiTrianglePolygons: topology.polygonTriangles.filter((group: number[]) => group.length > 1).length,
       stored: e.selected.userData.forgePolygonTriangles,
       logicalFlag: e.selected.userData.forgeLogicalQuads,
+      boundaryVertices: new Set(topology.polygons.flat()).size,
+      renderVertices: topology.vertices.length,
       snapshot: e.snapshot(),
     };
   });
@@ -235,6 +237,7 @@ test('beveling the Cube top preserves logical polygons across Edit Mode and proj
   expect(after.multiTrianglePolygons).toBeGreaterThan(0);
   expect(after.stored).toHaveLength(after.polygons);
   expect(after.logicalFlag).toBeUndefined();
+  expect(after.renderVertices).toBe(after.boundaryVertices);
 
   await page.locator('#mode').selectOption('object');
   await page.locator('#mode').selectOption('edit');

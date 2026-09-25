@@ -73,6 +73,10 @@ test('logical Cube bevel ignores renderer diagonals and returns persistent polyg
   expect(output.polygons.some(polygon => polygon.length > 3)).toBe(true);
   expect(output.polygonEdges.length).toBeLessThan(output.edges.length);
   expect(output.polygonEdges.every(edge => output.edges.some(candidate => candidate[0] === edge[0] && candidate[1] === edge[1]))).toBe(true);
+  // Renderer triangulation may add diagonal edges, but it must never add
+  // centroid/interior geometry vertices. Every unique render vertex is a
+  // logical polygon boundary vertex.
+  expect(new Set(output.polygons.flat()).size).toBe(output.vertices.length);
 });
 
 test('adjacent and all-edge bevels remain closed; planar grid cuts reach both boundaries', () => {

@@ -112,8 +112,11 @@ function finishDetailed(polygons: Polygon[]) {
   let count = 0;
   for (const { corners, material } of polygons) {
     if (corners.length < 3) continue;
-    const center = Object.fromEntries(Object.keys(corners[0]).map(name => [name, corners[0][name].map((_, j) => Math.fround(corners.reduce((sum, c) => sum + c[name][j], 0) / corners.length))]));
-    const triangles = corners.length === 3 ? [corners] : corners.map((c, i) => [center, c, corners[(i + 1) % corners.length]]);
+    // Rendering tessellation is not modeling topology. Triangulate only with
+    // existing polygon corners: never create centroid/interior vertices.
+    const triangles = corners.length === 3
+      ? [corners]
+      : Array.from({ length: corners.length - 2 }, (_, i) => [corners[0], corners[i + 1], corners[i + 2]]);
     const triangleIds: number[] = [];
     for (const triangle of triangles) {
       const [a, b, c] = triangle.map(vector);
