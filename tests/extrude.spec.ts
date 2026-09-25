@@ -58,8 +58,8 @@ test('viewport-selected face extrudes repeatedly through UI with history and pro
     const e=(window as any).__forge,mesh=e.selected,position=mesh.geometry.attributes.position;
     mesh.updateWorldMatrix(true,true);
     const read=(v:number)=>mesh.position.clone().fromBufferAttribute(position,e.topology.vertices[v][0]);
-    const face=e.topology.faces.find((f:number[])=>f.every(v=>read(v).z===1));
-    const p=mesh.position.clone().set(0,0,0);face.forEach((v:number)=>p.add(read(v)));p.divideScalar(3);
+    const face=e.topology.polygons.find((f:number[])=>f.every(v=>read(v).z===1));
+    const p=mesh.position.clone().set(0,0,0);face.forEach((v:number)=>p.add(read(v)));p.divideScalar(face.length);
     mesh.localToWorld(p).project(e.camera);const rect=e.host.getBoundingClientRect();
     return {x:rect.left+(p.x+1)*rect.width/2,y:rect.top+(1-p.y)*rect.height/2};
   });
@@ -68,11 +68,11 @@ test('viewport-selected face extrudes repeatedly through UI with history and pro
   await page.getByLabel('Extrusion distance').fill('0.5');
   await page.locator('#extrude-face').click();
   await page.waitForFunction(() => !(window as any).__forge.modelingBusy);
-  await expect(page.locator('#toast')).toContainText('Triangle extruded');
-  expect(await page.evaluate(()=>(window as any).__forge.stats().triangles)).toBe(18);
+  await expect(page.locator('#toast')).toContainText('Face extruded');
+  expect(await page.evaluate(()=>(window as any).__forge.stats().triangles)).toBe(20);
   await page.locator('#extrude-face').click();
   await page.waitForFunction(() => !(window as any).__forge.modelingBusy);
-  expect(await page.evaluate(()=>(window as any).__forge.stats().triangles)).toBe(24);
+  expect(await page.evaluate(()=>(window as any).__forge.stats().triangles)).toBe(28);
   await page.screenshot({ path: 'test-results/extrusion.png' });
   const result=await page.evaluate(()=>{
     const e=(window as any).__forge,after=e.snapshot();
@@ -82,11 +82,11 @@ test('viewport-selected face extrudes repeatedly through UI with history and pro
     return {selected,once,original,after,redone,restored:e.snapshot()};
   });
   expect(result.selected).toBeGreaterThan(3);
-  expect(result.once).toBe(18);
+  expect(result.once).toBe(20);
   expect(result.original).toBe(before);
   expect(result.redone).toBe(result.after);
   expect(result.restored).toBe(result.after);
   await page.locator('#extrude-face').click();
   await page.waitForFunction(() => !(window as any).__forge.modelingBusy);
-  await expect(page.locator('#toast')).toContainText('Select exactly one triangle');
+  await expect(page.locator('#toast')).toContainText('Select exactly one face');
 });
