@@ -349,7 +349,7 @@ test('beveling the Cube top preserves logical polygons across Edit Mode and proj
   await page.locator('#bevel-width').fill('0.1');
   await page.evaluate(() => (window as any).__forgeCommands.bevelEdges());
   await page.waitForFunction(() => !(window as any).__forge.modelingBusy);
-  await expect(page.locator('#toast')).toContainText('Modeling operation complete.');
+  await expect(page.locator('#toast')).toContainText('Bevel complete.');
 
   const after = await page.evaluate(() => {
     const e = (window as any).__forge, topology = e.meshTopology;
