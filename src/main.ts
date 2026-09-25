@@ -1238,18 +1238,13 @@ async function deleteSelectedComponents() {
       components: editor.componentSelection,
       polygonTriangles: editor.meshTopology.polygonTriangles.map(group => [...group]),
     });
-    toast(`${mode === 'vertex' ? 'Vertices' : mode === 'edge' ? 'Edges and adjacent faces' : 'Faces'} deleted.`);
-  } catch (error) { toast((error as Error).message); }
-}
-async function dissolveSelectedEdge() {
-  try {
-    if (!editor.editMode || editor.componentMode !== 'edge' || editor.componentSelection.length !== 1 || !editor.meshTopology) throw new Error('Select exactly one edge to dissolve.');
-    await editor.runModeling({
-      kind: 'dissolve-edge',
-      edge: editor.componentSelection[0],
-      polygonTriangles: editor.meshTopology.polygonTriangles.map(group => [...group]),
-    });
-    toast('Edge dissolved into one logical polygon.');
+    toast(
+      mode === 'vertex'
+        ? 'Vertices deleted; surrounding faces reconnected.'
+        : mode === 'edge'
+          ? 'Edges deleted; adjacent faces merged.'
+          : 'Faces deleted.'
+    );
   } catch (error) { toast((error as Error).message); }
 }
 const modelingCommands = {
@@ -1261,7 +1256,6 @@ const modelingCommands = {
   bevelEdges: bevelSelectedEdges,
   loopCut: loopCutSelectedEdge,
   deleteComponents: deleteSelectedComponents,
-  dissolveEdge: dissolveSelectedEdge,
 };
 
 type ViewportContextMode = 'object' | 'vertex' | 'edge' | 'face';
@@ -1330,8 +1324,7 @@ function viewportContextCommands(mode: ViewportContextMode): ViewportContextComm
     { label: 'Bevel Edges', action: modelingCommands.bevelEdges, enabled: hasComponents, separatorBefore: true },
     { label: 'Subdivide Edges', action: modelingCommands.subdivideEdges, enabled: hasComponents },
     { label: 'Loop Cut', action: modelingCommands.loopCut, enabled: oneComponent },
-    { label: 'Dissolve Edge', action: modelingCommands.dissolveEdge, enabled: oneComponent, separatorBefore: true },
-    { label: 'Delete Edges', shortcut: 'Del', action: modelingCommands.deleteComponents, enabled: hasComponents, danger: true },
+    { label: 'Delete Edges', shortcut: 'Del', action: modelingCommands.deleteComponents, enabled: hasComponents, separatorBefore: true, danger: true },
   ];
   if (mode === 'face') return [
     { label: 'Move', shortcut: 'G', action: () => tool('translate'), enabled: hasComponents },
