@@ -92,3 +92,86 @@ test('non-topology component movement preserves logical quad identity across Edi
     edges: (window as any).__forge.meshTopology.polygonEdges.length,
   }))).toEqual({ polygons: 6, edges: 12 });
 });
+
+
+test('Plane grid exposes one logical quad per parametric cell', async ({ page }) => {
+  await page.evaluate(() => {
+    const e = (window as any).__forge;
+    e.add('plane');
+    e.setPrimitiveParameter('widthSegments', 3);
+    e.setPrimitiveParameter('heightSegments', 2);
+  });
+  await page.locator('#mode').selectOption('edit');
+  const result = await page.evaluate(() => {
+    const t = (window as any).__forge.meshTopology;
+    return {
+      triangles: t.faces.length,
+      polygons: t.polygons.length,
+      polygonEdges: t.polygonEdges.length,
+      sizes: t.polygons.map((polygon: number[]) => polygon.length),
+    };
+  });
+  expect(result).toEqual({
+    triangles: 12,
+    polygons: 6,
+    polygonEdges: 17,
+    sizes: [4, 4, 4, 4, 4, 4],
+  });
+});
+
+test('modeling UI maps logical edge and face selections to renderer topology', async ({ page }) => {
+  await page.locator('#mode').selectOption('edit');
+
+  const edgeMapping = await page.evaluate(() => {
+    const e = (window as any).__forge, topology = e.meshTopology;
+    e.setComponentMode('edge');
+    const logicalEdge = topology.polygonEdgeToEdge.findIndex((rendererEdge: number, id: number) => rendererEdge !== id);
+    if (logicalEdge < 0) throw new Error('Expected a non-identity logical edge mapping.');
+    e.selectComponent(logicalEdge);
+    (window as any).__modelingCalls = [];
+    e.runModeling = async (operation: unknown) => { (window as any).__modelingCalls.push(operation); };
+    return { logicalEdge, rendererEdge: topology.polygonEdgeToEdge[logicalEdge] };
+  });
+
+  await page.locator('#bevel-edges').click();
+  expect(await page.evaluate(() => (window as any).__modelingCalls[0])).toMatchObject({
+    kind: 'bevel',
+    edges: [edgeMapping.rendererEdge],
+  });
+
+  const triangles = await page.evaluate(() => {
+    const e = (window as any).__forge;
+    e.setComponentMode('face');
+    e.selectComponent(0);
+    return [...e.meshTopology.polygonTriangles[0]];
+  });
+  await page.locator('#uv-project').click();
+  expect(await page.evaluate(() => (window as any).__modelingCalls[1])).toMatchObject({
+    kind: 'uv',
+    faces: triangles,
+  });
+});
+
+test('UV editing restores the logical quad selection after renderer-triangle work', async ({ page }) => {
+  await page.locator('#mode').selectOption('edit');
+  await page.getByLabel('Mesh component').selectOption('face');
+  await page.evaluate(() => (window as any).__forge.selectComponent(0));
+
+  await page.locator('#uv-project').click();
+  await expect(page.locator('#toast')).toContainText('Modeling operation complete.');
+
+  expect(await page.evaluate(() => {
+    const e = (window as any).__forge;
+    return {
+      selection: e.componentSelection,
+      polygons: e.meshTopology.polygons.length,
+      logicalFlag: e.selected.userData.forgeLogicalQuads,
+      primitive: e.selected.userData.forgePrimitive,
+    };
+  })).toEqual({
+    selection: [0],
+    polygons: 6,
+    logicalFlag: true,
+    primitive: undefined,
+  });
+});

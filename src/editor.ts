@@ -1481,7 +1481,8 @@ export class Editor extends EventTarget {
           this.setComponentMode(oldMode);
         } else if (['uv', 'inset', 'extrude', 'region'].includes(operation.kind)) {
           const restoredFaces =
-            operation.kind === 'region' || operation.kind === 'uv' ? operation.faces :
+            operation.kind === 'uv' ? oldSelection :
+            operation.kind === 'region' ? operation.faces :
             operation.kind === 'inset' || operation.kind === 'extrude' ? [operation.face] :
             oldSelection;
           this.setComponentMode(oldMode);
