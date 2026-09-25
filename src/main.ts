@@ -1068,11 +1068,16 @@ document.querySelectorAll<HTMLInputElement>('[data-transform]').forEach(input =>
 });
 on('reset-transform', () => { if (editor.selected) { editor.selected.position.set(0,0,0); editor.selected.rotation.set(0,0,0); editor.selected.scale.set(1,1,1); rigSystem.captureEditedRest(); editor.commit(); } });
 
+let modelingSnapTarget: 'vertex' | 'edge' | 'surface' = 'vertex';
 const modelingToolSettings = {
   extrudeDistance: 0.5,
   insetDistance: 0.1,
   bevelWidth: 0.1,
-  snapTarget: 'vertex' as 'vertex' | 'edge' | 'surface',
+  get snapTarget() { return modelingSnapTarget; },
+  set snapTarget(value: 'vertex' | 'edge' | 'surface') {
+    if (editor.snapTargetPending && value !== modelingSnapTarget) editor.cancelVertexSnap();
+    modelingSnapTarget = value;
+  },
 };
 
 async function extrudeSelectedFace() {
@@ -1242,6 +1247,7 @@ type ContextNumberParameter = {
   ariaLabel: string;
   min: number;
   max: number;
+  sliderMin: number;
   sliderMax: number;
   step: number;
   get: () => number;
@@ -1362,10 +1368,10 @@ function appendContextParameter(parameter: ContextParameter) {
 
     const slider = document.createElement('input');
     slider.type = 'range';
-    slider.min = String(parameter.min);
+    slider.min = String(parameter.sliderMin);
     slider.max = String(parameter.sliderMax);
     slider.step = String(parameter.step);
-    slider.value = String(Math.min(parameter.get(), parameter.sliderMax));
+    slider.value = String(Math.min(Math.max(parameter.get(), parameter.sliderMin), parameter.sliderMax));
     slider.setAttribute('aria-label', `${parameter.ariaLabel} slider`);
 
     const commitNumber = () => {
@@ -1376,7 +1382,7 @@ function appendContextParameter(parameter: ContextParameter) {
         return false;
       }
       parameter.set(value);
-      slider.value = String(Math.min(value, parameter.sliderMax));
+      slider.value = String(Math.min(Math.max(value, parameter.sliderMin), parameter.sliderMax));
       return true;
     };
 
@@ -1416,6 +1422,7 @@ function contextParameterBefore(mode: ViewportContextMode, command: ViewportCont
     ariaLabel: 'Context bevel width',
     min: 0.0001,
     max: 1000,
+    sliderMin: 0.05,
     sliderMax: 2,
     step: 0.05,
     get: () => modelingToolSettings.bevelWidth,
@@ -1428,6 +1435,7 @@ function contextParameterBefore(mode: ViewportContextMode, command: ViewportCont
     ariaLabel: 'Context extrude distance',
     min: 0.0001,
     max: 1000,
+    sliderMin: 0.1,
     sliderMax: 10,
     step: 0.1,
     get: () => modelingToolSettings.extrudeDistance,
@@ -1440,6 +1448,7 @@ function contextParameterBefore(mode: ViewportContextMode, command: ViewportCont
     ariaLabel: 'Context inset distance',
     min: 0.0001,
     max: 1000,
+    sliderMin: 0.05,
     sliderMax: 2,
     step: 0.05,
     get: () => modelingToolSettings.insetDistance,

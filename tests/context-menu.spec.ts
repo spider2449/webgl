@@ -11,6 +11,14 @@ async function rightClickViewport(page: import('@playwright/test').Page, x = 320
   await expect(page.locator('#viewport-context-menu')).toBeVisible();
 }
 
+async function setRange(locator: import('@playwright/test').Locator, value: string) {
+  await locator.evaluate((element, nextValue) => {
+    const input = element as HTMLInputElement;
+    input.value = nextValue;
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+  }, value);
+}
+
 test('replaced modeling actions and parameters are removed from Properties', async ({ page }) => {
   for (const id of ['extrude-face','extrude-region','inset-face','bevel-edges','loop-cut','subdivide-edge','vertex-snap','smooth','flat','extrude-distance','inset-distance','bevel-width','snap-target-kind']) {
     await expect(page.locator(`#${id}`)).toHaveCount(0);
@@ -53,13 +61,13 @@ test('Face context exposes inline Extrude and Inset sliders with numeric entry a
   await expect(insetNumber).toHaveValue('0.1');
   await expect(insetSlider).toHaveValue('0.1');
 
-  await extrudeSlider.fill('1.2');
+  await setRange(extrudeSlider, '1.2');
   await expect(extrudeNumber).toHaveValue('1.2');
   await extrudeNumber.fill('2.5');
   await extrudeNumber.press('Tab');
   expect(await page.evaluate(() => (window as any).__forgeModelingSettings.extrudeDistance)).toBe(2.5);
 
-  await insetSlider.fill('0.35');
+  await setRange(insetSlider, '0.35');
   await expect(insetNumber).toHaveValue('0.35');
   expect(await page.evaluate(() => (window as any).__forgeModelingSettings.insetDistance)).toBe(0.35);
 
@@ -83,7 +91,7 @@ test('Edge context exposes inline Bevel width and Enter executes with the typed 
   const menu = page.locator('#viewport-context-menu');
   const bevelNumber = menu.getByLabel('Context bevel width', { exact: true });
   const bevelSlider = menu.getByLabel('Context bevel width slider', { exact: true });
-  await bevelSlider.fill('0.4');
+  await setRange(bevelSlider, '0.4');
   await expect(bevelNumber).toHaveValue('0.4');
   await bevelNumber.fill('0.65');
   await bevelNumber.press('Enter');
