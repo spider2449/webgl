@@ -544,7 +544,9 @@ function updateUI() {
   const object = editor.selected;
   $('#project-name').setAttribute('title', editor.name);
   if (document.activeElement !== $('#project-name')) $<HTMLInputElement>('#project-name').value = editor.name;
-  $('#selection-label').textContent = object ? `Scene Collection / ${object.name}` : 'Scene Collection';
+  $('#selection-label').textContent = editor.selectedObjects.size > 1
+    ? `${editor.selectedObjects.size} objects selected · Active: ${object?.name ?? 'None'}`
+    : object ? `Scene Collection / ${object.name}` : 'Scene Collection';
   $('#timeline-object').textContent = object?.name ?? 'No selection';
   $('#selection-count').textContent = editor.selectedObjects.size ? `${editor.selectedObjects.size} object${editor.selectedObjects.size === 1 ? '' : 's'} selected` : 'No selection';
   $('#object-count').textContent = String(editor.stats().objects);
@@ -617,7 +619,7 @@ function renderOutliner() {
     const label = document.createElement('span');
     label.textContent = object.name;
     select.append(label);
-    select.onclick = event => { editor.select(object, event.shiftKey); editor.setTool(activeTool as 'translate'); };
+    select.onclick = event => { editor.select(object, event.shiftKey); editor.setTool(activeTool as 'select' | 'translate' | 'rotate' | 'scale'); };
     const visibility = document.createElement('button');
     visibility.className = 'object-visibility';
     visibility.title = `${object.visible ? 'Hide' : 'Show'} ${object.name}`;
