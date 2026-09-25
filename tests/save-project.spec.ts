@@ -31,7 +31,7 @@ test('Save project asks for a filename and keeps project name aligned with the d
 
 test('Save filename normalization avoids duplicate extensions and unsafe Windows names', async ({ page }) => {
   await page.getByLabel('Project name').fill('Scene.forge');
-  await page.getByLabel('Project name').press('Enter');
+  await page.getByLabel('Project name').press('Tab');
   await expect(page.getByLabel('Project name')).toHaveValue('Scene');
   expect(await page.evaluate(() => (window as any).__forge.name)).toBe('Scene');
 
