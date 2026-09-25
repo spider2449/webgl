@@ -1190,6 +1190,8 @@ function deleteSelection() {
   if (editor.weightMode) { toast('Finish Weight Mode before deleting scene objects.'); return; }
   if (editor.selected instanceof THREE.Bone && rigSystem.mode === 'edit') {
     rigAction(() => { rigSystem.deleteSelectedBone(); toast('Bone deleted; child bones kept in place.'); });
+  } else if (editor.editMode) {
+    void deleteSelectedComponents();
   } else editor.remove();
 }
 for (const id of ['delete','delete-outliner']) on(id, deleteSelection);
@@ -1226,6 +1228,30 @@ async function loopCutSelectedEdge() {
     toast('Loop cut complete.');
   } catch (error) { toast((error as Error).message); }
 }
+async function deleteSelectedComponents() {
+  try {
+    if (!editor.editMode || !editor.componentSelection.length || !editor.meshTopology) throw new Error('Select mesh components in Edit Mode first.');
+    const mode = editor.componentMode;
+    await editor.runModeling({
+      kind: 'delete-components',
+      mode,
+      components: editor.componentSelection,
+      polygonTriangles: editor.meshTopology.polygonTriangles.map(group => [...group]),
+    });
+    toast(`${mode === 'vertex' ? 'Vertices' : mode === 'edge' ? 'Edges and adjacent faces' : 'Faces'} deleted.`);
+  } catch (error) { toast((error as Error).message); }
+}
+async function dissolveSelectedEdge() {
+  try {
+    if (!editor.editMode || editor.componentMode !== 'edge' || editor.componentSelection.length !== 1 || !editor.meshTopology) throw new Error('Select exactly one edge to dissolve.');
+    await editor.runModeling({
+      kind: 'dissolve-edge',
+      edge: editor.componentSelection[0],
+      polygonTriangles: editor.meshTopology.polygonTriangles.map(group => [...group]),
+    });
+    toast('Edge dissolved into one logical polygon.');
+  } catch (error) { toast((error as Error).message); }
+}
 const modelingCommands = {
   extrudeFace: extrudeSelectedFace,
   extrudeRegion: extrudeSelectedRegion,
@@ -1234,6 +1260,8 @@ const modelingCommands = {
   vertexSnap: startVertexSnap,
   bevelEdges: bevelSelectedEdges,
   loopCut: loopCutSelectedEdge,
+  deleteComponents: deleteSelectedComponents,
+  dissolveEdge: dissolveSelectedEdge,
 };
 
 type ViewportContextMode = 'object' | 'vertex' | 'edge' | 'face';
@@ -1293,6 +1321,7 @@ function viewportContextCommands(mode: ViewportContextMode): ViewportContextComm
     { label: 'Rotate', shortcut: 'R', action: () => tool('rotate'), enabled: hasComponents },
     { label: 'Scale', shortcut: 'S', action: () => tool('scale'), enabled: hasComponents },
     { label: 'Snap Selection…', action: modelingCommands.vertexSnap, enabled: hasComponents, separatorBefore: true },
+    { label: 'Delete Vertices', shortcut: 'Del', action: modelingCommands.deleteComponents, enabled: hasComponents, separatorBefore: true, danger: true },
   ];
   if (mode === 'edge') return [
     { label: 'Move', shortcut: 'G', action: () => tool('translate'), enabled: hasComponents },
@@ -1301,6 +1330,8 @@ function viewportContextCommands(mode: ViewportContextMode): ViewportContextComm
     { label: 'Bevel Edges', action: modelingCommands.bevelEdges, enabled: hasComponents, separatorBefore: true },
     { label: 'Subdivide Edges', action: modelingCommands.subdivideEdges, enabled: hasComponents },
     { label: 'Loop Cut', action: modelingCommands.loopCut, enabled: oneComponent },
+    { label: 'Dissolve Edge', action: modelingCommands.dissolveEdge, enabled: oneComponent, separatorBefore: true },
+    { label: 'Delete Edges', shortcut: 'Del', action: modelingCommands.deleteComponents, enabled: hasComponents, danger: true },
   ];
   if (mode === 'face') return [
     { label: 'Move', shortcut: 'G', action: () => tool('translate'), enabled: hasComponents },
@@ -1309,6 +1340,7 @@ function viewportContextCommands(mode: ViewportContextMode): ViewportContextComm
     { label: 'Extrude Face', action: modelingCommands.extrudeFace, enabled: oneComponent, separatorBefore: true },
     { label: 'Extrude Region', action: modelingCommands.extrudeRegion, enabled: hasComponents },
     { label: 'Inset Face', action: modelingCommands.insetFace, enabled: oneComponent },
+    { label: 'Delete Faces', shortcut: 'Del', action: modelingCommands.deleteComponents, enabled: hasComponents, separatorBefore: true, danger: true },
   ];
   return [
     { label: 'Move', shortcut: 'G', action: () => tool('translate'), enabled: hasObject },
