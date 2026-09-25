@@ -504,6 +504,65 @@ function mergeLogicalPolygonRegions(
   return { geometry, polygonTriangles: groups, topology };
 }
 
+function deleteLogicalFaces(
+  source: THREE.BufferGeometry,
+  inspection: ReturnType<typeof inspectGeometry>,
+  removedFaces: Set<number>,
+) {
+  const { topology, indices, materials } = inspection;
+  if (removedFaces.size === topology.polygons.length) {
+    throw new Error('Delete would remove the entire mesh; delete the object in Object Mode instead.');
+  }
+
+  const removedTriangles = new Set<number>(
+    [...removedFaces].flatMap(face => topology.polygonTriangles[face] ?? [])
+  );
+  const values: Record<string, number[]> = {};
+  const sizes: Record<string, number> = {};
+  const groups: { start: number; count: number; material: number }[] = [];
+  const triangleMap = new Map<number, number>();
+  let count = 0;
+  let nextTriangle = 0;
+
+  for (let face = 0; face < topology.faces.length; face++) {
+    if (removedTriangles.has(face)) continue;
+    triangleMap.set(face, nextTriangle++);
+    const material = materials[face];
+    const last = groups.at(-1);
+    if (last?.material === material) last.count += 3;
+    else groups.push({ start: count, count: 3, material });
+
+    for (const rawIndex of indices.slice(face * 3, face * 3 + 3)) {
+      for (const [name, attribute] of Object.entries(source.attributes)) {
+        sizes[name] = attribute.itemSize;
+        const target = values[name] ??= [];
+        for (let component = 0; component < attribute.itemSize; component++) {
+          target.push(attribute.getComponent(rawIndex, component));
+        }
+      }
+      count++;
+    }
+  }
+
+  const geometry = new THREE.BufferGeometry();
+  for (const [name, data] of Object.entries(values)) {
+    geometry.setAttribute(name, new THREE.Float32BufferAttribute(data, sizes[name]));
+  }
+  groups.forEach(group => geometry.addGroup(group.start, group.count, group.material));
+  geometry.computeBoundingBox();
+  geometry.computeBoundingSphere();
+
+  const polygonTriangles = topology.polygonTriangles
+    .filter((_, face) => !removedFaces.has(face))
+    .map(group => group.map(triangle => {
+      const mapped = triangleMap.get(triangle);
+      if (mapped === undefined) throw new Error('Deleted face triangle mapping is inconsistent.');
+      return mapped;
+    }));
+  inspectGeometry(geometry, polygonTriangles);
+  return { geometry, polygonTriangles };
+}
+
 export function deleteLogicalComponents(
   source: THREE.BufferGeometry,
   mode: 'vertex' | 'edge' | 'face',
@@ -512,7 +571,6 @@ export function deleteLogicalComponents(
 ) {
   const inspection = inspectGeometry(source, polygonTriangles ?? false);
   const { topology } = inspection;
-  const { polygons } = logicalSurface(source, inspection);
   const selected = [...new Set(components)];
   if (!selected.length) throw new Error('Select mesh components to delete.');
 
@@ -558,10 +616,7 @@ export function deleteLogicalComponents(
   if (selected.some(face => !Number.isInteger(face) || !topology.polygons[face])) {
     throw new Error('Invalid logical face selection.');
   }
-  const removed = new Set(selected);
-  const output = polygons.filter((_, face) => !removed.has(face));
-  if (!output.length) throw new Error('Delete would remove the entire mesh; delete the object in Object Mode instead.');
-  return finishDetailed(output);
+  return deleteLogicalFaces(source, inspection, new Set(selected));
 }
 
 
