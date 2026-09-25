@@ -564,13 +564,6 @@ export function deleteLogicalComponents(
   return finishDetailed(output);
 }
 
-export function dissolveLogicalEdge(
-  source: THREE.BufferGeometry,
-  edge: number,
-  polygonTriangles?: number[][],
-) {
-  return deleteLogicalComponents(source, 'edge', [edge], polygonTriangles);
-}
 
 export function bevelLogicalEdges(source: THREE.BufferGeometry, edges: number[], width: number, polygonTriangles?: number[][]) {
   if (!Number.isFinite(width) || width < 0.0001 || width > 1000) throw new Error('Bevel width must be between 0.0001 and 1000.');
