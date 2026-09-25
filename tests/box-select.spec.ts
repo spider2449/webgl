@@ -158,7 +158,33 @@ test('Select Tool does not attach Move gizmo after Edit Mode component selection
   expect(result.activeSegments).toBe(1);
   expect(result.activeWidth).toBe(2);
   expect(result.activeColor).toBe(0xfff2db);
-  expect(result.baseEdgeColor).toBe(0x252a31);
+  expect(result.baseEdgeColor).toBe(0x454b54);
+});
+
+test('Edit Mode base edge contrast follows shading mode', async ({ page }) => {
+  await page.locator('#mode').selectOption('edit');
+  await page.getByLabel('Mesh component').selectOption('edge');
+
+  const materialColor = await page.evaluate(() => {
+    const e = (window as any).__forge;
+    e.setShading('material');
+    return e.componentEdges.material.color.getHex();
+  });
+  expect(materialColor).toBe(0x454b54);
+
+  const wireColor = await page.evaluate(() => {
+    const e = (window as any).__forge;
+    e.setShading('wire');
+    return e.componentEdges.material.color.getHex();
+  });
+  expect(wireColor).toBe(0x9aa1aa);
+
+  const solidColor = await page.evaluate(() => {
+    const e = (window as any).__forge;
+    e.setShading('solid');
+    return e.componentEdges.material.color.getHex();
+  });
+  expect(solidColor).toBe(0x454b54);
 });
 
 test('selected edge overlay stays high-contrast in Wireframe shading', async ({ page }) => {
@@ -189,6 +215,8 @@ test('selected edge overlay stays high-contrast in Wireframe shading', async ({ 
       activeVisible: e.activeEdgeOverlay?.visible ?? false,
       activeWidth: e.activeEdgeOverlay?.material.linewidth ?? 0,
       activeDepthTest: e.activeEdgeOverlay?.material.depthTest ?? true,
+      baseEdgeColor: e.componentEdges?.material.color.getHex() ?? 0,
+      wireColor: e.wire.color.getHex(),
     };
   });
 
@@ -200,6 +228,9 @@ test('selected edge overlay stays high-contrast in Wireframe shading', async ({ 
   expect(result.activeVisible).toBe(true);
   expect(result.activeWidth).toBeGreaterThanOrEqual(2);
   expect(result.activeDepthTest).toBe(false);
+  expect(result.baseEdgeColor).toBe(0x9aa1aa);
+  expect(result.wireColor).toBe(0x60656d);
+  expect(result.baseEdgeColor).not.toBe(result.wireColor);
 });
 
 for (const mode of ['vertex', 'edge', 'face'] as const) {
