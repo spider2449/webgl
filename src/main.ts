@@ -2072,7 +2072,7 @@ $<HTMLInputElement>('#model-input').onchange = async e => {
     if (file.name.toLowerCase().endsWith('.obj')) {
       const { OBJLoader } = await import('three/addons/loaders/OBJLoader.js');
       root = new OBJLoader().parse(await file.text());
-      root.traverse(o => { if (o instanceof THREE.Mesh) { const old = o.material; o.material = new THREE.MeshStandardMaterial({ color: 0x888c92, roughness: 0.55, side: THREE.DoubleSide }); (Array.isArray(old) ? old : [old]).forEach(m => m.dispose()); } });
+      root.traverse(o => { if (o instanceof THREE.Mesh) { const old = o.material; o.material = new THREE.MeshStandardMaterial({ color: 0x666a70, roughness: 0.8, metalness: 0, side: THREE.DoubleSide }); (Array.isArray(old) ? old : [old]).forEach(m => m.dispose()); } });
     } else {
       const { GLTFLoader } = await import('three/addons/loaders/GLTFLoader.js');
       const manager = new THREE.LoadingManager();
