@@ -218,8 +218,8 @@ test('face selection overlay does not change scene geometry stats', async ({ pag
     const face = topology.faces[0];
     const center = face.reduce((sum: any, vertex: number) => {
       const index = topology.vertices[vertex][0];
-      return sum.add(mesh.localToWorld(new THREE.Vector3(position.getX(index), position.getY(index), position.getZ(index))));
-    }, new THREE.Vector3()).multiplyScalar(1 / 3);
+      return sum.add(mesh.localToWorld(mesh.position.clone().set(position.getX(index), position.getY(index), position.getZ(index))));
+    }, mesh.position.clone().set(0, 0, 0)).multiplyScalar(1 / 3);
     e.camera.updateMatrixWorld(true);
     center.project(e.camera);
     const rect = e.host.getBoundingClientRect();
