@@ -1075,9 +1075,9 @@ on('extrude-face', async () => {
     const triangles = editor.meshTopology.polygonTriangles[polygon];
     const distance = Number($<HTMLInputElement>('#extrude-distance').value);
     if (!triangles?.length) throw new Error('Selected face has no renderer triangles.');
-    if (triangles.length === 1) await editor.runModeling({ kind: 'extrude', face: triangles[0], distance });
-    else await editor.runModeling({ kind: 'region', faces: triangles, distance });
-    toast('Face extruded. Move the selected cap or extrude again.');
+    if (triangles.length !== 1) throw new Error('Quad/polygon extrude is not implemented yet; use a triangle face.');
+    await editor.runModeling({ kind: 'extrude', face: triangles[0], distance });
+    toast('Triangle extruded. Move the selected cap or extrude again.');
   } catch (error) { toast((error as Error).message); }
 });
 $('#extrude-face').insertAdjacentHTML('afterend', '<button class="wide-button" id="extrude-region">Extrude planar region</button><p class="field-help">Shift-select connected coplanar faces. Logical polygons are expanded to their renderer triangles before region extrusion.</p>');
@@ -1089,7 +1089,7 @@ on('extrude-region', async () => {
     toast('Planar region extruded. The cap faces remain selected.');
   } catch (error) { toast((error as Error).message); }
 });
-$('#mirror').insertAdjacentHTML('beforebegin', '<label class="property-row">Inset distance<input id="inset-distance" aria-label="Inset distance" type="number" min="0.0001" max="1000" step="0.05" value="0.1"></label><button class="wide-button" id="inset-face">Inset selected face</button><p class="field-help">Moves each edge inward by the local distance. Must be smaller than the triangle inradius.</p>');
+$('#mirror').insertAdjacentHTML('beforebegin', '<label class="property-row">Inset distance<input id="inset-distance" aria-label="Inset distance" type="number" min="0.0001" max="1000" step="0.05" value="0.1"></label><button class="wide-button" id="inset-face">Inset selected face</button><p class="field-help">Triangle faces only in this foundation. Distance must be smaller than the triangle inradius.</p>');
 on('inset-face', async () => {
   try {
     if (!editor.editMode || editor.componentMode !== 'face' || editor.componentSelection.length !== 1 || !editor.meshTopology) throw new Error('Select exactly one face in Edit Mode first.');

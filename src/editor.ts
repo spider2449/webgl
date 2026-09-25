@@ -1301,13 +1301,11 @@ export class Editor extends EventTarget {
     const mesh = this.selected, polygon = this.selectedFace;
     const triangles = this.topology.polygonTriangles[polygon];
     if (!triangles?.length) throw new Error('Selected face has no renderer triangles.');
-    if (inset && triangles.length !== 1) throw new Error('Quad/polygon inset is not implemented yet; use a triangle face.');
+    if (triangles.length !== 1) {
+      throw new Error(`Quad/polygon ${inset ? 'inset' : 'extrude'} is not implemented yet; use a triangle face.`);
+    }
     const original = mesh.geometry;
-    const geometry = inset
-      ? insetTriangle(original, triangles[0], distance)
-      : triangles.length === 1
-        ? extrudeTriangle(original, triangles[0], distance)
-        : extrudeRegion(original, triangles, distance);
+    const geometry = inset ? insetTriangle(original, triangles[0], distance) : extrudeTriangle(original, triangles[0], distance);
     if (this.stats().vertices + geometry.getAttribute('position').count - original.getAttribute('position').count > 2_000_000) {
       geometry.dispose();
       throw new Error('Face editing would exceed the scene vertex limit.');
@@ -1319,9 +1317,9 @@ export class Editor extends EventTarget {
     this.content.traverse(object => { if (object instanceof THREE.Mesh && object.geometry === original) retained = true; });
     if (!retained) original.dispose();
     this.setEditMode(true);
-    this.selectedComponents = new Set(triangles);
-    this.selectedFace = triangles.length === 1 ? triangles[0] : null;
-    this.selectComponentVertices(triangles.flatMap(face => this.topology!.polygons[face] ?? []));
+    this.selectedComponents = new Set([triangles[0]]);
+    this.selectedFace = triangles[0];
+    this.selectComponentVertices(this.topology!.polygons[triangles[0]] ?? []);
     this.commit();
   }
   extrudePlanarRegion(distance: number) {
