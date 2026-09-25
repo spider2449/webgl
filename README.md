@@ -325,7 +325,7 @@ The development plan is [docs/plans/2026-09-08-forge-studio.md](docs/plans/2026-
 
 ### Viewport box selection
 
-Left-drag in the 3D viewport draws a selection marquee. Object Mode selects object centers inside the box; Edit Mode selects logical vertex positions, edge midpoints, or triangle centroids according to the active component type. Weight Mode uses the same vertex box selection. Hold Shift while dragging to add to the current selection, and press Escape to cancel an active marquee. Alt-left orbit remains separate from box selection.
+Left-drag in the 3D viewport draws a selection marquee. Object Mode selects objects whose projected bounds overlap the box; Edit Mode selects logical vertex positions, screen-space edge segments, or triangle centroids according to the active component type. Weight Mode uses the same vertex box selection. Hold Shift while dragging to add to the current selection. Hold Ctrl while dragging to toggle every boxed item: selected items are removed and unselected items are added. Ctrl takes precedence over Shift for a marquee started with both modifiers. Press Escape to cancel an active marquee. Alt-left orbit remains separate from box selection.
 
 ## Parametric primitives
 
