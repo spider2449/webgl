@@ -1285,11 +1285,10 @@ export class Editor extends EventTarget {
   extrudeFace(distance: number, inset = false) {
     if (!this.editMode || this.componentMode !== 'face' || this.selectedFace === null || !(this.selected instanceof THREE.Mesh) || this.selected instanceof THREE.SkinnedMesh || this.playing) throw new Error('Select exactly one face in Edit Mode first.');
     const mesh = this.selected, polygon = this.selectedFace, triangles = this.componentFaceTriangles(polygon);
-    if (triangles.length !== 1) throw new Error('Quad / polygon extrusion and inset are not implemented in this transition step.');
-    const face = triangles[0];
-    if (this.stats().vertices + 15 > 2_000_000) throw new Error('Triangle editing would exceed the scene vertex limit.');
+    if (inset && triangles.length !== 1) throw new Error('Quad / polygon inset is not implemented yet.');
+    if (this.stats().vertices + 15 > 2_000_000) throw new Error('Face editing would exceed the scene vertex limit.');
     const original = mesh.geometry;
-    const geometry = inset ? insetTriangle(original, face, distance) : extrudeTriangle(original, face, distance);
+    const geometry = inset ? insetTriangle(original, triangles[0], distance) : extrudeRegion(original, triangles, distance);
     this.markPrimitiveApplied(mesh);
     this.setEditMode(false);
     mesh.geometry = geometry;
@@ -1302,7 +1301,6 @@ export class Editor extends EventTarget {
   }
   extrudePlanarRegion(distance: number) {
     if (!this.editMode || this.componentMode !== 'face' || !this.selectedComponents.size || !(this.selected instanceof THREE.Mesh) || this.selected instanceof THREE.SkinnedMesh || this.playing || this.transform.dragging) throw new Error('Select connected coplanar faces in Edit Mode and finish the current drag first.');
-    if (!this.selectedFacesAreTriangles()) throw new Error('Quad / polygon region extrusion is not implemented in this transition step.');
     const faces = [...this.selectedComponents].flatMap(face => this.componentFaceTriangles(face)), mesh = this.selected, original = mesh.geometry;
     const geometry = extrudeRegion(original, faces, distance);
     if (this.stats().vertices + geometry.getAttribute('position').count - original.getAttribute('position').count > 2_000_000) {
@@ -1315,9 +1313,10 @@ export class Editor extends EventTarget {
     this.content.traverse(object => { if (object instanceof THREE.Mesh && object.geometry === original) retained = true; });
     if (!retained) original.dispose();
     this.setEditMode(true);
-    this.selectedComponents = new Set(faces);
-    this.selectedFace = faces.length === 1 ? faces[0] : null;
-    this.selectComponentVertices(faces.flatMap(face => this.topology!.faces[face]));
+    const capPolygons = [...this.selectedComponents];
+    this.selectedComponents = new Set(capPolygons);
+    this.selectedFace = capPolygons.length === 1 ? capPolygons[0] : null;
+    this.selectComponentVertices(capPolygons.flatMap(face => this.topology!.polygons[face]));
     this.commit();
   }
   subdivideSelectedEdge() {
