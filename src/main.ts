@@ -81,6 +81,15 @@ $('#app').innerHTML = `
   <div class="toast hidden" id="toast" role="status"></div>
   <dialog id="help-dialog"><div class="dialog-heading"><span>Make yourself at home.</span>${button('close-help','x','Close shortcuts')}</div><p>A familiar workflow, right in your browser.</p><div class="shortcut-grid">${[['Select','Q'],['Move / Rotate / Scale','G / R / S'],['Frame selection','F'],['Duplicate','Shift D'],['Linked duplicate','Alt D'],['Delete','Delete'],['Object / Edit mode','Tab'],['Insert keyframe','I'],['Play / Pause','Space'],['Front / Right / Top','1 / 3 / 7'],['Perspective / Orthographic','5'],['Undo / Redo','Ctrl Z / Ctrl Shift Z'],['Save / Open project','Ctrl S / Ctrl O'],['Orbit','Middle mouse / Alt drag'],['Pan','Right mouse / Shift MMB']].map(([label,key])=>`<span>${label}</span><kbd>${key}</kbd>`).join('')}</div><p class="dialog-note">This release supports object and vertex editing. Face modeling, sculpting, rigging, simulation and native .blend files are planned.</p></dialog>
   <dialog id="new-dialog"><div class="dialog-heading"><span>Create a new scene?</span></div><p>Download your project first if you want to keep a permanent copy. You can undo this action in the current session.</p><div class="dialog-actions"><button id="cancel-new">Cancel</button><button id="confirm-new" class="primary-button">New scene</button></div></dialog>
+  <dialog id="save-dialog">
+    <form id="save-form" method="dialog">
+      <div class="dialog-heading"><span>Save project</span></div>
+      <p>Choose the Forge project filename. The .forge extension is added automatically.</p>
+      <label class="property-row">File name<input id="save-file-name" aria-label="Project file name" maxlength="106" autocomplete="off"></label>
+      <p class="dialog-note">Download as <strong id="save-file-preview">Untitled scene.forge</strong></p>
+      <div class="dialog-actions"><button type="button" id="cancel-save">Cancel</button><button type="submit" id="confirm-save" class="primary-button">Download</button></div>
+    </form>
+  </dialog>
   <input type="file" id="project-input" accept=".forge,.json" hidden><input type="file" id="model-input" accept=".glb,.obj" hidden>
 `;
 $('.workspace-tabs').insertAdjacentHTML('beforeend', '<button class="workspace-tab" data-workspace="rigging">Rigging</button>');
@@ -1041,7 +1050,12 @@ on('restore-local', () => {
 });
 $<HTMLInputElement>('#object-search').oninput = renderOutliner;
 $<HTMLInputElement>('#object-name').onchange = e => { if (editor.selected) { editor.selected.name = (e.target as HTMLInputElement).value.trim() || 'Object'; editor.commit(); } };
-$<HTMLInputElement>('#project-name').onchange = e => { editor.name = (e.target as HTMLInputElement).value.trim() || 'Untitled scene'; editor.commit(); };
+$<HTMLInputElement>('#project-name').onchange = e => {
+  const input = e.target as HTMLInputElement;
+  editor.name = projectFileStem(input.value);
+  input.value = editor.name;
+  editor.commit();
+};
 document.querySelectorAll<HTMLInputElement>('[data-transform]').forEach(input => input.onchange = () => {
   if (!editor.selected) return;
   const property = input.dataset.transform as 'position' | 'rotation' | 'scale';
@@ -2054,8 +2068,40 @@ function download(data: BlobPart, name: string, type: string) {
   const link = document.createElement('a'); link.href = url; link.download = name; link.click();
   setTimeout(() => URL.revokeObjectURL(url), 10000);
 }
-function save() { download(editor.snapshot(), `${editor.name}.forge`, 'application/json'); toast('Project downloaded.'); }
-on('save-project', save);
+function projectFileStem(value: string) {
+  let stem = value.trim().replace(/\.forge$/i, '').trim();
+  stem = stem.replace(/[<>:"/\\|?*\u0000-\u001F]/g, '_').replace(/[. ]+$/g, '').trim();
+  stem = stem.slice(0, 100) || 'Untitled scene';
+  if (/^(con|prn|aux|nul|com[1-9]|lpt[1-9])$/i.test(stem)) stem = `${stem}_`;
+  return stem;
+}
+function refreshSavePreview() {
+  const stem = projectFileStem($<HTMLInputElement>('#save-file-name').value);
+  $('#save-file-preview').textContent = `${stem}.forge`;
+}
+function showSaveDialog() {
+  const input = $<HTMLInputElement>('#save-file-name');
+  input.value = editor.name;
+  refreshSavePreview();
+  $<HTMLDialogElement>('#save-dialog').showModal();
+  input.focus();
+  input.select();
+}
+function save() {
+  const dialog = $<HTMLDialogElement>('#save-dialog');
+  const stem = projectFileStem($<HTMLInputElement>('#save-file-name').value);
+  if (editor.name !== stem) {
+    editor.name = stem;
+    editor.commit();
+  }
+  download(editor.snapshot(), `${stem}.forge`, 'application/json');
+  dialog.close();
+  toast(`Project downloaded as ${stem}.forge`);
+}
+on('save-project', showSaveDialog);
+on('cancel-save', () => $<HTMLDialogElement>('#save-dialog').close());
+$<HTMLInputElement>('#save-file-name').oninput = refreshSavePreview;
+$<HTMLFormElement>('#save-form').onsubmit = event => { event.preventDefault(); save(); };
 on('open-project', () => $('#project-input').click());
 on('import-model', () => $('#model-input').click());
 $<HTMLInputElement>('#project-input').onchange = async e => {
@@ -2144,7 +2190,7 @@ document.addEventListener('keydown', e => {
   if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement || e.target instanceof HTMLSelectElement || dialogOpen) return;
   if (e.ctrlKey || e.metaKey) {
     if (['s','o','z','y','n'].includes(key)) e.preventDefault();
-    if (key === 's') save(); else if (key === 'o') $('#project-input').click(); else if (key === 'z') e.shiftKey ? editor.redo() : editor.undo(); else if (key === 'y') editor.redo(); else if (key === 'n') $<HTMLDialogElement>('#new-dialog').showModal();
+    if (key === 's') showSaveDialog(); else if (key === 'o') $('#project-input').click(); else if (key === 'z') e.shiftKey ? editor.redo() : editor.undo(); else if (key === 'y') editor.redo(); else if (key === 'n') $<HTMLDialogElement>('#new-dialog').showModal();
     return;
   }
   if (key === 'alt') editor.orbit.mouseButtons.LEFT = THREE.MOUSE.ROTATE;
