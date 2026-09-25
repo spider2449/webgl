@@ -1,11 +1,18 @@
 import { test, expect } from '@playwright/test';
 
-async function dragBox(page: import('@playwright/test').Page, box: { left: number; top: number; right: number; bottom: number }, add = false) {
+async function dragBox(
+  page: import('@playwright/test').Page,
+  box: { left: number; top: number; right: number; bottom: number },
+  add = false,
+  toggle = false,
+) {
   if (add) await page.keyboard.down('Shift');
+  if (toggle) await page.keyboard.down('Control');
   await page.mouse.move(box.left, box.top);
   await page.mouse.down();
   await page.mouse.move(box.right, box.bottom, { steps: 4 });
   await page.mouse.up();
+  if (toggle) await page.keyboard.up('Control');
   if (add) await page.keyboard.up('Shift');
 }
 
@@ -58,6 +65,18 @@ test('Object Mode drag-box selects multiple objects and Shift adds', async ({ pa
     bottom: cone.y + 24,
   }, true);
 
+  expect(await page.evaluate(() => [...(window as any).__forge.selectedObjects].map((object: any) => object.name).sort())).toEqual(['Cone', 'Cube', 'Sphere']);
+
+  const cubeSphereBox = {
+    left: Math.min(cube.x, sphere.x) - 24,
+    top: Math.min(cube.y, sphere.y) - 24,
+    right: Math.max(cube.x, sphere.x) + 24,
+    bottom: Math.max(cube.y, sphere.y) + 24,
+  };
+  await dragBox(page, cubeSphereBox, false, true);
+  expect(await page.evaluate(() => [...(window as any).__forge.selectedObjects].map((object: any) => object.name).sort())).toEqual(['Cone']);
+
+  await dragBox(page, cubeSphereBox, false, true);
   expect(await page.evaluate(() => [...(window as any).__forge.selectedObjects].map((object: any) => object.name).sort())).toEqual(['Cone', 'Cube', 'Sphere']);
 });
 
@@ -445,6 +464,12 @@ for (const mode of ['vertex', 'edge', 'face'] as const) {
     expect(result.editMode).toBe(true);
     expect(result.mode).toBe(mode);
     expect(result.selected).toBeGreaterThan(0);
+
+    await dragBox(page, target, false, true);
+    expect(await page.evaluate(() => (window as any).__forge.componentSelection.length)).toBe(0);
+
+    await dragBox(page, target, false, true);
+    expect(await page.evaluate(() => (window as any).__forge.componentSelection.length)).toBe(result.selected);
   });
 }
 
