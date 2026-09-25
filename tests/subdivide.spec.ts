@@ -63,7 +63,7 @@ test('invalid subdivision rejects without changing source geometry', () => {
   check(mesh([0,0,0,2,0,0,0,1,0, 2,0,0,0,0,0,0,-1,0, 0,0,0,2,0,0,0,0,1]),[0,1],/manifold/);
 });
 
-test('viewport selected edge subdivides, selects movable midpoint and restores history/project', async ({page}) => {
+test('viewport selected edge subdivides, keeps split edges selected and restores history/project', async ({page}) => {
   await page.goto('/'); await page.waitForFunction(()=>(window as any).__forge?.selected);
   await page.evaluate(()=>{ const e=(window as any).__forge; e.selected.rotation.set(0,0,0); e.selected.scale.set(1.5,0.8,1.2); e.commit(); e.view('front'); });
   await page.locator('#mode').selectOption('edit');
@@ -75,24 +75,32 @@ test('viewport selected edge subdivides, selects movable midpoint and restores h
     for (const v of edge) point.add(m.position.clone().fromBufferAttribute(a,t.vertices[v][0])); point.multiplyScalar(0.5);
     const midpoint=point.toArray(); m.updateWorldMatrix(true,true); e.camera.updateMatrixWorld(true); m.localToWorld(point).project(e.camera);
     const rect=e.host.getBoundingClientRect();
-    return {x:rect.left+(point.x+1)*rect.width/2,y:rect.top+(1-point.y)*rect.height/2,midpoint,before:e.snapshot()};
+    return {x:rect.left+(point.x+1)*rect.width/2,y:rect.top+(1-point.y)*rect.height/2,midpoint,bufferCount:a.count,before:e.snapshot()};
   });
   await page.mouse.click(target.x,target.y);
   await page.locator('#subdivide-edge').click();
   await page.waitForFunction(() => !(window as any).__forge.modelingBusy);
   await expect(page.locator('#toast')).toContainText('Edges subdivided');
-  await expect(page.getByLabel('Mesh component')).toHaveValue('vertex');
-  const result=await page.evaluate(()=>{
-    const e=(window as any).__forge, a=e.selected.geometry.attributes.position;
-    const center=e.componentCenter.toArray(), selected=[...e.vertexIndices], beforeMove=Array.from(a.array) as number[];
+  await expect(page.getByLabel('Mesh component')).toHaveValue('edge');
+  const result=await page.evaluate((target)=>{
+    const e=(window as any).__forge, a=e.selected.geometry.attributes.position, t=e.topology;
+    const midpointVertices=[...new Set(t.bufferToVertex.slice(target.bufferCount))];
+    const midpointPositions=midpointVertices.map((v:number)=>[a.getX(t.vertices[v][0]),a.getY(t.vertices[v][0]),a.getZ(t.vertices[v][0])]);
+    const selectedEdges=[...e.selectedComponents];
+    const selected=[...e.vertexIndices], beforeMove=Array.from(a.array) as number[], center=e.componentCenter.toArray();
     e.transform.dispatchEvent({type:'dragging-changed',value:true});
     e.vertexProxy.position.x+=0.3; e.transform.dispatchEvent({type:'objectChange'});
     e.transform.dispatchEvent({type:'dragging-changed',value:false});
     const afterMove=Array.from(a.array), after=e.snapshot(), triangles=e.stats().triangles;
     e.undo(); e.undo(); const undone=e.snapshot(); e.redo(); e.redo(); const redone=e.snapshot();
-    e.load(JSON.parse(after)); return {center,selected,beforeMove,afterMove,after,triangles,undone,redone,restored:e.snapshot()};
-  });
-  expect(result.center).toEqual(target.midpoint); expect(result.selected).toHaveLength(2); expect(result.triangles).toBe(14);
+    e.load(JSON.parse(after));
+    return {center,midpointPositions,selectedEdges,selected,beforeMove,afterMove,after,triangles,undone,redone,restored:e.snapshot()};
+  }, target);
+  expect(result.center).toEqual(target.midpoint);
+  expect(result.midpointPositions).toContainEqual(target.midpoint);
+  expect(result.selectedEdges).toHaveLength(2);
+  expect(result.selected.length).toBeGreaterThanOrEqual(3);
+  expect(result.triangles).toBe(14);
   result.afterMove.forEach((v:any,i:number)=>expect(v).toBeCloseTo(result.beforeMove[i]+(i%3===0&&result.selected.includes(i/3)?0.2:0),5));
   expect(result.undone).toBe(target.before); expect(result.redone).toBe(result.after); expect(result.restored).toBe(result.after);
 });

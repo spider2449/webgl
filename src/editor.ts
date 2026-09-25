@@ -12,8 +12,9 @@ import { subdivideEdges } from './modeling/subdivide';
 import { extrudeRegion } from './modeling/extrude-region';
 import { modelingJob, type ModelingOperation } from './modeling/modeling-worker-client';
 import { validateModifierStack, type Modifier, type ModifierStack } from './modeling/modifiers';
+import { createPrimitiveGeometry, defaultPrimitiveSettings, parsePrimitiveSettings, updatePrimitiveSetting, type Primitive, type PrimitiveSettings } from './modeling/primitives';
 
-export type Primitive = 'cube' | 'sphere' | 'cylinder' | 'cone' | 'torus' | 'plane' | 'icosphere';
+export type { Primitive } from './modeling/primitives';
 export type EulerOrder = 'XYZ' | 'YZX' | 'ZXY' | 'XZY' | 'YXZ' | 'ZYX';
 export type TransformOrientation = 'world' | 'local' | 'gimbal';
 export type ScalarAnimationChannel = 'position.x' | 'position.y' | 'position.z' | 'rotation.x' | 'rotation.y' | 'rotation.z' | 'scale.x' | 'scale.y' | 'scale.z';
@@ -343,19 +344,10 @@ export class Editor extends EventTarget {
   }
   add(kind: Primitive, commit = true) {
     this.setEditMode(false);
-    const geometries = {
-      cube: () => new THREE.BoxGeometry(2, 2, 2),
-      sphere: () => new THREE.SphereGeometry(1, 32, 20),
-      cylinder: () => new THREE.CylinderGeometry(1, 1, 2, 32),
-      cone: () => new THREE.ConeGeometry(1, 2, 32),
-      torus: () => new THREE.TorusGeometry(1, 0.32, 16, 48),
-      plane: () => new THREE.PlaneGeometry(4, 4),
-      icosphere: () => new THREE.IcosahedronGeometry(1.2, 2),
-    };
-    const primitiveGeometry = geometries[kind]();
-    const geometry = new THREE.BufferGeometry().copy(primitiveGeometry);
-    primitiveGeometry.dispose();
+    const settings = defaultPrimitiveSettings(kind);
+    const geometry = createPrimitiveGeometry(settings);
     const mesh = new THREE.Mesh(geometry, new THREE.MeshStandardMaterial({ color: 0xb8b6b2, roughness: 0.42, metalness: 0.12, side: THREE.DoubleSide }));
+    mesh.userData.forgePrimitive = settings;
     mesh.name = this.uniqueName(kind[0].toUpperCase() + kind.slice(1));
     mesh.position.y = kind === 'plane' ? 0 : kind === 'torus' ? 1.35 : kind === 'icosphere' ? 1.2 : 1;
     if (kind === 'plane') mesh.rotation.x = -Math.PI / 2;
@@ -363,6 +355,43 @@ export class Editor extends EventTarget {
     this.select(mesh);
     if (commit) this.commit();
     return mesh;
+  }
+  get primitiveSettings(): PrimitiveSettings | null {
+    if (!(this.selected instanceof THREE.Mesh) || this.selected instanceof THREE.SkinnedMesh) return null;
+    const value = this.selected.userData.forgePrimitive;
+    if (value === undefined) return null;
+    try { return parsePrimitiveSettings(value); } catch { return null; }
+  }
+  setPrimitiveParameter(key: string, value: number) {
+    if (!(this.selected instanceof THREE.Mesh) || this.selected instanceof THREE.SkinnedMesh || this.editMode || this.playing || this.selected.userData.modifierStack) {
+      throw new Error('Select an editable parametric primitive in Object Mode first.');
+    }
+    const current = this.primitiveSettings;
+    if (!current) throw new Error('The selected mesh is no longer parametric.');
+    const next = updatePrimitiveSetting(current, key, value);
+    const geometry = createPrimitiveGeometry(next);
+    const oldCount = this.selected.geometry.getAttribute('position').count;
+    const newCount = geometry.getAttribute('position').count;
+    if (this.stats().vertices - oldCount + newCount > 2_000_000) {
+      geometry.dispose();
+      throw new Error('Primitive subdivisions would exceed the scene vertex limit.');
+    }
+    this.replaceGeometry(this.selected, geometry);
+    this.selected.userData.forgePrimitive = next;
+    this.commit();
+    return next;
+  }
+  applyPrimitive() {
+    if (!(this.selected instanceof THREE.Mesh) || this.selected instanceof THREE.SkinnedMesh || this.editMode) {
+      throw new Error('Select a parametric primitive in Object Mode first.');
+    }
+    if (this.selected.userData.forgePrimitive === undefined) return false;
+    delete this.selected.userData.forgePrimitive;
+    this.commit();
+    return true;
+  }
+  private markPrimitiveApplied(mesh: THREE.Mesh) {
+    if (mesh.userData.forgePrimitive !== undefined) delete mesh.userData.forgePrimitive;
   }
   get collections(): THREE.Group[] {
     return this.content.children.filter((object): object is THREE.Group => object instanceof THREE.Group && object.userData.forgeCollection === true);
@@ -719,6 +748,7 @@ export class Editor extends EventTarget {
     if (!(this.selected instanceof THREE.Mesh)) return false;
     if (this.selected.userData.modifierStack) return false;
     this.setEditMode(false);
+    this.markPrimitiveApplied(this.selected);
     const geometry = this.selected.geometry;
     geometry.scale(-1, 1, 1);
     if (geometry.index) {
@@ -893,12 +923,65 @@ export class Editor extends EventTarget {
     this.refreshComponents();
     this.invalidate();
   }
+  private captureSubdivisionEdges(edgeIds: number[]): [[number, number, number], [number, number, number]][] {
+    if (!this.topology || !(this.selected instanceof THREE.Mesh)) return [];
+    const positions = this.selected.geometry.getAttribute('position');
+    return edgeIds.map(id => this.topology!.edges[id]).filter((edge): edge is [number, number] => !!edge).map(edge =>
+      edge.map(vertex => {
+        const index = this.topology!.vertices[vertex][0];
+        return [positions.getX(index), positions.getY(index), positions.getZ(index)] as [number, number, number];
+      }) as [[number, number, number], [number, number, number]]
+    );
+  }
+  private restoreSubdivisionSelection(mode: ComponentMode, oldEdges: [[number, number, number], [number, number, number]][], midpointIndex: number) {
+    if (!this.topology || !(this.selected instanceof THREE.Mesh)) return;
+    this.setComponentMode(mode);
+    const midpointVertices = new Set(this.topology.bufferToVertex.slice(midpointIndex));
+    if (mode === 'vertex') {
+      const vertices = [...midpointVertices];
+      this.selectedComponents = new Set(vertices);
+      this.selectComponentVertices(vertices);
+    } else if (mode === 'edge' && oldEdges.length) {
+      const positions = this.selected.geometry.getAttribute('position');
+      const positionKey = (value: [number, number, number]) => `${value[0]},${value[1]},${value[2]}`;
+      const vertexByPosition = new Map<string, number>();
+      this.topology.vertices.forEach((copies, vertex) => {
+        const index = copies[0];
+        vertexByPosition.set(positionKey([positions.getX(index), positions.getY(index), positions.getZ(index)]), vertex);
+      });
+      const edgeKey = (a: number, b: number) => `${Math.min(a, b)}:${Math.max(a, b)}`;
+      const edgeByKey = new Map(this.topology.edges.map((edge, id) => [edgeKey(edge[0], edge[1]), id]));
+      const splitEdges: number[] = [];
+      for (const [aPosition, bPosition] of oldEdges) {
+        const midpointPosition: [number, number, number] = [
+          Math.fround((aPosition[0] + bPosition[0]) * 0.5),
+          Math.fround((aPosition[1] + bPosition[1]) * 0.5),
+          Math.fround((aPosition[2] + bPosition[2]) * 0.5),
+        ];
+        const a = vertexByPosition.get(positionKey(aPosition));
+        const b = vertexByPosition.get(positionKey(bPosition));
+        const midpoint = vertexByPosition.get(positionKey(midpointPosition));
+        if (a === undefined || b === undefined || midpoint === undefined) continue;
+        const first = edgeByKey.get(edgeKey(a, midpoint));
+        const second = edgeByKey.get(edgeKey(midpoint, b));
+        if (first !== undefined && second !== undefined) splitEdges.push(first, second);
+      }
+      this.selectedComponents = new Set(splitEdges);
+      this.selectComponentVertices([...this.selectedComponents].flatMap(id => this.topology!.edges[id]));
+    } else {
+      this.selectedComponents.clear();
+      this.selectedFace = null;
+      this.selectComponentVertices();
+    }
+    this.emit('component-selection');
+  }
   extrudeFace(distance: number, inset = false) {
     if (!this.editMode || this.componentMode !== 'face' || this.selectedFace === null || !(this.selected instanceof THREE.Mesh) || this.selected instanceof THREE.SkinnedMesh || this.playing) throw new Error('Select exactly one triangle face in Edit Mode first.');
     const mesh = this.selected, face = this.selectedFace;
     if (this.stats().vertices + 15 > 2_000_000) throw new Error('Triangle editing would exceed the scene vertex limit.');
     const original = mesh.geometry;
     const geometry = inset ? insetTriangle(original, face, distance) : extrudeTriangle(original, face, distance);
+    this.markPrimitiveApplied(mesh);
     this.setEditMode(false);
     mesh.geometry = geometry;
     let retained = false;
@@ -915,6 +998,7 @@ export class Editor extends EventTarget {
     if (this.stats().vertices + geometry.getAttribute('position').count - original.getAttribute('position').count > 2_000_000) {
       geometry.dispose(); throw new Error('Region extrusion would exceed the scene vertex limit.');
     }
+    this.markPrimitiveApplied(mesh);
     this.setEditMode(false);
     mesh.geometry = geometry;
     let retained = false;
@@ -928,23 +1012,23 @@ export class Editor extends EventTarget {
   }
   subdivideSelectedEdge() {
     if (!this.editMode || this.componentMode !== 'edge' || !this.selectedComponents.size || !this.topology || !(this.selected instanceof THREE.Mesh) || this.selected instanceof THREE.SkinnedMesh || this.playing || this.transform.dragging) throw new Error('Select one or more edges in Edit Mode and finish the current drag first.');
-    const endpoints = [...this.selectedComponents].map(id => this.topology!.edges[id].map(v => this.topology!.vertices[v][0]) as [number, number]);
+    const selectedEdgeIds = [...this.selectedComponents];
+    const oldEdges = this.captureSubdivisionEdges(selectedEdgeIds);
+    const endpoints = selectedEdgeIds.map(id => this.topology!.edges[id].map(v => this.topology!.vertices[v][0]) as [number, number]);
     const mesh = this.selected, original = mesh.geometry, midpointIndex = original.getAttribute('position').count;
     const geometry = subdivideEdges(original, endpoints);
     if (this.stats().vertices + geometry.getAttribute('position').count - midpointIndex > 2_000_000) {
       geometry.dispose();
       throw new Error('Subdivision would exceed the scene vertex limit.');
     }
+    this.markPrimitiveApplied(mesh);
     this.setEditMode(false);
     mesh.geometry = geometry;
     let retained = false;
     this.content.traverse(object => { if (object instanceof THREE.Mesh && object.geometry === original) retained = true; });
     if (!retained) original.dispose();
     this.setEditMode(true);
-    this.setComponentMode('vertex');
-    const midpoints = [...new Set(this.topology!.bufferToVertex.slice(midpointIndex))];
-    this.selectedComponents = new Set(midpoints);
-    this.selectComponentVertices(midpoints);
+    this.restoreSubdivisionSelection('edge', oldEdges, midpointIndex);
     this.commit();
   }
   cancelVertexSnap() {
@@ -992,6 +1076,7 @@ export class Editor extends EventTarget {
       if (![positions[i * 3] + delta.x, positions[i * 3 + 1] + delta.y, positions[i * 3 + 2] + delta.z].every(v => Number.isFinite(Math.fround(v)))) throw new Error('Snap would exceed mesh coordinate precision.');
       weights[i] = 1;
     }
+    this.markPrimitiveApplied(this.selected);
     this.componentDrag = { positions, weights, center: this.componentCenter.clone() };
     this.vertexProxy.position.copy(this.selected.localToWorld(target.clone()));
     this.updateVertex(target);
@@ -1045,14 +1130,17 @@ export class Editor extends EventTarget {
       const total = this.stats().vertices + results.reduce((sum, g, i) => sum + g.getAttribute('position').count - meshes[i].geometry.getAttribute('position').count, 0);
       if (total > 2_000_000) throw new Error('Modeling exceeds the scene vertex budget.');
       const oldMode = this.componentMode, oldSelection = this.componentSelection;
+      const oldEdges = oldMode === 'edge' ? this.captureSubdivisionEdges(oldSelection) : [];
       const midpoint = meshes[0].geometry.getAttribute('position').count;
       this.setEditMode(false);
+      meshes.forEach(mesh => this.markPrimitiveApplied(mesh));
       meshes.forEach((mesh, i) => this.replaceGeometry(mesh, results[i])); results.length = 0;
       if (editing) {
         this.setEditMode(true, topologies[0]);
         if (operation.kind === 'subdivide') {
-          this.setComponentMode('vertex');
-          const ids = [...new Set(this.topology!.bufferToVertex.slice(midpoint))]; this.selectedComponents = new Set(ids); this.selectComponentVertices(ids);
+          this.restoreSubdivisionSelection(oldMode, oldEdges, midpoint);
+        } else if (operation.kind === 'subdivide-all') {
+          this.setComponentMode(oldMode);
         } else if (['uv', 'inset', 'extrude', 'region'].includes(operation.kind)) {
           this.setComponentMode(oldMode); this.selectedComponents = new Set(oldSelection);
           this.selectedFace = oldSelection.length === 1 ? oldSelection[0] : null;
@@ -1075,6 +1163,7 @@ export class Editor extends EventTarget {
       if (this.selected !== mesh || this.snapshot() !== before || this.modelingVersion !== version) throw new Error('Scene changed; discarded modifier result.');
       const geometry = new THREE.BufferGeometryLoader().parse(response.geometry!);
       if (this.stats().vertices - mesh.geometry.getAttribute('position').count + geometry.getAttribute('position').count > 2_000_000) { geometry.dispose(); throw new Error('Modifier exceeds the scene vertex budget.'); }
+      if (items.length) this.markPrimitiveApplied(mesh);
       this.setEditMode(false); this.replaceGeometry(mesh, geometry);
       if (items.length) mesh.userData.modifierStack = { source: sourceJSON, items: structuredClone(items) } satisfies ModifierStack;
       else delete mesh.userData.modifierStack;
@@ -1116,6 +1205,7 @@ export class Editor extends EventTarget {
   private beginComponentDrag() {
     this.componentDrag = null;
     if (!this.editMode || this.weightMode || !(this.selected instanceof THREE.Mesh) || !this.topology || !this.vertexIndices.length) return;
+    this.markPrimitiveApplied(this.selected);
     const attribute = this.selected.geometry.getAttribute('position');
     const positions = Array.from({ length: attribute.count }, (_, i) => [attribute.getX(i), attribute.getY(i), attribute.getZ(i)]).flat();
     const weights = this.proportionalEnabled ? proportionalWeights(positions, this.topology, this.vertexIndices, this.proportionalRadius, this.proportionalConnected) : new Float32Array(attribute.count);
@@ -1181,12 +1271,21 @@ export class Editor extends EventTarget {
   }
   get canUndo() { return this.historyIndex > 0; }
   get canRedo() { return this.historyIndex < this.history.length - 1; }
+  get undoDepth() { return Math.max(0, this.historyIndex); }
+  get redoDepth() { return Math.max(0, this.history.length - this.historyIndex - 1); }
   undo() { if (this.canUndo) this.restoreHistory(--this.historyIndex); }
   redo() { if (this.canRedo) this.restoreHistory(++this.historyIndex); }
   private restoreHistory(index: number) {
     const id = this.selected?.uuid;
+    const restoreEditMode = this.editMode && !this.weightMode;
+    const componentMode = this.componentMode;
     this.load(JSON.parse(this.history[index]), false);
-    this.select(this.content.getObjectByProperty('uuid', id ?? '') ?? this.content.children[0] ?? null);
+    const selected = this.content.getObjectByProperty('uuid', id ?? '') ?? this.content.children[0] ?? null;
+    this.select(selected);
+    if (restoreEditMode && selected instanceof THREE.Mesh && !(selected instanceof THREE.SkinnedMesh) && !selected.userData.modifierStack) {
+      this.setEditMode(true);
+      if (this.componentMode !== componentMode) this.setComponentMode(componentMode);
+    }
     this.emit('commit');
   }
   load(project: Project, commit = true) {
@@ -1230,6 +1329,10 @@ export class Editor extends EventTarget {
       if (o.userData.modifierStack !== undefined) {
         if (!(o instanceof THREE.Mesh) || o instanceof THREE.SkinnedMesh) throw new Error('Only ordinary meshes support modifiers.');
         validateModifierStack(o.userData.modifierStack);
+      }
+      if (o.userData.forgePrimitive !== undefined) {
+        if (!(o instanceof THREE.Mesh) || o instanceof THREE.SkinnedMesh) throw new Error('Only ordinary meshes support primitive parameters.');
+        parsePrimitiveSettings(o.userData.forgePrimitive);
       }
       if ('animationInterpolation' in o.userData || 'animationChannelInterpolation' in o.userData || 'keyframes' in o.userData) {
         throw new Error('Legacy animation metadata is unsupported.');

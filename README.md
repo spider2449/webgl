@@ -320,3 +320,10 @@ The automated WebGL tests use Chromium's software renderer for repeatability. Th
 The editor does not yet include polygon face editing, curved-surface region extrusion or region inset, sculpting, weight painting, IK pole vectors/joint limits, retargeting, geometry nodes, physics, compositing or offline rendering. The modeling core includes bevel, loop cuts, UV editing, modifiers and mesh snapping within the supported limits documented above. Kimodo text-to-motion inference is not connected. The UI exposes only implemented local workflows and labels the basic rigging limitations.
 
 The development plan is [docs/plans/2026-09-08-forge-studio.md](docs/plans/2026-09-08-forge-studio.md).
+
+
+## Parametric primitives
+
+Cube, Plane, Sphere, Cylinder, Cone, Torus and Icosphere expose dimensions and subdivision controls in Object properties. Increase segments before skin binding when you need denser weight vertices. Applying the primitive or changing topology converts it to an ordinary mesh.
+
+Forge still renders triangles internally. Quad and polygon editing belong to the modeling topology layer and are planned as a separate follow-up so editing can be quad-friendly without changing the WebGL render substrate.
