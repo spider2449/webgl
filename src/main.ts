@@ -1002,10 +1002,10 @@ editor.addEventListener('mode', () => {
   $('#component-mode').classList.toggle('hidden', !editor.editMode || editor.weightMode);
   $<HTMLSelectElement>('#mode').value = editor.weightMode ? 'weight' : editor.editMode ? 'edit' : 'object';
   $('#mode-hint').textContent = editor.weightMode
-    ? 'Weight Mode · click or drag-box vertices; Shift adds; choose a bone and assign influence.'
+    ? 'Weight Mode · click or drag-box vertices; Shift adds; Ctrl toggles; choose a bone and assign influence.'
     : editor.editMode
-      ? `Select a ${editor.componentMode === 'face' ? 'triangle face' : editor.componentMode}, drag-box to select more, Shift adds; drag the move gizmo.`
-      : 'Click or drag-box to select objects; Shift adds.';
+      ? `Select a ${editor.componentMode === 'face' ? 'triangle face' : editor.componentMode}, drag-box to select more, Shift adds, Ctrl toggles; drag the move gizmo.`
+      : 'Click or drag-box to select objects; Shift adds; Ctrl-drag toggles.';
 });
 editor.addEventListener('view', () => { $('#view-label').textContent = editor.camera instanceof THREE.OrthographicCamera ? 'User Orthographic' : 'User Perspective'; });
 let cachedStats = '';
