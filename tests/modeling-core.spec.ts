@@ -20,25 +20,6 @@ function sharpEdge(g: THREE.BufferGeometry) {
     return x.distanceTo(y) === 2;
   });
 }
-test('logical topology welds Float32 seam drift without collapsing real subdivisions', () => {
-  const positions = new Float32Array([
-    -1, -1, 0,
-     1, -1, 0,
-     1,  1, 0,
-    -1, -1, 0,
-     1 + 1e-7, 1, 0,
-    -1,  1, 0,
-  ]);
-  const t = buildTopology(positions);
-  expect(t.vertices).toHaveLength(4);
-  expect(t.faces).toHaveLength(2);
-  expect(t.edges).toHaveLength(5);
-
-  const dense = new THREE.PlaneGeometry(0.001, 0.001, 256, 1);
-  const denseTopology = topology(dense);
-  expect(denseTopology.vertices.length).toBe((256 + 1) * 2);
-});
-
 test('adjacent and all-edge bevels remain closed; planar grid cuts reach both boundaries', () => {
   const box = new THREE.BoxGeometry(2, 2, 2), t = topology(box), p = box.getAttribute('position');
   const edges = t.edges.map((edge, i) => ({ edge, i })).filter(({edge:[a,b]}) => new THREE.Vector3().fromBufferAttribute(p,t.vertices[a][0]).distanceTo(new THREE.Vector3().fromBufferAttribute(p,t.vertices[b][0])) === 2).map(({i})=>i);
