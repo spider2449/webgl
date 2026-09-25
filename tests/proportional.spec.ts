@@ -26,7 +26,7 @@ for (const mode of ['vertex', 'edge', 'face'] as const) test(`proportional ${mod
   const result = await page.evaluate(mode => {
     const e = (window as any).__forge, mesh = e.selected;
     mesh.rotation.set(0,0,0); mesh.scale.set(1.5,0.8,1.2); e.commit();
-    const vertices = mode === 'vertex' ? [0] : mode === 'edge' ? e.topology.edges[0] : e.topology.faces[0];
+    const vertices = mode === 'vertex' ? [0] : mode === 'edge' ? e.topology.polygonEdges[0] : e.topology.polygons[0];
     e.selectComponentVertices(vertices);
     const position = mesh.geometry.attributes.position;
     const before = Array.from(position.array) as number[], selected = [...e.vertexIndices] as number[];
