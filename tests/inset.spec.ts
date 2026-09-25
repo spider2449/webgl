@@ -49,9 +49,15 @@ test('invalid inset and precision collapse leave geometry untouched', () => {
   expect(() => insetTriangle(distant, 0, 0.1)).toThrow(/precision/);
 });
 
-test('inset UI retains inner selection and restores history and projects', async ({ page }) => {
+test('triangle-only inset UI retains inner selection and restores history and projects', async ({ page }) => {
   await page.goto('/');
   await page.waitForFunction(() => (window as any).__forge?.selected);
+  await page.evaluate(() => {
+    const e = (window as any).__forge;
+    e.applyPrimitive();
+    delete e.selected.geometry.userData.forgePolygonTriangles;
+    e.commit();
+  });
   await page.locator('#mode').selectOption('edit');
   await page.getByLabel('Mesh component').selectOption('face');
   const before = await page.evaluate(() => {
@@ -84,4 +90,25 @@ test('inset UI retains inner selection and restores history and projects', async
   expect(result.original).toBe(before);
   expect(result.redone).toBe(result.after);
   expect(result.restored).toBe(result.after);
+});
+
+test('quad inset refuses to edit only one render triangle', async ({ page }) => {
+  await page.goto('/');
+  await page.waitForFunction(() => (window as any).__forge?.selected);
+  await page.locator('#mode').selectOption('edit');
+  await page.getByLabel('Mesh component').selectOption('face');
+  const before = await page.evaluate(() => {
+    const e = (window as any).__forge;
+    e.selectComponent(0);
+    return { snapshot: e.snapshot(), triangles: e.stats().triangles, polygons: e.meshTopology.polygons.length };
+  });
+  expect(before.polygons).toBe(6);
+
+  await page.locator('#inset-face').click();
+  await page.waitForFunction(() => !(window as any).__forge.modelingBusy);
+  await expect(page.locator('#toast')).toContainText('Quad / polygon inset');
+  expect(await page.evaluate(() => {
+    const e = (window as any).__forge;
+    return { snapshot: e.snapshot(), triangles: e.stats().triangles, selection: e.componentSelection };
+  })).toEqual({ snapshot: before.snapshot, triangles: before.triangles, selection: [0] });
 });
