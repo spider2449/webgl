@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import * as THREE from 'three';
-import { bevelEdges, loopCut, editUV } from '../src/modeling/modeling';
+import { bevelEdges, bevelLogicalEdges, loopCut, editUV } from '../src/modeling/modeling';
 import { buildTopology } from '../src/modeling/topology';
 import { evaluateModifiers } from '../src/modeling/modifiers';
 
@@ -48,6 +48,31 @@ test('logical quad topology keeps renderer triangles but removes selectable diag
   expect(generic.polygons).toEqual(generic.faces);
   expect(generic.polygonEdges).toEqual(generic.edges);
   expect(generic.triangleToPolygon).toEqual([0, 1]);
+
+  const explicit = buildTopology(plane.getAttribute('position').array, plane.index?.array, pt.polygonTriangles);
+  expect(explicit.polygons).toEqual(pt.polygons);
+  expect(explicit.polygonEdges).toEqual(pt.polygonEdges);
+  expect(explicit.triangleToPolygon).toEqual(pt.triangleToPolygon);
+});
+
+test('logical Cube bevel ignores renderer diagonals and returns persistent polygon groups', () => {
+  const box = new THREE.BoxGeometry(2, 2, 2);
+  const input = buildTopology(box.getAttribute('position').array, box.index?.array, true);
+  const position = box.getAttribute('position');
+  const topEdges = input.polygonEdges
+    .map((edge, id) => ({ edge, id }))
+    .filter(({ edge: [a, b] }) => position.getY(input.vertices[a][0]) === 1 && position.getY(input.vertices[b][0]) === 1)
+    .map(({ id }) => id);
+  expect(topEdges).toHaveLength(4);
+
+  const bevel = bevelLogicalEdges(box, topEdges, 0.1, input.polygonTriangles);
+  closed(bevel.geometry);
+  const output = buildTopology(bevel.geometry.getAttribute('position').array, bevel.geometry.index?.array, bevel.polygonTriangles);
+  expect(output.polygons.length).toBe(bevel.polygonTriangles.length);
+  expect(output.polygons.length).toBeGreaterThan(6);
+  expect(output.polygons.some(polygon => polygon.length > 3)).toBe(true);
+  expect(output.polygonEdges.length).toBeLessThan(output.edges.length);
+  expect(output.polygonEdges.every(edge => output.edges.some(candidate => candidate[0] === edge[0] && candidate[1] === edge[1]))).toBe(true);
 });
 
 test('adjacent and all-edge bevels remain closed; planar grid cuts reach both boundaries', () => {
@@ -123,7 +148,7 @@ test('worker mesh editing, UV and modifiers round trip history and projects', as
   const before = await page.evaluate(() => {
     const e = (window as any).__forge, t = e.meshTopology, p = e.selected.geometry.attributes.position;
     e.setComponentMode('edge');
-    const edge = t.edges.findIndex(([a, b]: number[]) => {
+    const edge = t.polygonEdges.findIndex(([a, b]: number[]) => {
       const i = t.vertices[a][0], j = t.vertices[b][0]; return Math.hypot(p.getX(i)-p.getX(j),p.getY(i)-p.getY(j),p.getZ(i)-p.getZ(j)) === 2;
     }); e.selectComponent(edge); return e.snapshot();
   });

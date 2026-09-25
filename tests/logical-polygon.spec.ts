@@ -148,13 +148,14 @@ test('modeling UI maps logical edge and face selections to renderer topology', a
     e.selectComponent(logicalEdge);
     (window as any).__modelingCalls = [];
     e.runModeling = async (operation: unknown) => { (window as any).__modelingCalls.push(operation); };
-    return { logicalEdge, rendererEdge: topology.polygonEdgeToEdge[logicalEdge] };
+    return { logicalEdge, groups: topology.polygonTriangles.map((group: number[]) => [...group]) };
   });
 
   await page.locator('#bevel-edges').click();
   expect(await page.evaluate(() => (window as any).__modelingCalls[0])).toMatchObject({
     kind: 'bevel',
-    edges: [edgeMapping.rendererEdge],
+    edges: [edgeMapping.logicalEdge],
+    polygonTriangles: edgeMapping.groups,
   });
 
   const triangles = await page.evaluate(() => {
@@ -194,4 +195,63 @@ test('UV editing restores the logical quad selection after renderer-triangle wor
     logicalFlag: true,
     primitive: undefined,
   });
+});
+
+
+test('beveling the Cube top preserves logical polygons across Edit Mode and project reload', async ({ page }) => {
+  await page.locator('#mode').selectOption('edit');
+  await page.getByLabel('Mesh component').selectOption('edge');
+  const selected = await page.evaluate(() => {
+    const e = (window as any).__forge, topology = e.meshTopology, position = e.selected.geometry.getAttribute('position');
+    const edges = topology.polygonEdges
+      .map((edge: number[], id: number) => ({ edge, id }))
+      .filter(({ edge }: { edge: number[] }) => edge.every(vertex => position.getY(topology.vertices[vertex][0]) === 1))
+      .map(({ id }: { id: number }) => id);
+    if (edges.length !== 4) throw new Error('Expected four logical top boundary edges.');
+    edges.forEach((id: number, index: number) => e.selectComponent(id, index > 0));
+    return edges;
+  });
+  expect(selected).toHaveLength(4);
+
+  await page.locator('#bevel-width').fill('0.1');
+  await page.locator('#bevel-edges').click();
+  await page.waitForFunction(() => !(window as any).__forge.modelingBusy);
+  await expect(page.locator('#toast')).toContainText('Modeling operation complete.');
+
+  const after = await page.evaluate(() => {
+    const e = (window as any).__forge, topology = e.meshTopology;
+    return {
+      polygons: topology.polygons.length,
+      polygonEdges: topology.polygonEdges.length,
+      rendererEdges: topology.edges.length,
+      multiTrianglePolygons: topology.polygonTriangles.filter((group: number[]) => group.length > 1).length,
+      stored: e.selected.userData.forgePolygonTriangles,
+      logicalFlag: e.selected.userData.forgeLogicalQuads,
+      snapshot: e.snapshot(),
+    };
+  });
+  expect(after.polygons).toBeGreaterThan(6);
+  expect(after.polygonEdges).toBeLessThan(after.rendererEdges);
+  expect(after.multiTrianglePolygons).toBeGreaterThan(0);
+  expect(after.stored).toHaveLength(after.polygons);
+  expect(after.logicalFlag).toBeUndefined();
+
+  await page.locator('#mode').selectOption('object');
+  await page.locator('#mode').selectOption('edit');
+  expect(await page.evaluate(() => {
+    const topology = (window as any).__forge.meshTopology;
+    return { polygons: topology.polygons.length, polygonEdges: topology.polygonEdges.length, rendererEdges: topology.edges.length };
+  })).toEqual({ polygons: after.polygons, polygonEdges: after.polygonEdges, rendererEdges: after.rendererEdges });
+
+  await page.evaluate(snapshot => (window as any).__forge.load(JSON.parse(snapshot)), after.snapshot);
+  await page.locator('#mode').selectOption('edit');
+  expect(await page.evaluate(() => {
+    const e = (window as any).__forge, topology = e.meshTopology;
+    return {
+      polygons: topology.polygons.length,
+      polygonEdges: topology.polygonEdges.length,
+      rendererEdges: topology.edges.length,
+      stored: e.selected.userData.forgePolygonTriangles?.length,
+    };
+  })).toEqual({ polygons: after.polygons, polygonEdges: after.polygonEdges, rendererEdges: after.rendererEdges, stored: after.polygons });
 });
