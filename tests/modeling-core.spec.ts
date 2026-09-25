@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import { bevelEdges, loopCut, editUV } from '../src/modeling/modeling';
 import { buildTopology } from '../src/modeling/topology';
 import { evaluateModifiers } from '../src/modeling/modifiers';
+import { createPrimitiveGeometry, defaultPrimitiveSettings } from '../src/modeling/primitives';
 
 function topology(g: THREE.BufferGeometry) { return buildTopology(g.getAttribute('position').array, g.index?.array); }
 function closed(g: THREE.BufferGeometry) {
@@ -20,6 +21,63 @@ function sharpEdge(g: THREE.BufferGeometry) {
     return x.distanceTo(y) === 2;
   });
 }
+
+test('cube and plane keep logical quads above triangulated render topology', () => {
+  const cube = createPrimitiveGeometry(defaultPrimitiveSettings('cube'));
+  const cubeTopology = buildTopology(
+    cube.getAttribute('position').array,
+    cube.index?.array,
+    cube.userData.forgePolygonTriangles,
+  );
+  expect(cubeTopology.faces).toHaveLength(12);
+  expect(cubeTopology.edges).toHaveLength(18);
+  expect(cubeTopology.polygons).toHaveLength(6);
+  expect(cubeTopology.polygons.every(face => face.length === 4)).toBe(true);
+  expect(cubeTopology.polygonTriangles).toEqual([
+    [0, 1], [2, 3], [4, 5], [6, 7], [8, 9], [10, 11],
+  ]);
+  expect(cubeTopology.triangleToPolygon).toEqual([0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5]);
+  expect(cubeTopology.polygonEdges).toHaveLength(12);
+  expect(cubeTopology.polygonEdgeToEdge).toHaveLength(12);
+  expect(new Set(cubeTopology.polygonEdgeToEdge).size).toBe(12);
+
+  const planeSettings = { ...defaultPrimitiveSettings('plane'), widthSegments: 2, heightSegments: 2 } as const;
+  const plane = createPrimitiveGeometry(planeSettings);
+  const planeTopology = buildTopology(
+    plane.getAttribute('position').array,
+    plane.index?.array,
+    plane.userData.forgePolygonTriangles,
+  );
+  expect(planeTopology.faces).toHaveLength(8);
+  expect(planeTopology.polygons).toHaveLength(4);
+  expect(planeTopology.polygons.every(face => face.length === 4)).toBe(true);
+  expect(planeTopology.edges).toHaveLength(16);
+  expect(planeTopology.polygonEdges).toHaveLength(12);
+
+  const parsed = new THREE.BufferGeometryLoader().parse(cube.toJSON());
+  expect(parsed.userData.forgePolygonTriangles).toEqual(cube.userData.forgePolygonTriangles);
+  const roundTrip = buildTopology(
+    parsed.getAttribute('position').array,
+    parsed.index?.array,
+    parsed.userData.forgePolygonTriangles,
+  );
+  expect(roundTrip.polygons).toHaveLength(6);
+  expect(roundTrip.polygonEdges).toHaveLength(12);
+
+  cube.dispose();
+  plane.dispose();
+  parsed.dispose();
+});
+
+test('invalid polygon metadata safely falls back to triangle modeling faces', () => {
+  const plane = new THREE.PlaneGeometry(2, 2);
+  const t = buildTopology(plane.getAttribute('position').array, plane.index?.array, [[0, 0], [1]]);
+  expect(t.polygons).toHaveLength(2);
+  expect(t.polygons.every(face => face.length === 3)).toBe(true);
+  expect(t.triangleToPolygon).toEqual([0, 1]);
+  expect(t.polygonEdges).toEqual(t.edges);
+  plane.dispose();
+});
 test('adjacent and all-edge bevels remain closed; planar grid cuts reach both boundaries', () => {
   const box = new THREE.BoxGeometry(2, 2, 2), t = topology(box), p = box.getAttribute('position');
   const edges = t.edges.map((edge, i) => ({ edge, i })).filter(({edge:[a,b]}) => new THREE.Vector3().fromBufferAttribute(p,t.vertices[a][0]).distanceTo(new THREE.Vector3().fromBufferAttribute(p,t.vertices[b][0])) === 2).map(({i})=>i);
