@@ -513,7 +513,6 @@ export function dissolveLogicalEdge(
 ) {
   const inspection = inspectGeometry(source, polygonTriangles ?? false);
   const { topology } = inspection;
-  const { polygons } = logicalSurface(source, inspection);
   if (!Number.isInteger(edge) || edge < 0 || !topology.polygonEdges[edge]) throw new Error('Select one valid logical edge to dissolve.');
 
   const [rawA, rawB] = topology.polygonEdges[edge];
@@ -530,38 +529,31 @@ export function dissolveLogicalEdge(
   const first = uses.find(use => use.forward);
   const second = uses.find(use => !use.forward);
   if (!first || !second) throw new Error('Adjacent polygons must have consistent opposite winding.');
-  // A dissolved edge produces one logical polygon, so only one material index
-  // can remain. THREE.BoxGeometry assigns separate material-group indices to
-  // Cube sides even when Forge renders them with the same material. Do not
-  // reject that common case: inherit the earlier logical face material
-  // deterministically when the adjacent indices differ.
+
+  // Dissolve is a logical-topology operation. The two adjacent renderer
+  // surfaces may be non-planar (for example two 90-degree Cube sides), so
+  // rebuilding one boundary-only polygon would change the rendered surface.
+  // Keep every renderer triangle exactly as-is and only merge their logical
+  // ownership groups. The dissolved edge then becomes an internal renderer
+  // edge/crease, not a selectable modeling edge.
   const mergedFace = Math.min(first.face, second.face);
-  const mergedMaterial = polygons[mergedFace].material;
+  const mergedTriangles = [
+    ...topology.polygonTriangles[first.face],
+    ...topology.polygonTriangles[second.face],
+  ];
+  const groups = topology.polygonTriangles
+    .filter((_, face) => face !== first.face && face !== second.face)
+    .map(group => [...group]);
+  groups.splice(mergedFace, 0, mergedTriangles);
 
-  const walk = (face: number, local: number) => {
-    const vertices = topology.polygons[face];
-    const corners = polygons[face].corners;
-    const resultVertices: number[] = [];
-    const resultCorners: Corner[] = [];
-    for (let offset = 1; offset <= vertices.length; offset++) {
-      const index = (local + offset) % vertices.length;
-      resultVertices.push(vertices[index]);
-      resultCorners.push(corners[index]);
-    }
-    return { vertices: resultVertices, corners: resultCorners };
-  };
+  // Validate that the combined renderer-triangle region has exactly one
+  // reconstructable logical boundary before returning it.
+  inspectGeometry(source, groups);
 
-  const firstPath = walk(first.face, first.local);
-  const secondPath = walk(second.face, second.local);
-  const mergedVertices = [...firstPath.vertices, ...secondPath.vertices.slice(1, -1)];
-  const mergedCorners = [...firstPath.corners, ...secondPath.corners.slice(1, -1)];
-  if (mergedVertices.length < 3 || new Set(mergedVertices).size !== mergedVertices.length) {
-    throw new Error('Dissolve Edge would create a self-touching polygon.');
-  }
-
-  const output = polygons.filter((_, face) => face !== first.face && face !== second.face);
-  output.splice(mergedFace, 0, { material: mergedMaterial, corners: mergedCorners });
-  return finishDetailed(output);
+  const geometry = source.clone();
+  geometry.computeBoundingBox();
+  geometry.computeBoundingSphere();
+  return { geometry, polygonTriangles: groups };
 }
 
 export function bevelLogicalEdges(source: THREE.BufferGeometry, edges: number[], width: number, polygonTriangles?: number[][]) {
