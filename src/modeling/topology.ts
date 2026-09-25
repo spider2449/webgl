@@ -50,7 +50,12 @@ function polygonBoundary(faces: [number, number, number][], triangles: number[])
     }
   }
   const boundary = [...uses.values()].filter(edge => edge.count === 1);
-  if (boundary.length < 3 || [...uses.values()].some(edge => edge.count > 2)) return null;
+  const groupVertices = new Set(triangles.flatMap(triangle => [...faces[triangle]]));
+  if (
+    boundary.length < 3 ||
+    boundary.length !== groupVertices.size ||
+    [...uses.values()].some(edge => edge.count > 2)
+  ) return null;
   const next = new Map<number, number>();
   const incoming = new Set<number>();
   for (const { a, b } of boundary) {
