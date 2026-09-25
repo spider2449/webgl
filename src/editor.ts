@@ -1203,7 +1203,7 @@ export class Editor extends EventTarget {
       else this.selectedComponents.add(component);
     }
     this.selectedFace = this.componentMode === 'face' && this.selectedComponents.size === 1 ? [...this.selectedComponents][0] : null;
-    const vertices = [...this.selectedComponents].flatMap(id => this.componentMode === 'vertex' ? [id] : this.componentMode === 'edge' ? this.topology!.edges[id] : this.topology!.faces[id]);
+    const vertices = [...this.selectedComponents].flatMap(id => this.componentMode === 'vertex' ? [id] : this.componentMode === 'edge' ? this.topology!.polygonEdges[id] : this.topology!.polygons[id]);
     this.selectComponentVertices(vertices);
     this.emit('component-selection');
   }
