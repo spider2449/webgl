@@ -26,7 +26,7 @@ export function inspectGeometry(source: THREE.BufferGeometry) {
     }
   }
   const coordinates = Array.from({ length: p.count }, (_, i) => [p.getX(i), p.getY(i), p.getZ(i)]).flat();
-  const topology = buildTopology(coordinates, indices);
+  const topology = buildTopology(coordinates, indices, source.userData.forgePolygonTriangles);
   const read = (v: number) => new THREE.Vector3().fromBufferAttribute(p, topology.vertices[v][0]);
   const normals = topology.faces.map(face => {
     const [a, b, c] = face.map(read), n = b.sub(a).cross(c.sub(a));
