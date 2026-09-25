@@ -2070,7 +2070,7 @@ function download(data: BlobPart, name: string, type: string) {
 }
 function projectFileStem(value: string) {
   let stem = value.trim().replace(/\.forge$/i, '').trim();
-  stem = stem.replace(/[<>:"/\\|?*\u0000-\u001F]/g, '_').replace(/[. ]+$/g, '').trim();
+  stem = stem.replace(/[<>:"\/\\|?*\u0000-\u001F]/g, '_').replace(/[. ]+$/g, '').trim();
   stem = stem.slice(0, 100) || 'Untitled scene';
   if (/^(con|prn|aux|nul|com[1-9]|lpt[1-9])$/i.test(stem)) stem = `${stem}_`;
   return stem;
