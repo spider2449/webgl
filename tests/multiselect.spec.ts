@@ -41,8 +41,8 @@ for (const mode of ['vertex', 'edge', 'face'] as const) test(`Shift-click ${mode
   expect((await state()).vertices).toEqual([...new Set(targets.flatMap(t=>t.vs))].sort((a,b)=>a-b));
   if (mode === 'face') {
     const before = await page.evaluate(() => (window as any).__forge.snapshot());
-    for (const button of ['#extrude-face', '#inset-face']) {
-      await page.locator(button).click();
+    for (const command of ['extrudeFace', 'insetFace'] as const) {
+      await page.evaluate(command => (window as any).__forgeCommands[command](), command);
       await expect(page.locator('#toast')).toContainText('exactly one');
       expect(await page.evaluate(() => (window as any).__forge.snapshot())).toBe(before);
     }
