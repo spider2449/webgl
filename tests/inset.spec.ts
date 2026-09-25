@@ -52,6 +52,7 @@ test('invalid inset and precision collapse leave geometry untouched', () => {
 test('inset UI retains inner selection and restores history and projects', async ({ page }) => {
   await page.goto('/');
   await page.waitForFunction(() => (window as any).__forge?.selected);
+  await page.evaluate(() => { const e = (window as any).__forge; delete e.selected.userData.forgePrimitive; delete e.selected.userData.forgeLogicalQuads; e.commit(); });
   await page.locator('#mode').selectOption('edit');
   await page.getByLabel('Mesh component').selectOption('face');
   const before = await page.evaluate(() => {

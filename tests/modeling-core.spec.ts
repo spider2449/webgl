@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import * as THREE from 'three';
-import { bevelEdges, loopCut, editUV } from '../src/modeling/modeling';
+import { bevelEdges, bevelLogicalEdges, loopCut, editUV } from '../src/modeling/modeling';
 import { buildTopology } from '../src/modeling/topology';
 import { evaluateModifiers } from '../src/modeling/modifiers';
 
@@ -20,6 +20,65 @@ function sharpEdge(g: THREE.BufferGeometry) {
     return x.distanceTo(y) === 2;
   });
 }
+
+test('logical quad topology keeps renderer triangles but removes selectable diagonals', () => {
+  const plane = new THREE.PlaneGeometry(2, 2, 1, 1);
+  const pt = buildTopology(plane.getAttribute('position').array, plane.index?.array, true);
+  expect(pt.faces).toHaveLength(2);
+  expect(pt.edges).toHaveLength(5);
+  expect(pt.polygons).toHaveLength(1);
+  expect(pt.polygons[0]).toHaveLength(4);
+  expect(pt.polygonTriangles).toEqual([[0, 1]]);
+  expect(pt.triangleToPolygon).toEqual([0, 0]);
+  expect(pt.polygonEdges).toHaveLength(4);
+  expect(pt.polygonEdgeToEdge).toHaveLength(4);
+  expect(new Set(pt.polygonEdgeToEdge).size).toBe(4);
+
+  const box = new THREE.BoxGeometry(2, 2, 2, 1, 1, 1);
+  const bt = buildTopology(box.getAttribute('position').array, box.index?.array, true);
+  expect(bt.faces).toHaveLength(12);
+  expect(bt.polygons).toHaveLength(6);
+  expect(bt.polygons.every(face => face.length === 4)).toBe(true);
+  expect(bt.polygonTriangles.every(group => group.length === 2)).toBe(true);
+  expect(bt.triangleToPolygon).toEqual([0,0,1,1,2,2,3,3,4,4,5,5]);
+  expect(bt.polygonEdges).toHaveLength(12);
+  expect(bt.edges.length).toBeGreaterThan(bt.polygonEdges.length);
+
+  const generic = buildTopology(plane.getAttribute('position').array, plane.index?.array);
+  expect(generic.polygons).toEqual(generic.faces);
+  expect(generic.polygonEdges).toEqual(generic.edges);
+  expect(generic.triangleToPolygon).toEqual([0, 1]);
+
+  const explicit = buildTopology(plane.getAttribute('position').array, plane.index?.array, pt.polygonTriangles);
+  expect(explicit.polygons).toEqual(pt.polygons);
+  expect(explicit.polygonEdges).toEqual(pt.polygonEdges);
+  expect(explicit.triangleToPolygon).toEqual(pt.triangleToPolygon);
+});
+
+test('logical Cube bevel ignores renderer diagonals and returns persistent polygon groups', () => {
+  const box = new THREE.BoxGeometry(2, 2, 2);
+  const input = buildTopology(box.getAttribute('position').array, box.index?.array, true);
+  const position = box.getAttribute('position');
+  const topEdges = input.polygonEdges
+    .map((edge, id) => ({ edge, id }))
+    .filter(({ edge: [a, b] }) => position.getY(input.vertices[a][0]) === 1 && position.getY(input.vertices[b][0]) === 1)
+    .map(({ id }) => id);
+  expect(topEdges).toHaveLength(4);
+
+  const bevel = bevelLogicalEdges(box, topEdges, 0.1, input.polygonTriangles);
+  closed(bevel.geometry);
+  const output = buildTopology(bevel.geometry.getAttribute('position').array, bevel.geometry.index?.array, bevel.polygonTriangles);
+  expect(output.polygons.length).toBe(bevel.polygonTriangles.length);
+  expect(output.polygons.length).toBeGreaterThan(6);
+  expect(output.polygons.some(polygon => polygon.length > 3)).toBe(true);
+  expect(output.polygonEdges.length).toBeLessThan(output.edges.length);
+  expect(output.polygonEdges.every(edge => output.edges.some(candidate => candidate[0] === edge[0] && candidate[1] === edge[1]))).toBe(true);
+  // Renderer triangulation may add diagonal edges, but it must never add
+  // centroid/interior geometry vertices. Every unique render vertex is a
+  // logical polygon boundary vertex.
+  expect(new Set(output.polygons.flat()).size).toBe(output.vertices.length);
+});
+
 test('adjacent and all-edge bevels remain closed; planar grid cuts reach both boundaries', () => {
   const box = new THREE.BoxGeometry(2, 2, 2), t = topology(box), p = box.getAttribute('position');
   const edges = t.edges.map((edge, i) => ({ edge, i })).filter(({edge:[a,b]}) => new THREE.Vector3().fromBufferAttribute(p,t.vertices[a][0]).distanceTo(new THREE.Vector3().fromBufferAttribute(p,t.vertices[b][0])) === 2).map(({i})=>i);
@@ -93,7 +152,7 @@ test('worker mesh editing, UV and modifiers round trip history and projects', as
   const before = await page.evaluate(() => {
     const e = (window as any).__forge, t = e.meshTopology, p = e.selected.geometry.attributes.position;
     e.setComponentMode('edge');
-    const edge = t.edges.findIndex(([a, b]: number[]) => {
+    const edge = t.polygonEdges.findIndex(([a, b]: number[]) => {
       const i = t.vertices[a][0], j = t.vertices[b][0]; return Math.hypot(p.getX(i)-p.getX(j),p.getY(i)-p.getY(j),p.getZ(i)-p.getZ(j)) === 2;
     }); e.selectComponent(edge); return e.snapshot();
   });

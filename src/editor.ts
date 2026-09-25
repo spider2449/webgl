@@ -362,7 +362,7 @@ export class Editor extends EventTarget {
       if (this.componentMode === 'vertex') {
         this.topology.vertices.forEach((_, vertex) => { if (inside(vertexPoint(vertex))) hits.push(vertex); });
       } else if (this.componentMode === 'edge') {
-        this.topology.edges.forEach((edge, id) => {
+        this.topology.polygonEdges.forEach((edge, id) => {
           const a = vertexPoint(edge[0]), b = vertexPoint(edge[1]);
           const screenA = projectToScreen(a), screenB = projectToScreen(b);
           const screenLength = Math.hypot(screenB.x - screenA.x, screenB.y - screenA.y);
@@ -370,8 +370,8 @@ export class Editor extends EventTarget {
           if (requiredOverlap > 0 && edgeBoxOverlapPixels(a, b) >= requiredOverlap) hits.push(id);
         });
       } else {
-        this.topology.faces.forEach((face, id) => {
-          const center = face.reduce((sum, vertex) => sum.add(vertexPoint(vertex)), new THREE.Vector3()).multiplyScalar(1 / 3);
+        this.topology.polygons.forEach((polygon, id) => {
+          const center = polygon.reduce((sum, vertex) => sum.add(vertexPoint(vertex)), new THREE.Vector3()).multiplyScalar(1 / polygon.length);
           if (inside(center)) hits.push(id);
         });
       }
@@ -383,7 +383,7 @@ export class Editor extends EventTarget {
         });
       } else hits.forEach(id => this.selectedComponents.add(id));
       this.selectedFace = this.componentMode === 'face' && this.selectedComponents.size === 1 ? [...this.selectedComponents][0] : null;
-      const vertices = [...this.selectedComponents].flatMap(id => this.componentMode === 'vertex' ? [id] : this.componentMode === 'edge' ? this.topology!.edges[id] : this.topology!.faces[id]);
+      const vertices = [...this.selectedComponents].flatMap(id => this.componentMode === 'vertex' ? [id] : this.componentMode === 'edge' ? this.topology!.polygonEdges[id] : this.topology!.polygons[id]);
       this.selectComponentVertices(vertices);
       this.emit('component-selection');
       this.emit();
@@ -545,6 +545,7 @@ export class Editor extends EventTarget {
     const geometry = createPrimitiveGeometry(settings);
     const mesh = new THREE.Mesh(geometry, new THREE.MeshStandardMaterial({ color: 0x666a70, roughness: 0.8, metalness: 0, side: THREE.DoubleSide }));
     mesh.userData.forgePrimitive = settings;
+    if (kind === 'cube' || kind === 'plane') mesh.userData.forgeLogicalQuads = true;
     mesh.name = this.uniqueName(kind[0].toUpperCase() + kind.slice(1));
     mesh.position.y = kind === 'plane' ? 0 : kind === 'torus' ? 1.35 : kind === 'icosphere' ? 1.2 : 1;
     if (kind === 'plane') mesh.rotation.x = -Math.PI / 2;
@@ -575,6 +576,7 @@ export class Editor extends EventTarget {
     }
     this.replaceGeometry(this.selected, geometry);
     this.selected.userData.forgePrimitive = next;
+    if (next.kind === 'cube' || next.kind === 'plane') this.selected.userData.forgeLogicalQuads = true;
     this.commit();
     return next;
   }
@@ -583,12 +585,32 @@ export class Editor extends EventTarget {
       throw new Error('Select a parametric primitive in Object Mode first.');
     }
     if (this.selected.userData.forgePrimitive === undefined) return false;
+    const settings = this.primitiveSettings;
+    if (settings?.kind === 'cube' || settings?.kind === 'plane') this.selected.userData.forgeLogicalQuads = true;
     delete this.selected.userData.forgePrimitive;
     this.commit();
     return true;
   }
   private markPrimitiveApplied(mesh: THREE.Mesh) {
     if (mesh.userData.forgePrimitive !== undefined) delete mesh.userData.forgePrimitive;
+  }
+  private storedPolygonTriangles(mesh: THREE.Mesh): number[][] | undefined {
+    const value = mesh.userData.forgePolygonTriangles;
+    if (!Array.isArray(value) || !value.length || value.length > 200_000) return undefined;
+    let triangles = 0;
+    const groups: number[][] = [];
+    for (const group of value) {
+      if (!Array.isArray(group) || !group.length || group.some(face => !Number.isInteger(face) || face < 0)) return undefined;
+      triangles += group.length;
+      if (triangles > 200_000) return undefined;
+      groups.push([...group]);
+    }
+    return groups;
+  }
+  private markTopologyChanged(mesh: THREE.Mesh) {
+    this.markPrimitiveApplied(mesh);
+    if (mesh.userData.forgeLogicalQuads !== undefined) delete mesh.userData.forgeLogicalQuads;
+    if (mesh.userData.forgePolygonTriangles !== undefined) delete mesh.userData.forgePolygonTriangles;
   }
   get collections(): THREE.Group[] {
     return this.content.children.filter((object): object is THREE.Group => object instanceof THREE.Group && object.userData.forgeCollection === true);
@@ -1007,7 +1029,10 @@ export class Editor extends EventTarget {
     const mesh = this.selected, before = this.snapshot(), version = this.modelingVersion;
     this.modelingBusy = true; this.emit('modeling');
     try {
-      const job = modelingJob(mesh.geometry, { kind: 'topology' }); this.cancelJob = job.cancel;
+      const primitiveKind = (mesh.userData.forgePrimitive as { kind?: string } | undefined)?.kind;
+      const storedPolygons = this.storedPolygonTriangles(mesh);
+      const pairTriangles = storedPolygons === undefined && (mesh.userData.forgeLogicalQuads === true || primitiveKind === 'cube' || primitiveKind === 'plane');
+      const job = modelingJob(mesh.geometry, storedPolygons ? { kind: 'topology', polygonTriangles: storedPolygons } : { kind: 'topology', pairTriangles }); this.cancelJob = job.cancel;
       const result = await job.promise;
       if (this.selected !== mesh || this.snapshot() !== before || this.modelingVersion !== version) throw new Error('Scene changed; discarded topology result.');
       return this.setEditMode(true, result.topology);
@@ -1052,7 +1077,10 @@ export class Editor extends EventTarget {
       this.vertexPoints.renderOrder = 10;
       this.selected.add(this.vertexPoints);
       const position = this.selected.geometry.getAttribute('position');
-      this.topology = preparedTopology ?? buildTopology(position.array, this.selected.geometry.index?.array);
+      const primitiveKind = (this.selected.userData.forgePrimitive as { kind?: string } | undefined)?.kind;
+      const storedPolygons = this.storedPolygonTriangles(this.selected);
+      const pairTriangles = storedPolygons === undefined && (this.selected.userData.forgeLogicalQuads === true || primitiveKind === 'cube' || primitiveKind === 'plane');
+      this.topology = preparedTopology ?? buildTopology(position.array, this.selected.geometry.index?.array, storedPolygons ?? pairTriangles);
       geometry.setAttribute('color', new THREE.Float32BufferAttribute(new Float32Array(position.count * 3).fill(1), 3));
       (this.vertexPoints.material as THREE.PointsMaterial).vertexColors = true;
       this.componentEdges = new THREE.LineSegments(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({ color: 0x454b54, transparent: true, opacity: 0.9, depthTest: false }));
@@ -1112,12 +1140,12 @@ export class Editor extends EventTarget {
     edgeMaterial.opacity = this.viewStyle === 'wire' ? 1 : 0.9;
     const position = this.selected.geometry.getAttribute('position');
     let edges = this.componentEdges.geometry.getAttribute('position');
-    if (!edges || edges.count !== this.topology.edges.length * 2) {
-      edges = new THREE.Float32BufferAttribute(new Float32Array(this.topology.edges.length * 6), 3);
+    if (!edges || edges.count !== this.topology.polygonEdges.length * 2) {
+      edges = new THREE.Float32BufferAttribute(new Float32Array(this.topology.polygonEdges.length * 6), 3);
       this.componentEdges.geometry.setAttribute('position', edges);
     }
     let cursor = 0;
-    for (const edge of this.topology.edges) for (const vertex of edge) {
+    for (const edge of this.topology.polygonEdges) for (const vertex of edge) {
       const i = this.topology.vertices[vertex][0];
       edges.setXYZ(cursor++, position.getX(i), position.getY(i), position.getZ(i));
     }
@@ -1143,22 +1171,22 @@ export class Editor extends EventTarget {
         for (const vertex of this.selectedComponents) pushVertex(vertex, vertexValues);
       } else if (this.componentMode === 'edge') {
         for (const edgeId of this.selectedComponents) {
-          const edge = this.topology.edges[edgeId];
+          const edge = this.topology.polygonEdges[edgeId];
           if (!edge) continue;
           pushVertex(edge[0], edgeValues);
           pushVertex(edge[1], edgeValues);
         }
         const activeEdgeId = [...this.selectedComponents].at(-1);
-        const activeEdge = activeEdgeId === undefined ? undefined : this.topology.edges[activeEdgeId];
+        const activeEdge = activeEdgeId === undefined ? undefined : this.topology.polygonEdges[activeEdgeId];
         if (activeEdge) {
           pushVertex(activeEdge[0], activeEdgeValues);
           pushVertex(activeEdge[1], activeEdgeValues);
         }
       } else {
-        for (const faceId of this.selectedComponents) {
-          const face = this.topology.faces[faceId];
-          if (!face) continue;
-          face.forEach(vertex => pushVertex(vertex, faceValues));
+        for (const polygonId of this.selectedComponents) {
+          const triangles = this.topology.polygonTriangles[polygonId];
+          if (!triangles) continue;
+          for (const triangleId of triangles) this.topology.faces[triangleId]?.forEach(vertex => pushVertex(vertex, faceValues));
         }
       }
 
@@ -1190,7 +1218,7 @@ export class Editor extends EventTarget {
       if (hit?.index !== undefined) component = Math.floor(hit.index / 2);
     } else {
       const hit = this.raycaster.intersectObject(this.selected, false)[0];
-      if (hit?.faceIndex !== undefined && hit.faceIndex !== null) component = hit.faceIndex;
+      if (hit?.faceIndex !== undefined && hit.faceIndex !== null) component = this.topology.triangleToPolygon[hit.faceIndex];
     }
     this.selectComponent(component, toggle);
   }
@@ -1203,7 +1231,7 @@ export class Editor extends EventTarget {
       else this.selectedComponents.add(component);
     }
     this.selectedFace = this.componentMode === 'face' && this.selectedComponents.size === 1 ? [...this.selectedComponents][0] : null;
-    const vertices = [...this.selectedComponents].flatMap(id => this.componentMode === 'vertex' ? [id] : this.componentMode === 'edge' ? this.topology!.edges[id] : this.topology!.faces[id]);
+    const vertices = [...this.selectedComponents].flatMap(id => this.componentMode === 'vertex' ? [id] : this.componentMode === 'edge' ? this.topology!.polygonEdges[id] : this.topology!.polygons[id]);
     this.selectComponentVertices(vertices);
     this.emit('component-selection');
   }
@@ -1233,7 +1261,7 @@ export class Editor extends EventTarget {
   private captureSubdivisionEdges(edgeIds: number[]): [[number, number, number], [number, number, number]][] {
     if (!this.topology || !(this.selected instanceof THREE.Mesh)) return [];
     const positions = this.selected.geometry.getAttribute('position');
-    return edgeIds.map(id => this.topology!.edges[id]).filter((edge): edge is [number, number] => !!edge).map(edge =>
+    return edgeIds.map(id => this.topology!.polygonEdges[id]).filter((edge): edge is [number, number] => !!edge).map(edge =>
       edge.map(vertex => {
         const index = this.topology!.vertices[vertex][0];
         return [positions.getX(index), positions.getY(index), positions.getZ(index)] as [number, number, number];
@@ -1257,7 +1285,7 @@ export class Editor extends EventTarget {
         vertexByPosition.set(positionKey([positions.getX(index), positions.getY(index), positions.getZ(index)]), vertex);
       });
       const edgeKey = (a: number, b: number) => `${Math.min(a, b)}:${Math.max(a, b)}`;
-      const edgeByKey = new Map(this.topology.edges.map((edge, id) => [edgeKey(edge[0], edge[1]), id]));
+      const edgeByKey = new Map(this.topology.polygonEdges.map((edge, id) => [edgeKey(edge[0], edge[1]), id]));
       const splitEdges: number[] = [];
       for (const [aPosition, bPosition] of oldEdges) {
         const midpointPosition: [number, number, number] = [
@@ -1274,7 +1302,7 @@ export class Editor extends EventTarget {
         if (first !== undefined && second !== undefined) splitEdges.push(first, second);
       }
       this.selectedComponents = new Set(splitEdges);
-      this.selectComponentVertices([...this.selectedComponents].flatMap(id => this.topology!.edges[id]));
+      this.selectComponentVertices([...this.selectedComponents].flatMap(id => this.topology!.polygonEdges[id]));
     } else {
       this.selectedComponents.clear();
       this.selectedFace = null;
@@ -1283,29 +1311,44 @@ export class Editor extends EventTarget {
     this.emit('component-selection');
   }
   extrudeFace(distance: number, inset = false) {
-    if (!this.editMode || this.componentMode !== 'face' || this.selectedFace === null || !(this.selected instanceof THREE.Mesh) || this.selected instanceof THREE.SkinnedMesh || this.playing) throw new Error('Select exactly one triangle face in Edit Mode first.');
-    const mesh = this.selected, face = this.selectedFace;
-    if (this.stats().vertices + 15 > 2_000_000) throw new Error('Triangle editing would exceed the scene vertex limit.');
+    if (!this.editMode || this.componentMode !== 'face' || this.selectedFace === null || !this.topology || !(this.selected instanceof THREE.Mesh) || this.selected instanceof THREE.SkinnedMesh || this.playing) {
+      throw new Error('Select exactly one triangle face in Edit Mode first.');
+    }
+    const mesh = this.selected, polygon = this.selectedFace;
+    const triangles = this.topology.polygonTriangles[polygon];
+    if (!triangles?.length) throw new Error('Selected face has no renderer triangles.');
+    if (triangles.length !== 1) {
+      throw new Error(`Quad/polygon ${inset ? 'inset' : 'extrude'} is not implemented yet; use a triangle face.`);
+    }
     const original = mesh.geometry;
-    const geometry = inset ? insetTriangle(original, face, distance) : extrudeTriangle(original, face, distance);
-    this.markPrimitiveApplied(mesh);
+    const geometry = inset ? insetTriangle(original, triangles[0], distance) : extrudeTriangle(original, triangles[0], distance);
+    if (this.stats().vertices + geometry.getAttribute('position').count - original.getAttribute('position').count > 2_000_000) {
+      geometry.dispose();
+      throw new Error('Face editing would exceed the scene vertex limit.');
+    }
+    this.markTopologyChanged(mesh);
     this.setEditMode(false);
     mesh.geometry = geometry;
     let retained = false;
     this.content.traverse(object => { if (object instanceof THREE.Mesh && object.geometry === original) retained = true; });
     if (!retained) original.dispose();
     this.setEditMode(true);
-    this.selectComponent(face);
+    this.selectedComponents = new Set([triangles[0]]);
+    this.selectedFace = triangles[0];
+    this.selectComponentVertices(this.topology!.polygons[triangles[0]] ?? []);
     this.commit();
   }
   extrudePlanarRegion(distance: number) {
-    if (!this.editMode || this.componentMode !== 'face' || !this.selectedComponents.size || !(this.selected instanceof THREE.Mesh) || this.selected instanceof THREE.SkinnedMesh || this.playing || this.transform.dragging) throw new Error('Select connected coplanar triangle faces in Edit Mode and finish the current drag first.');
-    const faces = [...this.selectedComponents], mesh = this.selected, original = mesh.geometry;
+    if (!this.editMode || this.componentMode !== 'face' || !this.selectedComponents.size || !this.topology || !(this.selected instanceof THREE.Mesh) || this.selected instanceof THREE.SkinnedMesh || this.playing || this.transform.dragging) {
+      throw new Error('Select connected coplanar faces in Edit Mode and finish the current drag first.');
+    }
+    const faces = [...this.selectedComponents].flatMap(polygon => this.topology!.polygonTriangles[polygon] ?? []);
+    const mesh = this.selected, original = mesh.geometry;
     const geometry = extrudeRegion(original, faces, distance);
     if (this.stats().vertices + geometry.getAttribute('position').count - original.getAttribute('position').count > 2_000_000) {
       geometry.dispose(); throw new Error('Region extrusion would exceed the scene vertex limit.');
     }
-    this.markPrimitiveApplied(mesh);
+    this.markTopologyChanged(mesh);
     this.setEditMode(false);
     mesh.geometry = geometry;
     let retained = false;
@@ -1314,21 +1357,23 @@ export class Editor extends EventTarget {
     this.setEditMode(true);
     this.selectedComponents = new Set(faces);
     this.selectedFace = faces.length === 1 ? faces[0] : null;
-    this.selectComponentVertices(faces.flatMap(face => this.topology!.faces[face]));
+    this.selectComponentVertices(faces.flatMap(face => this.topology!.polygons[face] ?? []));
     this.commit();
   }
   subdivideSelectedEdge() {
-    if (!this.editMode || this.componentMode !== 'edge' || !this.selectedComponents.size || !this.topology || !(this.selected instanceof THREE.Mesh) || this.selected instanceof THREE.SkinnedMesh || this.playing || this.transform.dragging) throw new Error('Select one or more edges in Edit Mode and finish the current drag first.');
+    if (!this.editMode || this.componentMode !== 'edge' || !this.selectedComponents.size || !this.topology || !(this.selected instanceof THREE.Mesh) || this.selected instanceof THREE.SkinnedMesh || this.playing || this.transform.dragging) {
+      throw new Error('Select one or more edges in Edit Mode and finish the current drag first.');
+    }
     const selectedEdgeIds = [...this.selectedComponents];
     const oldEdges = this.captureSubdivisionEdges(selectedEdgeIds);
-    const endpoints = selectedEdgeIds.map(id => this.topology!.edges[id].map(v => this.topology!.vertices[v][0]) as [number, number]);
+    const endpoints = selectedEdgeIds.map(id => this.topology!.polygonEdges[id].map(v => this.topology!.vertices[v][0]) as [number, number]);
     const mesh = this.selected, original = mesh.geometry, midpointIndex = original.getAttribute('position').count;
     const geometry = subdivideEdges(original, endpoints);
     if (this.stats().vertices + geometry.getAttribute('position').count - midpointIndex > 2_000_000) {
       geometry.dispose();
       throw new Error('Subdivision would exceed the scene vertex limit.');
     }
-    this.markPrimitiveApplied(mesh);
+    this.markTopologyChanged(mesh);
     this.setEditMode(false);
     mesh.geometry = geometry;
     let retained = false;
@@ -1364,8 +1409,8 @@ export class Editor extends EventTarget {
   }
   snapSelectionToEdge(edge: number) {
     if (!this.editMode || !this.topology || !(this.selected instanceof THREE.Mesh) || !this.vertexIndices.length || this.playing || this.transform.dragging) throw new Error('Select mesh components in Edit Mode and finish the current drag first.');
-    if (!Number.isInteger(edge) || !this.topology.edges[edge]) throw new Error('Invalid snap target edge.');
-    const indices = this.topology.edges[edge].map(vertex => this.topology!.vertices[vertex][0]);
+    if (!Number.isInteger(edge) || !this.topology.polygonEdges[edge]) throw new Error('Invalid snap target edge.');
+    const indices = this.topology.polygonEdges[edge].map(vertex => this.topology!.vertices[vertex][0]);
     if (indices.some(index => this.vertexIndices.includes(index))) throw new Error('Choose an edge with both endpoints unselected.');
     const attribute = this.selected.geometry.getAttribute('position');
     const target = new THREE.Vector3().fromBufferAttribute(attribute, indices[0])
@@ -1440,18 +1485,34 @@ export class Editor extends EventTarget {
       const oldEdges = oldMode === 'edge' ? this.captureSubdivisionEdges(oldSelection) : [];
       const midpoint = meshes[0].geometry.getAttribute('position').count;
       this.setEditMode(false);
-      meshes.forEach(mesh => this.markPrimitiveApplied(mesh));
+      meshes.forEach((mesh, i) => {
+        if (operation.kind === 'uv') {
+          this.markPrimitiveApplied(mesh);
+        } else if (operation.kind === 'bevel' && topologies[i]) {
+          this.markPrimitiveApplied(mesh);
+          if (mesh.userData.forgeLogicalQuads !== undefined) delete mesh.userData.forgeLogicalQuads;
+          mesh.userData.forgePolygonTriangles = topologies[i]!.polygonTriangles.map(group => [...group]);
+        } else {
+          this.markTopologyChanged(mesh);
+        }
+      });
       meshes.forEach((mesh, i) => this.replaceGeometry(mesh, results[i])); results.length = 0;
       if (editing) {
-        this.setEditMode(true, topologies[0]);
+        this.setEditMode(true, operation.kind === 'uv' ? undefined : topologies[0]);
         if (operation.kind === 'subdivide') {
           this.restoreSubdivisionSelection(oldMode, oldEdges, midpoint);
         } else if (operation.kind === 'subdivide-all') {
           this.setComponentMode(oldMode);
         } else if (['uv', 'inset', 'extrude', 'region'].includes(operation.kind)) {
-          this.setComponentMode(oldMode); this.selectedComponents = new Set(oldSelection);
-          this.selectedFace = oldSelection.length === 1 ? oldSelection[0] : null;
-          this.selectComponentVertices(oldSelection.flatMap(f => this.topology!.faces[f]));
+          const restoredFaces =
+            operation.kind === 'uv' ? oldSelection :
+            operation.kind === 'region' ? operation.faces :
+            operation.kind === 'inset' || operation.kind === 'extrude' ? [operation.face] :
+            oldSelection;
+          this.setComponentMode(oldMode);
+          this.selectedComponents = new Set(restoredFaces);
+          this.selectedFace = restoredFaces.length === 1 ? restoredFaces[0] : null;
+          this.selectComponentVertices(restoredFaces.flatMap(face => this.topology!.polygons[face] ?? []));
         }
       }
       this.commit();
@@ -1470,7 +1531,7 @@ export class Editor extends EventTarget {
       if (this.selected !== mesh || this.snapshot() !== before || this.modelingVersion !== version) throw new Error('Scene changed; discarded modifier result.');
       const geometry = new THREE.BufferGeometryLoader().parse(response.geometry!);
       if (this.stats().vertices - mesh.geometry.getAttribute('position').count + geometry.getAttribute('position').count > 2_000_000) { geometry.dispose(); throw new Error('Modifier exceeds the scene vertex budget.'); }
-      if (items.length) this.markPrimitiveApplied(mesh);
+      if (items.length) this.markTopologyChanged(mesh);
       this.setEditMode(false); this.replaceGeometry(mesh, geometry);
       if (items.length) mesh.userData.modifierStack = { source: sourceJSON, items: structuredClone(items) } satisfies ModifierStack;
       else delete mesh.userData.modifierStack;

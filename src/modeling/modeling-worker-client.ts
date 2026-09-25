@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import type { Modifier } from './modifiers';
 export type ModelingOperation =
-  | { kind: 'bevel'; edges: number[]; width: number }
+  | { kind: 'bevel'; edges: number[]; width: number; polygonTriangles?: number[][] }
   | { kind: 'loop'; edge: number }
   | { kind: 'uv'; faces: number[]; operation: 'project' | 'transform'; values: number[] }
   | { kind: 'modifiers'; items: Modifier[] }
@@ -9,7 +9,7 @@ export type ModelingOperation =
   | { kind: 'region'; faces: number[]; distance: number }
   | { kind: 'subdivide'; edges: [number, number][] }
   | { kind: 'subdivide-all' }
-  | { kind: 'topology' };
+  | { kind: 'topology'; pairTriangles?: boolean; polygonTriangles?: number[][] };
 
 export function modelingJob(geometry: THREE.BufferGeometry, operation: ModelingOperation) {
   const source = geometry.toJSON();

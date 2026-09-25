@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { bevelEdges, loopCut, editUV, inspectGeometry } from './modeling';
+import { bevelLogicalEdges, loopCut, editUV, inspectGeometry } from './modeling';
 import { evaluateModifiers } from './modifiers';
 import { extrudeTriangle, insetTriangle } from './extrude';
 import { extrudeRegion } from './extrude-region';
@@ -8,14 +8,19 @@ import type { ModelingOperation } from './modeling-worker-client';
 import { buildTopology } from './topology';
 
 self.onmessage = (event: MessageEvent<{ source: ReturnType<THREE.BufferGeometry['toJSON']>; operation: ModelingOperation }>) => {
-  let source: THREE.BufferGeometry | undefined, result: THREE.BufferGeometry | undefined;
+  let source: THREE.BufferGeometry | undefined, result: THREE.BufferGeometry | undefined, logicalGroups: number[][] | undefined;
   const start = performance.now();
   try {
     source = new THREE.BufferGeometryLoader().parse(event.data.source);
     const op = event.data.operation;
     switch (op.kind) {
-      case 'topology': self.postMessage({ topology: inspectGeometry(source).topology, milliseconds: performance.now() - start }); return;
-      case 'bevel': result = bevelEdges(source, op.edges, op.width); break;
+      case 'topology': self.postMessage({ topology: inspectGeometry(source, op.polygonTriangles ?? op.pairTriangles ?? false).topology, milliseconds: performance.now() - start }); return;
+      case 'bevel': {
+        const bevel = bevelLogicalEdges(source, op.edges, op.width, op.polygonTriangles);
+        result = bevel.geometry;
+        logicalGroups = bevel.polygonTriangles;
+        break;
+      }
       case 'loop': result = loopCut(source, op.edge); break;
       case 'uv': result = editUV(source, op.faces, op.operation, op.values); break;
       case 'modifiers': result = evaluateModifiers(source, op.items); break;
@@ -28,7 +33,7 @@ self.onmessage = (event: MessageEvent<{ source: ReturnType<THREE.BufferGeometry[
         result = subdivideEdges(source, t.edges.map(edge => edge.map(v => t.vertices[v][0]) as [number, number])); break;
       }
     }
-    const topology = op.kind === 'modifiers' ? undefined : buildTopology(result.getAttribute('position').array, result.index?.array);
+    const topology = op.kind === 'modifiers' ? undefined : buildTopology(result.getAttribute('position').array, result.index?.array, logicalGroups ?? false);
     const geometry = result.toJSON();
     if (JSON.stringify(geometry).length > 32 * 1024 * 1024) throw new Error('Worker result exceeds 32 MB.');
     self.postMessage({ geometry, topology, milliseconds: performance.now() - start });

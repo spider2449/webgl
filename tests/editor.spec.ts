@@ -239,12 +239,12 @@ test('topology modeling preserves Edge mode and supports multiple Undo / Redo st
     const e = (window as any).__forge;
     const before = e.selected.geometry.getAttribute('position').count;
     const topology = e.meshTopology;
-    const edge = topology.edges.findIndex((pair: number[]) => pair[0] !== pair[1]);
+    const edge = topology.polygonEdges.findIndex((pair: number[]) => pair[0] !== pair[1]);
     (e as any).selectComponent(edge);
     const selectedBefore = e.componentSelection.length;
     const operation = {
       kind: 'subdivide',
-      edges: e.componentSelection.map((id: number) => topology.edges[id].map((v: number) => topology.vertices[v][0])),
+      edges: e.componentSelection.map((id: number) => topology.polygonEdges[id].map((v: number) => topology.vertices[v][0])),
     };
     await e.runModeling(operation);
     return {
@@ -813,16 +813,16 @@ for (const mode of ['vertex', 'edge', 'face'] as const) {
       const read = (v: number) => mesh.position.clone().fromBufferAttribute(position, topology.vertices[v][0]);
       let vertices: number[];
       if (mode === 'vertex') vertices = [topology.vertices.findIndex((_: any, i: number) => { const v=read(i); return v.x===1 && v.y===1 && v.z===1; })];
-      else if (mode === 'edge') vertices = topology.edges.find((edge: number[]) => edge.every(i => { const v=read(i); return v.y===1 && v.z===1; }));
-      else vertices = topology.faces.find((face: number[]) => face.every(i => read(i).z===1));
+      else if (mode === 'edge') vertices = topology.polygonEdges.find((edge: number[]) => edge.every(i => { const v=read(i); return v.y===1 && v.z===1; }));
+      else vertices = topology.polygons.find((face: number[]) => face.every(i => read(i).z===1));
       const point = mesh.position.clone().set(0,0,0);
       vertices.forEach(i => point.add(read(i)));
       point.divideScalar(vertices.length);
       mesh.localToWorld(point).project(e.camera);
       const rect = e.host.getBoundingClientRect();
-      return { x: rect.left+(point.x+1)*rect.width/2, y: rect.top+(1-point.y)*rect.height/2, counts: [topology.vertices.length,topology.edges.length,topology.faces.length] };
+      return { x: rect.left+(point.x+1)*rect.width/2, y: rect.top+(1-point.y)*rect.height/2, counts: [topology.vertices.length,topology.polygonEdges.length,topology.polygons.length] };
     }, mode);
-    expect(target.counts).toEqual([8,18,12]);
+    expect(target.counts).toEqual([8,12,6]);
     await page.mouse.click(target.x, target.y);
     const result = await page.evaluate(() => {
       const e = (window as any).__forge;
@@ -844,7 +844,7 @@ for (const mode of ['vertex', 'edge', 'face'] as const) {
       e.load(JSON.parse(saved));
       return {logicalCount, correct, helpersSaved, before, after, undone, redone, restored:Array.from(e.selected.geometry.attributes.position.array)};
     });
-    expect(result.logicalCount).toBe(mode === 'vertex' ? 1 : mode === 'edge' ? 2 : 3);
+    expect(result.logicalCount).toBe(mode === 'vertex' ? 1 : mode === 'edge' ? 2 : 4);
     expect(result.correct).toBe(true);
     expect(result.helpersSaved).toBe(false);
     expect(result.undone).toEqual(result.before);
@@ -860,5 +860,15 @@ test('indexed and expanded triangles produce equivalent seam connectivity', () =
   expect(expanded.edges).toEqual(indexed.edges);
   expect(expanded.edges).toHaveLength(5);
   expect(expanded.vertices).toEqual([[0,3],[1],[2,4],[5]]);
-  expect(buildTopology([])).toEqual({ vertices: [], bufferToVertex: [], edges: [], faces: [] });
+  expect(buildTopology([])).toEqual({
+    vertices: [],
+    bufferToVertex: [],
+    edges: [],
+    faces: [],
+    polygons: [],
+    polygonTriangles: [],
+    triangleToPolygon: [],
+    polygonEdges: [],
+    polygonEdgeToEdge: [],
+  });
 });

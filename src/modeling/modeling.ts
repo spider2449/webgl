@@ -7,7 +7,7 @@ const key = (v: number[]) => v.join(',');
 const edgeKey = (a: number, b: number) => `${Math.min(a, b)}:${Math.max(a, b)}`;
 const vector = (c: Corner) => new THREE.Vector3().fromArray(c.position);
 
-export function inspectGeometry(source: THREE.BufferGeometry) {
+export function inspectGeometry(source: THREE.BufferGeometry, logical: boolean | number[][] = false) {
   const p = source.getAttribute('position'), count = source.index?.count ?? p?.count ?? 0;
   if (!p || p.itemSize !== 3 || p.count > 100_000 || !count || count > 600_000 || count % 3) throw new Error('Modeling requires at most 100,000 vertices and 200,000 triangles.');
   if (Object.keys(source.morphAttributes).length || source.drawRange.start || source.drawRange.count !== Infinity) throw new Error('Morph targets and partial draw ranges are not supported.');
@@ -26,7 +26,7 @@ export function inspectGeometry(source: THREE.BufferGeometry) {
     }
   }
   const coordinates = Array.from({ length: p.count }, (_, i) => [p.getX(i), p.getY(i), p.getZ(i)]).flat();
-  const topology = buildTopology(coordinates, indices);
+  const topology = buildTopology(coordinates, indices, logical);
   const read = (v: number) => new THREE.Vector3().fromBufferAttribute(p, topology.vertices[v][0]);
   const normals = topology.faces.map(face => {
     const [a, b, c] = face.map(read), n = b.sub(a).cross(c.sub(a));
@@ -40,7 +40,50 @@ export function inspectGeometry(source: THREE.BufferGeometry) {
   }));
   for (const list of uses.values()) if (list.length > 2 || (list.length === 2 && list[0].a !== list[1].b)) throw new Error('Mesh must have consistently oriented manifold edges.');
   const polygons: Polygon[] = topology.faces.map((_, f) => ({ material: materials[f], corners: indices.slice(f * 3, f * 3 + 3).map(i => Object.fromEntries(Object.entries(source.attributes).filter(([name]) => name !== 'normal').map(([name, a]) => [name, Array.from({ length: a.itemSize }, (_, c) => a.getComponent(i, c))]))) }));
-  return { topology, normals, uses, read, polygons };
+  return { topology, normals, uses, read, polygons, indices, materials };
+}
+
+function logicalSurface(source: THREE.BufferGeometry, inspection: ReturnType<typeof inspectGeometry>) {
+  const { topology, read, indices, materials } = inspection;
+  const readCorner = (index: number): Corner => Object.fromEntries(
+    Object.entries(source.attributes)
+      .filter(([name]) => name !== 'normal')
+      .map(([name, attribute]) => [name, Array.from({ length: attribute.itemSize }, (_, component) => attribute.getComponent(index, component))]),
+  );
+  const polygons: Polygon[] = [], normals: THREE.Vector3[] = [];
+  const uses = new Map<string, { face: number; a: number; b: number }[]>();
+
+  topology.polygons.forEach((vertices, polygonId) => {
+    const triangles = topology.polygonTriangles[polygonId];
+    const material = materials[triangles[0]];
+    if (triangles.some(face => materials[face] !== material)) throw new Error('Logical polygon crosses a material boundary.');
+    const corners = vertices.map(vertex => {
+      for (const face of triangles) {
+        for (let corner = 0; corner < 3; corner++) if (topology.faces[face][corner] === vertex) return readCorner(indices[face * 3 + corner]);
+      }
+      throw new Error('Logical polygon corner is missing from its renderer triangles.');
+    });
+    polygons.push({ corners, material });
+
+    const normal = new THREE.Vector3();
+    for (let i = 0; i < vertices.length; i++) {
+      const a = read(vertices[i]), b = read(vertices[(i + 1) % vertices.length]);
+      normal.x += (a.y - b.y) * (a.z + b.z);
+      normal.y += (a.z - b.z) * (a.x + b.x);
+      normal.z += (a.x - b.x) * (a.y + b.y);
+      const key = edgeKey(vertices[i], vertices[(i + 1) % vertices.length]);
+      const list = uses.get(key) ?? [];
+      list.push({ face: polygonId, a: vertices[i], b: vertices[(i + 1) % vertices.length] });
+      uses.set(key, list);
+    }
+    if (normal.lengthSq() < 1e-16 || !Number.isFinite(normal.lengthSq())) throw new Error('Degenerate logical polygon.');
+    normals.push(normal.normalize());
+  });
+
+  for (const list of uses.values()) if (list.length > 2 || (list.length === 2 && list[0].a !== list[1].b)) {
+    throw new Error('Logical polygons must have consistently oriented manifold boundaries.');
+  }
+  return { polygons, normals, uses };
 }
 
 function interpolate(a: Corner, b: Corner, t: number): Corner {
@@ -63,17 +106,92 @@ function clip(corners: Corner[], normal: THREE.Vector3, constant: number): { cor
   return { corners: result.filter((c, i) => key(c.position) !== key(result[(i + result.length - 1) % result.length].position)), cuts };
 }
 
-function finish(polygons: Polygon[]): THREE.BufferGeometry {
+function triangulateBoundary(corners: Corner[]): Corner[][] {
+  if (corners.length === 3) return [corners];
+
+  // Ear clipping uses only existing boundary corners. Collinear boundary
+  // vertices are never discarded: they become valid ears after neighboring
+  // corners are clipped, so renderer tessellation cannot erase modeling
+  // vertices or introduce T-junctions.
+  const points = corners.map(vector);
+  const normal = new THREE.Vector3();
+  for (let i = 0; i < points.length; i++) {
+    const a = points[i], b = points[(i + 1) % points.length];
+    normal.x += (a.y - b.y) * (a.z + b.z);
+    normal.y += (a.z - b.z) * (a.x + b.x);
+    normal.z += (a.x - b.x) * (a.y + b.y);
+  }
+  if (normal.lengthSq() < 1e-16 || !Number.isFinite(normal.lengthSq())) throw new Error('Result polygon collapses at mesh coordinate precision.');
+
+  const axis = Math.abs(normal.x) >= Math.abs(normal.y) && Math.abs(normal.x) >= Math.abs(normal.z)
+    ? 0 : Math.abs(normal.y) >= Math.abs(normal.z) ? 1 : 2;
+  const projected = points.map(point => axis === 0 ? [point.y, point.z] : axis === 1 ? [point.x, point.z] : [point.x, point.y]);
+  const cross = (a: number, b: number, c: number) =>
+    (projected[b][0] - projected[a][0]) * (projected[c][1] - projected[a][1]) -
+    (projected[b][1] - projected[a][1]) * (projected[c][0] - projected[a][0]);
+  const signedArea = projected.reduce((sum, point, i) => {
+    const next = projected[(i + 1) % projected.length];
+    return sum + point[0] * next[1] - next[0] * point[1];
+  }, 0);
+  if (!Number.isFinite(signedArea) || Math.abs(signedArea) < 1e-16) throw new Error('Result polygon collapses at mesh coordinate precision.');
+  const winding = Math.sign(signedArea);
+  const minX = Math.min(...projected.map(point => point[0])), maxX = Math.max(...projected.map(point => point[0]));
+  const minY = Math.min(...projected.map(point => point[1])), maxY = Math.max(...projected.map(point => point[1]));
+  const extent = Math.max(maxX - minX, maxY - minY, 1);
+  const epsilon = extent * extent * 1e-12;
+
+  const remaining = corners.map((_, index) => index);
+  const triangles: Corner[][] = [];
+  while (remaining.length > 3) {
+    let clipped = false;
+    for (let i = 0; i < remaining.length; i++) {
+      const previous = remaining[(i + remaining.length - 1) % remaining.length];
+      const current = remaining[i];
+      const next = remaining[(i + 1) % remaining.length];
+      if (winding * cross(previous, current, next) <= epsilon) continue;
+
+      let containsVertex = false;
+      for (const candidate of remaining) {
+        if (candidate === previous || candidate === current || candidate === next) continue;
+        const a = winding * cross(previous, current, candidate);
+        const b = winding * cross(current, next, candidate);
+        const c = winding * cross(next, previous, candidate);
+        if (a >= -epsilon && b >= -epsilon && c >= -epsilon) {
+          containsVertex = true;
+          break;
+        }
+      }
+      if (containsVertex) continue;
+
+      triangles.push([corners[previous], corners[current], corners[next]]);
+      remaining.splice(i, 1);
+      clipped = true;
+      break;
+    }
+    if (!clipped) throw new Error('Result polygon cannot be tessellated without changing its boundary.');
+  }
+
+  const [a, b, c] = remaining;
+  if (winding * cross(a, b, c) <= epsilon) throw new Error('Result polygon collapses at mesh coordinate precision.');
+  triangles.push([corners[a], corners[b], corners[c]]);
+  return triangles;
+}
+
+function finishDetailed(polygons: Polygon[]) {
   const values: Record<string, number[]> = {}, sizes: Record<string, number> = {}, groups: { start: number; count: number; material: number }[] = [];
+  const polygonTriangles: number[][] = [];
   let count = 0;
   for (const { corners, material } of polygons) {
     if (corners.length < 3) continue;
-    const center = Object.fromEntries(Object.keys(corners[0]).map(name => [name, corners[0][name].map((_, j) => Math.fround(corners.reduce((sum, c) => sum + c[name][j], 0) / corners.length))]));
-    const triangles = corners.length === 3 ? [corners] : corners.map((c, i) => [center, c, corners[(i + 1) % corners.length]]);
+    // Rendering tessellation is not modeling topology. Triangulate only with
+    // existing polygon corners: never create centroid/interior vertices.
+    const triangles = triangulateBoundary(corners);
+    const triangleIds: number[] = [];
     for (const triangle of triangles) {
       const [a, b, c] = triangle.map(vector);
       if (b.sub(a).cross(c.sub(a)).lengthSq() < 1e-16) throw new Error('Result collapses at mesh coordinate precision.');
       if (count + 3 > 600_000) throw new Error('Result exceeds 600,000 rendering vertices.');
+      triangleIds.push(count / 3);
       const last = groups.at(-1);
       if (last?.material === material) last.count += 3; else groups.push({ start: count, count: 3, material });
       for (const corner of triangle) for (const [name, data] of Object.entries(corner)) {
@@ -81,57 +199,73 @@ function finish(polygons: Polygon[]): THREE.BufferGeometry {
       }
       count += 3;
     }
+    polygonTriangles.push(triangleIds);
   }
   if (!count) throw new Error('Operation would remove the mesh.');
-  const result = new THREE.BufferGeometry();
+  const geometry = new THREE.BufferGeometry();
   for (const [name, data] of Object.entries(values)) {
     if (data.some(v => !Number.isFinite(Math.fround(v)))) throw new Error('Result exceeds coordinate precision.');
-    result.setAttribute(name, new THREE.Float32BufferAttribute(data, sizes[name]));
+    geometry.setAttribute(name, new THREE.Float32BufferAttribute(data, sizes[name]));
   }
-  groups.forEach(g => result.addGroup(g.start, g.count, g.material));
-  result.computeVertexNormals(); result.computeBoundingBox(); result.computeBoundingSphere();
-  return result;
+  groups.forEach(g => geometry.addGroup(g.start, g.count, g.material));
+  geometry.computeVertexNormals(); geometry.computeBoundingBox(); geometry.computeBoundingSphere();
+  return { geometry, polygonTriangles };
 }
 
-export function bevelEdges(source: THREE.BufferGeometry, edges: number[], width: number) {
+function finish(polygons: Polygon[]): THREE.BufferGeometry {
+  return finishDetailed(polygons).geometry;
+}
+
+export function bevelLogicalEdges(source: THREE.BufferGeometry, edges: number[], width: number, polygonTriangles?: number[][]) {
   if (!Number.isFinite(width) || width < 0.0001 || width > 1000) throw new Error('Bevel width must be between 0.0001 and 1000.');
-  const { topology: t, normals, uses, read, polygons } = inspectGeometry(source);
-  if (!edges.length || new Set(edges).size > 128 || edges.some(e => !Number.isInteger(e) || !t.edges[e])) throw new Error('Select at most 128 valid sharp edges.');
-  if ([...uses.values()].some(u => u.length !== 2)) throw new Error('Bevel requires a closed convex mesh.');
+  const inspection = inspectGeometry(source, polygonTriangles ?? false);
+  const { topology: t, read } = inspection;
+  const { polygons, normals, uses } = logicalSurface(source, inspection);
+  if (!edges.length || new Set(edges).size > 128 || edges.some(edge => !Number.isInteger(edge) || !t.polygonEdges[edge])) {
+    throw new Error('Select at most 128 valid logical boundary edges.');
+  }
+  if ([...uses.values()].some(use => use.length !== 2)) throw new Error('Bevel requires a closed convex polygon mesh.');
   const points = t.vertices.map((_, i) => read(i)), bounds = new THREE.Box3().setFromPoints(points);
   const epsilon = Math.max(1e-7, bounds.getSize(new THREE.Vector3()).length() * 1e-6);
-  if (points.length * t.faces.length > 20_000_000) throw new Error('Convex bevel validation exceeds the work budget.');
-  for (let f = 0; f < t.faces.length; f++) {
-    const d = read(t.faces[f][0]).dot(normals[f]);
-    if (points.some(p => p.dot(normals[f]) > d + epsilon)) throw new Error('Bevel requires a consistently oriented convex mesh.');
+  if (points.length * t.polygons.length > 20_000_000) throw new Error('Convex bevel validation exceeds the work budget.');
+  for (let face = 0; face < t.polygons.length; face++) {
+    const d = read(t.polygons[face][0]).dot(normals[face]);
+    if (points.some(point => point.dot(normals[face]) > d + epsilon)) throw new Error('Bevel requires a consistently oriented convex mesh.');
   }
-  const planes = [...new Set(edges)].sort((a, b) => a - b).map(e => {
-    const [a, b] = t.edges[e], adjacent = uses.get(edgeKey(a, b))!;
+  const planes = [...new Set(edges)].sort((a, b) => a - b).map(edge => {
+    const [a, b] = t.polygonEdges[edge], adjacent = uses.get(edgeKey(a, b));
+    if (!adjacent || adjacent.length !== 2) throw new Error('Selected logical edge is not shared by two polygons.');
     const n1 = normals[adjacent[0].face], n2 = normals[adjacent[1].face];
     if (n1.dot(n2) > 1 - 1e-6) throw new Error('Select sharp edges, not coplanar triangle diagonals.');
     const normal = n1.clone().add(n2).normalize();
     const inset = width * Math.sqrt((1 - n1.dot(n2)) / 2);
     if (width >= read(a).distanceTo(read(b)) / 2) throw new Error('Bevel width is too large for the selected edge.');
     const constant = read(a).dot(normal) - inset;
-    if (points.some((p, i) => i !== a && i !== b && p.dot(normal) > constant + epsilon)) throw new Error('Bevel width would remove unrelated vertices.');
+    if (points.some((point, i) => i !== a && i !== b && point.dot(normal) > constant + epsilon)) throw new Error('Bevel width would remove unrelated vertices.');
     return { normal, constant, material: polygons[adjacent[0].face].material };
   });
+
   let output = polygons;
   for (const plane of planes) {
     const cuts = new Map<string, Corner>(), next: Polygon[] = [];
     for (const polygon of output) {
       const clipped = clip(polygon.corners, plane.normal, plane.constant);
       if (clipped.corners.length >= 3) next.push({ ...polygon, corners: clipped.corners });
-      clipped.cuts.forEach(c => cuts.set(key(c.position), c));
+      clipped.cuts.forEach(corner => cuts.set(key(corner.position), corner));
     }
     const cap = [...cuts.values()];
     if (cap.length < 3) throw new Error('Bevel width removes a selected edge or collapses its cap.');
-    const center = cap.reduce((sum, c) => sum.add(vector(c)), new THREE.Vector3()).divideScalar(cap.length);
+    const center = cap.reduce((sum, corner) => sum.add(vector(corner)), new THREE.Vector3()).divideScalar(cap.length);
     const u = vector(cap[0]).sub(center).normalize(), v = plane.normal.clone().cross(u);
     cap.sort((a, b) => Math.atan2(vector(a).sub(center).dot(v), vector(a).sub(center).dot(u)) - Math.atan2(vector(b).sub(center).dot(v), vector(b).sub(center).dot(u)));
-    next.push({ corners: cap, material: plane.material }); output = next;
+    next.push({ corners: cap, material: plane.material });
+    output = next;
   }
-  return finish(output);
+  return finishDetailed(output);
+}
+
+export function bevelEdges(source: THREE.BufferGeometry, edges: number[], width: number) {
+  return bevelLogicalEdges(source, edges, width).geometry;
 }
 
 export function loopCut(source: THREE.BufferGeometry, edge: number) {

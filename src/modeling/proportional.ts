@@ -22,7 +22,7 @@ export function proportionalWeights(positions: ArrayLike<number>, topology: Mesh
 function connectedDistances(positions: ArrayLike<number>, topology: MeshTopology, seeds: number[], radius: number): Float64Array {
   const distances = new Float64Array(topology.vertices.length).fill(Infinity);
   const neighbors: [number, number][][] = Array.from({ length: distances.length }, () => []);
-  for (const [a, b] of topology.edges) {
+  for (const [a, b] of topology.polygonEdges) {
     const i = topology.vertices[a][0] * 3, j = topology.vertices[b][0] * 3;
     const length = Math.hypot(positions[i] - positions[j], positions[i + 1] - positions[j + 1], positions[i + 2] - positions[j + 2]);
     neighbors[a].push([b, length]); neighbors[b].push([a, length]);
