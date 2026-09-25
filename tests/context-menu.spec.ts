@@ -39,6 +39,11 @@ test('Edit Mode RMB menu changes with Vertex, Edge and Face component mode', asy
   await expect(menu.getByRole('menuitem', { name: 'Bevel Edges' })).toHaveCount(0);
   await page.keyboard.press('Escape');
   await expect(menu).toBeHidden();
+  expect(await page.evaluate(() => ({
+    editMode: (window as any).__forge.editMode,
+    mode: (window as any).__forge.componentMode,
+    selected: (window as any).__forge.componentSelection,
+  }))).toEqual({ editMode: true, mode: 'vertex', selected: [0] });
 
   await page.getByLabel('Mesh component').selectOption('edge');
   await page.evaluate(() => (window as any).__forge.selectComponent(0));

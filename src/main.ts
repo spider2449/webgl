@@ -1310,8 +1310,19 @@ $('#viewport').addEventListener('contextmenu', event => {
 
 viewportContextMenu.addEventListener('click', event => event.stopPropagation());
 viewportContextMenu.addEventListener('keydown', event => {
+  // The context menu owns its keyboard interaction. Do not let Escape or
+  // operator shortcut keys fall through to the document-wide viewport
+  // shortcuts (which can clear selection or change tools underneath the menu).
+  event.stopPropagation();
   const items = [...viewportContextMenu.querySelectorAll<HTMLButtonElement>('button:not(:disabled)')];
-  if (!items.length) return;
+  if (!items.length) {
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      closeViewportContextMenu();
+      editor.renderer.domElement.focus();
+    }
+    return;
+  }
   const current = items.indexOf(document.activeElement as HTMLButtonElement);
   if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
     event.preventDefault();
