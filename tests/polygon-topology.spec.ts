@@ -178,3 +178,27 @@ test('quad extrusion preserves one logical cap and creates quad walls across rep
     selected: [result.front],
   });
 });
+
+
+test('Edit Wireframe exposes logical boundaries instead of relying on render diagonals', async ({ page }) => {
+  await page.locator('#mode').selectOption('edit');
+  await page.getByLabel('Mesh component').selectOption('vertex');
+  const state = await page.evaluate(() => {
+    const e = (window as any).__forge;
+    e.setShading('wire');
+    return {
+      logicalSegments: (e.componentEdges.geometry.getAttribute('position').count ?? 0) / 2,
+      componentEdgesVisible: e.componentEdges.visible,
+      renderWireframe: e.wire.wireframe,
+      editSurfaceOpacity: e.editWireSurface.opacity,
+      editSurfaceDepthWrite: e.editWireSurface.depthWrite,
+    };
+  });
+  expect(state).toEqual({
+    logicalSegments: 12,
+    componentEdgesVisible: true,
+    renderWireframe: true,
+    editSurfaceOpacity: 0,
+    editSurfaceDepthWrite: false,
+  });
+});
