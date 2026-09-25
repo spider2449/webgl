@@ -70,8 +70,11 @@ test('Shift-selected adjacent edges subdivide atomically and keep split edges se
   await page.locator('#mode').selectOption('edit'); await page.getByLabel('Mesh component').selectOption('edge');
   const setup=await page.evaluate(()=>{
     const e=(window as any).__forge,m=e.selected,t=e.topology,p=m.geometry.attributes.position;
-    const face=t.faces.find((vs:number[])=>vs.every(v=>p.getZ(t.vertices[v][0])===1));
-    const pairs=[[face[0],face[1]],[face[1],face[2]]];
+    const face=t.polygons.find((vs:number[])=>vs.every(v=>p.getZ(t.vertices[v][0])===1));
+    const faceEdges=t.polygonEdges.filter((edge:number[])=>edge.every(v=>face.includes(v)));
+    const first=faceEdges[0],second=faceEdges.find((edge:number[])=>edge!==first&&edge.some(v=>first.includes(v)));
+    if(!first||!second)throw new Error('Expected adjacent logical boundary edges.');
+    const pairs=[first,second];
     m.updateWorldMatrix(true,true); e.camera.updateMatrixWorld(true);
     const rect=e.host.getBoundingClientRect();
     const targets=pairs.map(vs=>{

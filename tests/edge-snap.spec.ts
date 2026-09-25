@@ -7,7 +7,7 @@ test('edge midpoint overflow is rejected before any geometry changes', async ({ 
     const e = (window as any).__forge;
     e.setEditMode(true);
     const t = e.topology, a = e.selected.geometry.attributes.position;
-    const edge = 0, endpoints: number[] = t.edges[edge];
+    const edge = 0, endpoints: number[] = t.polygonEdges[edge];
     const source = t.vertices.map((_: unknown, i: number) => i).filter((i: number) => !endpoints.includes(i)).slice(0, 2);
     for (const i of t.vertices[source[0]]) a.setXYZ(i, 3e38, 0, 0);
     for (const i of t.vertices[source[1]]) a.setXYZ(i, -3e38, 0, 0);
@@ -65,11 +65,11 @@ for (const mode of ['vertex', 'edge', 'face'] as const) test(`viewport edge midp
   await page.getByLabel('Toggle grid snap (Shift Tab)', { exact: true }).click();
   const state = await page.evaluate(mode => {
     const e = (window as any).__forge, m = e.selected, t = e.topology, a = m.geometry.attributes.position;
-    const components: number[][] = mode === 'vertex' ? t.vertices.map((_: unknown,i: number)=>[i]) : mode === 'edge' ? t.edges : t.faces;
+    const components: number[][] = mode === 'vertex' ? t.vertices.map((_: unknown,i: number)=>[i]) : mode === 'edge' ? t.polygonEdges : t.polygons;
     const source = components.findIndex(vs=>vs.every(v=>a.getZ(t.vertices[v][0])===-1));
     e.selectComponent(source);
-    const target = t.edges.findIndex((vertices: number[])=>vertices.every(v=>a.getZ(t.vertices[v][0])===1) && vertices.every(v=>a.getY(t.vertices[v][0])===1));
-    const targetPosition = m.position.clone().fromBufferAttribute(a,t.vertices[t.edges[target][0]][0]).lerp(m.position.clone().fromBufferAttribute(a,t.vertices[t.edges[target][1]][0]),0.5);
+    const target = t.polygonEdges.findIndex((vertices: number[])=>vertices.every(v=>a.getZ(t.vertices[v][0])===1) && vertices.every(v=>a.getY(t.vertices[v][0])===1));
+    const targetPosition = m.position.clone().fromBufferAttribute(a,t.vertices[t.polygonEdges[target][0]][0]).lerp(m.position.clone().fromBufferAttribute(a,t.vertices[t.polygonEdges[target][1]][0]),0.5);
     const delta = targetPosition.clone().sub(e.componentCenter).toArray();
     m.updateWorldMatrix(true,true); e.camera.updateMatrixWorld(true);
     const projected = m.localToWorld(targetPosition).project(e.camera), rect = e.host.getBoundingClientRect();

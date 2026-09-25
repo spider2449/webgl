@@ -3,10 +3,11 @@ import { test, expect } from '@playwright/test';
 for (const mode of ['vertex', 'edge', 'face'] as const) test(`Shift-click ${mode} selection toggles shared vertices and clears predictably`, async ({ page }) => {
   await page.goto('/');
   await page.waitForFunction(() => (window as any).__forge?.selected);
-  await page.evaluate(() => {
+  await page.evaluate(mode => {
     const e = (window as any).__forge;
+    if (mode === 'face') e.setPrimitiveParameter('widthSegments', 2);
     e.selected.rotation.set(0,0,0); e.selected.scale.set(1.5,0.8,1.2); e.commit(); e.view('front');
-  });
+  }, mode);
   await page.locator('#mode').selectOption('edit');
   await page.getByLabel('Mesh component').selectOption(mode);
   const targets = await page.evaluate(mode => {
@@ -14,7 +15,7 @@ for (const mode of ['vertex', 'edge', 'face'] as const) test(`Shift-click ${mode
     m.updateWorldMatrix(true, true);
     e.camera.updateMatrixWorld(true);
     const read = (v: number) => m.position.clone().fromBufferAttribute(m.geometry.attributes.position, t.vertices[v][0]);
-    const components: number[][] = mode === 'vertex' ? t.vertices.map((_: unknown, i: number) => [i]) : mode === 'edge' ? t.edges : t.faces;
+    const components: number[][] = mode === 'vertex' ? t.vertices.map((_: unknown, i: number) => [i]) : mode === 'edge' ? t.polygonEdges : t.polygons;
     const front = components.map((vs, id) => ({vs, id})).filter(c => c.vs.every(v => read(v).z === 1));
     const first = front[0], second = front.find(c => c.id !== first.id && (mode === 'vertex' || c.vs.some(v => first.vs.includes(v))))!;
     const rect = e.host.getBoundingClientRect();

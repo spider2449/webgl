@@ -14,7 +14,7 @@ for (const mode of ['vertex', 'edge', 'face'] as const) test(`viewport vertex sn
   await page.getByLabel('Toggle grid snap (Shift Tab)', { exact: true }).click();
   const state = await page.evaluate(mode => {
     const e = (window as any).__forge, m = e.selected, t = e.topology, a = m.geometry.attributes.position;
-    const components: number[][] = mode === 'vertex' ? t.vertices.map((_: unknown,i: number)=>[i]) : mode === 'edge' ? t.edges : t.faces;
+    const components: number[][] = mode === 'vertex' ? t.vertices.map((_: unknown,i: number)=>[i]) : mode === 'edge' ? t.polygonEdges : t.polygons;
     const source = components.findIndex(vs=>vs.every(v=>a.getZ(t.vertices[v][0])===-1));
     e.selectComponent(source);
     const target = t.vertices.findIndex((copies: number[])=>a.getZ(copies[0])===1);

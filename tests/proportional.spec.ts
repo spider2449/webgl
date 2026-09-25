@@ -11,6 +11,15 @@ test('smooth local falloff preserves seams and radius boundaries', () => {
   for (const radius of [0,-1,NaN,Infinity]) expect(() => proportionalWeights(positions, topology, [0], radius)).toThrow(/radius/);
 });
 
+test('connected falloff does not cross a logical quad triangulation diagonal', () => {
+  const positions = [0,0,0, 1,0,0, 1,1,0, 0,1,0];
+  const topology = buildTopology(positions, [0,1,2, 0,2,3], true);
+  const weights = proportionalWeights(positions, topology, [0], 1.5, true);
+  expect(weights[1]).toBeGreaterThan(0);
+  expect(weights[3]).toBeGreaterThan(0);
+  expect(weights[2]).toBe(0);
+});
+
 for (const mode of ['vertex', 'edge', 'face'] as const) test(`proportional ${mode} drag is stable and survives history and projects`, async ({ page }) => {
   await page.goto('/');
   await page.waitForFunction(() => (window as any).__forge?.selected);
