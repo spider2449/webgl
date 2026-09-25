@@ -2,6 +2,9 @@ import * as THREE from 'three';
 import { allAnimationFrames, animationChannels, effectiveBezierHandle, sampleAnimationChannel, trackKeys, validAnimationChannel, validAnimationTracks, validKeyInterpolation, validKeyTangentMode } from './animation/animation';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { TransformControls } from 'three/addons/controls/TransformControls.js';
+import { LineSegments2 } from 'three/addons/lines/LineSegments2.js';
+import { LineSegmentsGeometry } from 'three/addons/lines/LineSegmentsGeometry.js';
+import { LineMaterial } from 'three/addons/lines/LineMaterial.js';
 import { GimbalControls } from './viewport/gimbal-controls';
 import { clone as cloneSkeleton } from 'three/addons/utils/SkeletonUtils.js';
 import { createGrid, setGridPlane } from './viewport/grid';
@@ -86,7 +89,8 @@ export class Editor extends EventTarget {
   private topology: MeshTopology | null = null;
   private componentEdges: THREE.LineSegments | null = null;
   private selectedVertexOverlay: THREE.Points | null = null;
-  private selectedEdgeOverlay: THREE.LineSegments | null = null;
+  private selectedEdgeOverlay: LineSegments2 | null = null;
+  private activeEdgeOverlay: LineSegments2 | null = null;
   private selectedFaceOverlay: THREE.Mesh | null = null;
   private componentCenter = new THREE.Vector3();
   private proportionalEnabled = false;
@@ -471,6 +475,8 @@ export class Editor extends EventTarget {
   resize() {
     const { width, height } = this.host.getBoundingClientRect();
     this.renderer.setSize(width, height);
+    if (this.selectedEdgeOverlay) (this.selectedEdgeOverlay.material as LineMaterial).resolution.set(width, height);
+    if (this.activeEdgeOverlay) (this.activeEdgeOverlay.material as LineMaterial).resolution.set(width, height);
     this.perspective.aspect = width / height;
     this.perspective.updateProjectionMatrix();
     const extent = 7;
@@ -976,12 +982,13 @@ export class Editor extends EventTarget {
       this.componentEdges?.geometry.dispose();
       if (this.componentEdges) (this.componentEdges.material as THREE.Material).dispose();
       this.componentEdges = null;
-      for (const overlay of [this.selectedVertexOverlay, this.selectedEdgeOverlay, this.selectedFaceOverlay]) {
+      for (const overlay of [this.selectedVertexOverlay, this.selectedEdgeOverlay, this.activeEdgeOverlay, this.selectedFaceOverlay]) {
         overlay?.geometry.dispose();
         if (overlay) (overlay.material as THREE.Material).dispose();
       }
       this.selectedVertexOverlay = null;
       this.selectedEdgeOverlay = null;
+      this.activeEdgeOverlay = null;
       this.selectedFaceOverlay = null;
       this.topology = null;
       this.vertexPoints.geometry.dispose();
@@ -998,18 +1005,28 @@ export class Editor extends EventTarget {
       this.topology = preparedTopology ?? buildTopology(position.array, this.selected.geometry.index?.array);
       geometry.setAttribute('color', new THREE.Float32BufferAttribute(new Float32Array(position.count * 3).fill(1), 3));
       (this.vertexPoints.material as THREE.PointsMaterial).vertexColors = true;
-      this.componentEdges = new THREE.LineSegments(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({ color: 0xb17842, transparent: true, opacity: 0.55, depthTest: false }));
+      this.componentEdges = new THREE.LineSegments(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({ color: 0x252a31, transparent: true, opacity: 0.88, depthTest: false }));
       this.componentEdges.renderOrder = 9;
       this.selectedVertexOverlay = new THREE.Points(new THREE.BufferGeometry(), new THREE.PointsMaterial({ color: 0xffcf85, size: 10, sizeAttenuation: false, depthTest: false }));
       this.selectedVertexOverlay.userData.forgeEditorHelper = true;
       this.selectedVertexOverlay.renderOrder = 12;
-      this.selectedEdgeOverlay = new THREE.LineSegments(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({ color: 0xffcf85, depthTest: false }));
+
+      const selectedEdgeMaterial = new LineMaterial({ color: 0xffa94d, linewidth: 5, worldUnits: false, depthTest: false, depthWrite: false });
+      selectedEdgeMaterial.resolution.copy(this.renderer.getSize(new THREE.Vector2()));
+      this.selectedEdgeOverlay = new LineSegments2(new LineSegmentsGeometry(), selectedEdgeMaterial);
       this.selectedEdgeOverlay.userData.forgeEditorHelper = true;
-      this.selectedEdgeOverlay.renderOrder = 12;
+      this.selectedEdgeOverlay.renderOrder = 13;
+
+      const activeEdgeMaterial = new LineMaterial({ color: 0xfff2db, linewidth: 2, worldUnits: false, depthTest: false, depthWrite: false });
+      activeEdgeMaterial.resolution.copy(this.renderer.getSize(new THREE.Vector2()));
+      this.activeEdgeOverlay = new LineSegments2(new LineSegmentsGeometry(), activeEdgeMaterial);
+      this.activeEdgeOverlay.userData.forgeEditorHelper = true;
+      this.activeEdgeOverlay.renderOrder = 14;
+
       this.selectedFaceOverlay = new THREE.Mesh(new THREE.BufferGeometry(), new THREE.MeshBasicMaterial({ color: 0xffb95f, transparent: true, opacity: 0.32, depthTest: false, depthWrite: false, side: THREE.DoubleSide }));
       this.selectedFaceOverlay.userData.forgeEditorHelper = true;
       this.selectedFaceOverlay.renderOrder = 11;
-      this.vertexPoints.add(this.componentEdges, this.selectedVertexOverlay, this.selectedEdgeOverlay, this.selectedFaceOverlay);
+      this.vertexPoints.add(this.componentEdges, this.selectedVertexOverlay, this.selectedEdgeOverlay, this.activeEdgeOverlay, this.selectedFaceOverlay);
       this.refreshComponents();
     } else {
       this.syncTransformControls();
@@ -1059,9 +1076,10 @@ export class Editor extends EventTarget {
     for (let i = 0; i < colors.count; i++) colors.setXYZ(i, 1, selected.has(i) ? 0.45 : 1, selected.has(i) ? 0.12 : 1);
     colors.needsUpdate = true;
 
-    if (this.selectedVertexOverlay && this.selectedEdgeOverlay && this.selectedFaceOverlay) {
+    if (this.selectedVertexOverlay && this.selectedEdgeOverlay && this.activeEdgeOverlay && this.selectedFaceOverlay) {
       const vertexValues: number[] = [];
       const edgeValues: number[] = [];
+      const activeEdgeValues: number[] = [];
       const faceValues: number[] = [];
       const pushVertex = (vertex: number, target: number[]) => {
         const index = this.topology!.vertices[vertex][0];
@@ -1077,6 +1095,12 @@ export class Editor extends EventTarget {
           pushVertex(edge[0], edgeValues);
           pushVertex(edge[1], edgeValues);
         }
+        const activeEdgeId = [...this.selectedComponents].at(-1);
+        const activeEdge = activeEdgeId === undefined ? undefined : this.topology.edges[activeEdgeId];
+        if (activeEdge) {
+          pushVertex(activeEdge[0], activeEdgeValues);
+          pushVertex(activeEdge[1], activeEdgeValues);
+        }
       } else {
         for (const faceId of this.selectedComponents) {
           const face = this.topology.faces[faceId];
@@ -1086,13 +1110,16 @@ export class Editor extends EventTarget {
       }
 
       this.selectedVertexOverlay.geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertexValues, 3));
-      this.selectedEdgeOverlay.geometry.setAttribute('position', new THREE.Float32BufferAttribute(edgeValues, 3));
+      (this.selectedEdgeOverlay.geometry as LineSegmentsGeometry).setPositions(edgeValues);
+      (this.activeEdgeOverlay.geometry as LineSegmentsGeometry).setPositions(activeEdgeValues);
       this.selectedFaceOverlay.geometry.setAttribute('position', new THREE.Float32BufferAttribute(faceValues, 3));
       this.selectedVertexOverlay.visible = this.componentMode === 'vertex' && vertexValues.length > 0;
       this.selectedEdgeOverlay.visible = this.componentMode === 'edge' && edgeValues.length > 0;
+      this.activeEdgeOverlay.visible = this.componentMode === 'edge' && activeEdgeValues.length > 0;
       this.selectedFaceOverlay.visible = this.componentMode === 'face' && faceValues.length > 0;
       if (vertexValues.length) this.selectedVertexOverlay.geometry.computeBoundingSphere();
-      if (edgeValues.length) this.selectedEdgeOverlay.geometry.computeBoundingSphere();
+      if (edgeValues.length) this.selectedEdgeOverlay.computeLineDistances();
+      if (activeEdgeValues.length) this.activeEdgeOverlay.computeLineDistances();
       if (faceValues.length) this.selectedFaceOverlay.geometry.computeBoundingSphere();
     }
   }
