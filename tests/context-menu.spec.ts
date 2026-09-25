@@ -133,6 +133,7 @@ test('Edit Mode RMB menu changes with Vertex, Edge and Face component mode', asy
   await expect(menu.getByRole('menuitem', { name: 'Rotate R' })).toBeVisible();
   await expect(menu.getByRole('menuitem', { name: 'Scale S' })).toBeVisible();
   await expect(menu.getByRole('menuitem', { name: 'Snap Selection…' })).toBeVisible();
+  await expect(menu.getByRole('menuitem', { name: 'Delete Vertices Del' })).toBeVisible();
   await expect(menu.getByRole('menuitem', { name: 'Bevel Edges' })).toHaveCount(0);
   await page.keyboard.press('Escape');
   await expect(menu).toBeHidden();
@@ -153,6 +154,8 @@ test('Edit Mode RMB menu changes with Vertex, Edge and Face component mode', asy
   await expect(menu.getByRole('menuitem', { name: 'Bevel Edges' })).toBeVisible();
   await expect(menu.getByRole('menuitem', { name: 'Subdivide Edges' })).toBeVisible();
   await expect(menu.getByRole('menuitem', { name: 'Loop Cut' })).toBeVisible();
+  await expect(menu.getByRole('menuitem', { name: 'Dissolve Edge' })).toBeVisible();
+  await expect(menu.getByRole('menuitem', { name: 'Delete Edges Del' })).toBeVisible();
   await expect(menu.getByRole('menuitem', { name: 'Extrude Face' })).toHaveCount(0);
   await page.keyboard.press('Escape');
 
@@ -167,6 +170,7 @@ test('Edit Mode RMB menu changes with Vertex, Edge and Face component mode', asy
   await expect(menu.getByRole('menuitem', { name: 'Extrude Face' })).toBeVisible();
   await expect(menu.getByRole('menuitem', { name: 'Extrude Region' })).toBeVisible();
   await expect(menu.getByRole('menuitem', { name: 'Inset Face' })).toBeVisible();
+  await expect(menu.getByRole('menuitem', { name: 'Delete Faces Del' })).toBeVisible();
   await expect(menu.getByRole('menuitem', { name: 'Bevel Edges' })).toHaveCount(0);
 });
 
@@ -251,6 +255,77 @@ test('RMB Inset Face insets a default Cube quad instead of rejecting renderer-ba
     triangles: 20,
     selection: [0],
     stored: 10,
+  });
+});
+
+test('Delete key removes selected Edit Mode faces without deleting the object', async ({ page }) => {
+  const mode = page.locator('#mode');
+  await mode.selectOption('edit');
+  await page.getByLabel('Mesh component').selectOption('face');
+  const before = await page.evaluate(() => {
+    const e = (window as any).__forge;
+    e.selectComponent(0);
+    return { uuid: e.selected.uuid, snapshot: e.snapshot() };
+  });
+  await page.locator('#viewport canvas').focus();
+  await page.keyboard.press('Delete');
+  await page.waitForFunction(() => !(window as any).__forge.modelingBusy);
+  await expect(page.locator('#toast')).toContainText('Faces deleted');
+
+  expect(await page.evaluate(() => {
+    const e = (window as any).__forge;
+    return {
+      uuid: e.selected?.uuid,
+      editMode: e.editMode,
+      mode: e.componentMode,
+      selection: e.componentSelection,
+      polygons: e.meshTopology.polygons.length,
+      triangles: e.meshTopology.faces.length,
+      stored: e.selected.userData.forgePolygonTriangles?.length,
+    };
+  })).toEqual({
+    uuid: before.uuid,
+    editMode: true,
+    mode: 'face',
+    selection: [],
+    polygons: 5,
+    triangles: 10,
+    stored: 5,
+  });
+
+  await page.evaluate(() => (window as any).__forge.undo());
+  expect(await page.evaluate(() => (window as any).__forge.snapshot())).toBe(before.snapshot);
+});
+
+test('RMB Dissolve Edge merges two Cube quads into one logical n-gon', async ({ page }) => {
+  await page.locator('#mode').selectOption('edit');
+  await page.getByLabel('Mesh component').selectOption('edge');
+  await page.evaluate(() => (window as any).__forge.selectComponent(0));
+
+  await rightClickViewport(page);
+  await page.locator('#viewport-context-menu').getByRole('menuitem', { name: 'Dissolve Edge' }).click();
+  await page.waitForFunction(() => !(window as any).__forge.modelingBusy);
+  await expect(page.locator('#toast')).toContainText('Edge dissolved');
+
+  expect(await page.evaluate(() => {
+    const e = (window as any).__forge, t = e.meshTopology;
+    return {
+      polygons: t.polygons.length,
+      triangles: t.faces.length,
+      vertices: t.vertices.length,
+      edges: t.polygonEdges.length,
+      sizes: t.polygons.map((polygon: number[]) => polygon.length).sort((a:number,b:number)=>a-b),
+      selection: e.componentSelection,
+      stored: e.selected.userData.forgePolygonTriangles?.length,
+    };
+  })).toEqual({
+    polygons: 5,
+    triangles: 12,
+    vertices: 8,
+    edges: 11,
+    sizes: [4,4,4,4,6],
+    selection: [],
+    stored: 5,
   });
 });
 
