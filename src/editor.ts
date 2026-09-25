@@ -8,7 +8,8 @@ import { LineMaterial } from 'three/addons/lines/LineMaterial.js';
 import { GimbalControls } from './viewport/gimbal-controls';
 import { clone as cloneSkeleton } from 'three/addons/utils/SkeletonUtils.js';
 import { createGrid, setGridPlane } from './viewport/grid';
-import { extrudeTriangle, insetTriangle } from './modeling/extrude';
+import { insetTriangle } from './modeling/extrude';
+import { extrudeLogicalFace } from './modeling/modeling';
 import { buildTopology, type MeshTopology, type ComponentMode } from './modeling/topology';
 import { proportionalWeights } from './modeling/proportional';
 import { subdivideEdges } from './modeling/subdivide';
@@ -1312,30 +1313,42 @@ export class Editor extends EventTarget {
   }
   extrudeFace(distance: number, inset = false) {
     if (!this.editMode || this.componentMode !== 'face' || this.selectedFace === null || !this.topology || !(this.selected instanceof THREE.Mesh) || this.selected instanceof THREE.SkinnedMesh || this.playing) {
-      throw new Error('Select exactly one triangle face in Edit Mode first.');
+      throw new Error('Select exactly one face in Edit Mode first.');
     }
-    const mesh = this.selected, polygon = this.selectedFace;
-    const triangles = this.topology.polygonTriangles[polygon];
-    if (!triangles?.length) throw new Error('Selected face has no renderer triangles.');
-    if (triangles.length !== 1) {
-      throw new Error(`Quad/polygon ${inset ? 'inset' : 'extrude'} is not implemented yet; use a triangle face.`);
+    const mesh = this.selected, polygon = this.selectedFace, original = mesh.geometry;
+    let geometry: THREE.BufferGeometry;
+    let logicalGroups: number[][] | undefined;
+    let selectedAfter = polygon;
+    if (inset) {
+      const triangles = this.topology.polygonTriangles[polygon];
+      if (triangles?.length !== 1) throw new Error('Quad/polygon inset is not implemented yet; use a triangle face.');
+      geometry = insetTriangle(original, triangles[0], distance);
+      selectedAfter = triangles[0];
+    } else {
+      const extrusion = extrudeLogicalFace(original, polygon, distance, this.topology.polygonTriangles);
+      geometry = extrusion.geometry;
+      logicalGroups = extrusion.polygonTriangles;
     }
-    const original = mesh.geometry;
-    const geometry = inset ? insetTriangle(original, triangles[0], distance) : extrudeTriangle(original, triangles[0], distance);
     if (this.stats().vertices + geometry.getAttribute('position').count - original.getAttribute('position').count > 2_000_000) {
       geometry.dispose();
       throw new Error('Face editing would exceed the scene vertex limit.');
     }
-    this.markTopologyChanged(mesh);
+    if (logicalGroups) {
+      this.markPrimitiveApplied(mesh);
+      if (mesh.userData.forgeLogicalQuads !== undefined) delete mesh.userData.forgeLogicalQuads;
+      mesh.userData.forgePolygonTriangles = logicalGroups.map(group => [...group]);
+    } else {
+      this.markTopologyChanged(mesh);
+    }
     this.setEditMode(false);
     mesh.geometry = geometry;
     let retained = false;
     this.content.traverse(object => { if (object instanceof THREE.Mesh && object.geometry === original) retained = true; });
     if (!retained) original.dispose();
     this.setEditMode(true);
-    this.selectedComponents = new Set([triangles[0]]);
-    this.selectedFace = triangles[0];
-    this.selectComponentVertices(this.topology!.polygons[triangles[0]] ?? []);
+    this.selectedComponents = new Set([selectedAfter]);
+    this.selectedFace = selectedAfter;
+    this.selectComponentVertices(this.topology!.polygons[selectedAfter] ?? []);
     this.commit();
   }
   extrudePlanarRegion(distance: number) {
@@ -1488,7 +1501,7 @@ export class Editor extends EventTarget {
       meshes.forEach((mesh, i) => {
         if (operation.kind === 'uv') {
           this.markPrimitiveApplied(mesh);
-        } else if (operation.kind === 'bevel' && topologies[i]) {
+        } else if ((operation.kind === 'bevel' || operation.kind === 'extrude') && topologies[i]) {
           this.markPrimitiveApplied(mesh);
           if (mesh.userData.forgeLogicalQuads !== undefined) delete mesh.userData.forgeLogicalQuads;
           mesh.userData.forgePolygonTriangles = topologies[i]!.polygonTriangles.map(group => [...group]);
@@ -1498,7 +1511,13 @@ export class Editor extends EventTarget {
       });
       meshes.forEach((mesh, i) => this.replaceGeometry(mesh, results[i])); results.length = 0;
       if (editing) {
-        this.setEditMode(true, operation.kind === 'uv' ? undefined : topologies[0]);
+        // Polygon-native operations persist their logical face groups on the
+        // mesh, then rebuild topology from the exact geometry installed on the
+        // main thread. This keeps raycast faceIndex -> logical polygon mapping
+        // aligned with the parsed BufferGeometry rather than trusting a
+        // transient worker-side triangle numbering.
+        const rebuildFromStoredPolygons = operation.kind === 'bevel' || operation.kind === 'extrude';
+        this.setEditMode(true, operation.kind === 'uv' || rebuildFromStoredPolygons ? undefined : topologies[0]);
         if (operation.kind === 'subdivide') {
           this.restoreSubdivisionSelection(oldMode, oldEdges, midpoint);
         } else if (operation.kind === 'subdivide-all') {

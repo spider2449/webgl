@@ -1,7 +1,7 @@
 import * as THREE from 'three';
-import { bevelLogicalEdges, loopCut, editUV, inspectGeometry } from './modeling';
+import { bevelLogicalEdges, extrudeLogicalFace, loopCut, editUV, inspectGeometry } from './modeling';
 import { evaluateModifiers } from './modifiers';
-import { extrudeTriangle, insetTriangle } from './extrude';
+import { insetTriangle } from './extrude';
 import { extrudeRegion } from './extrude-region';
 import { subdivideEdges } from './subdivide';
 import type { ModelingOperation } from './modeling-worker-client';
@@ -24,7 +24,12 @@ self.onmessage = (event: MessageEvent<{ source: ReturnType<THREE.BufferGeometry[
       case 'loop': result = loopCut(source, op.edge); break;
       case 'uv': result = editUV(source, op.faces, op.operation, op.values); break;
       case 'modifiers': result = evaluateModifiers(source, op.items); break;
-      case 'extrude': result = extrudeTriangle(source, op.face, op.distance); break;
+      case 'extrude': {
+        const extrusion = extrudeLogicalFace(source, op.face, op.distance, op.polygonTriangles);
+        result = extrusion.geometry;
+        logicalGroups = extrusion.polygonTriangles;
+        break;
+      }
       case 'inset': result = insetTriangle(source, op.face, op.distance); break;
       case 'region': result = extrudeRegion(source, op.faces, op.distance); break;
       case 'subdivide': result = subdivideEdges(source, op.edges); break;
