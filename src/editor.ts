@@ -324,6 +324,34 @@ export class Editor extends EventTarget {
       const screen = projectToScreen(point);
       return screen.z >= -1 && screen.z <= 1 && screen.x >= left && screen.x <= right && screen.y >= top && screen.y <= bottom;
     };
+    const edgeBoxOverlapPixels = (a: THREE.Vector3, b: THREE.Vector3) => {
+      const start = projectToScreen(a), endPoint = projectToScreen(b);
+      if ((start.z < -1 && endPoint.z < -1) || (start.z > 1 && endPoint.z > 1)) return 0;
+      const dx = endPoint.x - start.x, dy = endPoint.y - start.y;
+      const length = Math.hypot(dx, dy);
+      if (length < 1e-6) return 0;
+      let t0 = 0, t1 = 1;
+      const clip = (p: number, q: number) => {
+        if (Math.abs(p) < 1e-12) return q >= 0;
+        const r = q / p;
+        if (p < 0) {
+          if (r > t1) return false;
+          if (r > t0) t0 = r;
+        } else {
+          if (r < t0) return false;
+          if (r < t1) t1 = r;
+        }
+        return true;
+      };
+      if (
+        !clip(-dx, start.x - left) ||
+        !clip(dx, right - start.x) ||
+        !clip(-dy, start.y - top) ||
+        !clip(dy, bottom - start.y) ||
+        t0 > t1
+      ) return 0;
+      return Math.max(0, t1 - t0) * length;
+    };
     this.camera.updateMatrixWorld(true);
     this.content.updateMatrixWorld(true);
 
@@ -335,7 +363,11 @@ export class Editor extends EventTarget {
         this.topology.vertices.forEach((_, vertex) => { if (inside(vertexPoint(vertex))) hits.push(vertex); });
       } else if (this.componentMode === 'edge') {
         this.topology.edges.forEach((edge, id) => {
-          if (inside(vertexPoint(edge[0])) && inside(vertexPoint(edge[1]))) hits.push(id);
+          const a = vertexPoint(edge[0]), b = vertexPoint(edge[1]);
+          const screenA = projectToScreen(a), screenB = projectToScreen(b);
+          const screenLength = Math.hypot(screenB.x - screenA.x, screenB.y - screenA.y);
+          const requiredOverlap = Math.min(4, screenLength * 0.5);
+          if (requiredOverlap > 0 && edgeBoxOverlapPixels(a, b) >= requiredOverlap) hits.push(id);
         });
       } else {
         this.topology.faces.forEach((face, id) => {
