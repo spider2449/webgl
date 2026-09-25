@@ -119,6 +119,7 @@ export class Editor extends EventTarget {
   private viewStyle = 'material';
   private solid = new THREE.MeshStandardMaterial({ color: 0x666a70, roughness: 0.9, metalness: 0 });
   private wire = new THREE.MeshBasicMaterial({ color: 0x555a62, wireframe: true });
+  private editWireSurface = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false });
   private resizeObserver: ResizeObserver;
 
   constructor(readonly host: HTMLElement) {
@@ -510,7 +511,9 @@ export class Editor extends EventTarget {
     if (this.viewStyle !== 'material') this.content.traverse(o => {
       if (o instanceof THREE.Mesh && o.userData.forgeEditorHelper !== true) {
         originals.set(o, o.material);
-        o.material = this.viewStyle === 'wire' ? this.wire : this.solid;
+        o.material = this.viewStyle === 'wire'
+          ? (this.editMode && o === this.selected ? this.editWireSurface : this.wire)
+          : this.solid;
       }
     });
     this.renderer.render(this.scene, this.camera);
@@ -1123,7 +1126,7 @@ export class Editor extends EventTarget {
     }
     edges.needsUpdate = true;
     this.componentEdges.geometry.computeBoundingSphere();
-    this.componentEdges.visible = this.componentMode !== 'vertex' || (this.snapTargetPending && this.snapTargetKind === 'edge');
+    this.componentEdges.visible = this.viewStyle === 'wire' || this.componentMode !== 'vertex' || (this.snapTargetPending && this.snapTargetKind === 'edge');
     const colors = this.vertexPoints.geometry.getAttribute('color');
     const selected = new Set(this.vertexIndices);
     for (let i = 0; i < colors.count; i++) colors.setXYZ(i, 1, selected.has(i) ? 0.45 : 1, selected.has(i) ? 0.12 : 1);
