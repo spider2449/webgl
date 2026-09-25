@@ -300,6 +300,7 @@ export class Editor extends EventTarget {
     this.boxSelectOverlay.style.height = `${Math.abs(end.y - start.y)}px`;
   }
   private applyBoxSelection(start: THREE.Vector2, end: THREE.Vector2, add: boolean) {
+    this.modelingVersion++;
     const left = Math.min(start.x, end.x), right = Math.max(start.x, end.x);
     const top = Math.min(start.y, end.y), bottom = Math.max(start.y, end.y);
     const rect = this.host.getBoundingClientRect();
