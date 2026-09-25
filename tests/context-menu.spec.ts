@@ -11,16 +11,13 @@ async function rightClickViewport(page: import('@playwright/test').Page, x = 320
   await expect(page.locator('#viewport-context-menu')).toBeVisible();
 }
 
-test('replaced modeling actions are removed from the Properties panel while tool settings remain', async ({ page }) => {
-  for (const id of ['extrude-face','extrude-region','inset-face','bevel-edges','loop-cut','subdivide-edge','vertex-snap','smooth','flat']) {
+test('replaced modeling actions and parameters are removed from Properties', async ({ page }) => {
+  for (const id of ['extrude-face','extrude-region','inset-face','bevel-edges','loop-cut','subdivide-edge','vertex-snap','smooth','flat','extrude-distance','inset-distance','bevel-width','snap-target-kind']) {
     await expect(page.locator(`#${id}`)).toHaveCount(0);
   }
-  await expect(page.getByLabel('Extrusion distance')).toBeVisible();
-  await expect(page.getByLabel('Inset distance')).toBeVisible();
-  await expect(page.getByLabel('Bevel width')).toBeVisible();
-  await expect(page.getByLabel('Snap target', { exact: true })).toBeVisible();
   await expect(page.locator('#mirror')).toBeVisible();
-  await expect(page.locator('summary').filter({ hasText: 'Tool settings' })).toBeVisible();
+  await expect(page.locator('summary').filter({ hasText: 'Modeling status' })).toBeVisible();
+  await expect(page.getByLabel('Proportional editing', { exact: true })).toBeVisible();
 });
 
 test('RMB opens a Blender-style object context menu and is reserved from viewport pan', async ({ page }) => {
@@ -37,6 +34,83 @@ test('RMB opens a Blender-style object context menu and is reserved from viewpor
   await expect(menu.getByRole('menuitem', { name: 'Extrude Face' })).toHaveCount(0);
   await expect(page.locator('.navigation-help')).toContainText('RMB');
   await expect(page.locator('.navigation-help')).toContainText('Context');
+});
+
+test('Face context exposes inline Extrude and Inset sliders with numeric entry and retained values', async ({ page }) => {
+  await page.locator('#mode').selectOption('edit');
+  await page.getByLabel('Mesh component').selectOption('face');
+  await page.evaluate(() => (window as any).__forge.selectComponent(0));
+  await rightClickViewport(page);
+
+  const menu = page.locator('#viewport-context-menu');
+  const extrudeNumber = menu.getByLabel('Context extrude distance', { exact: true });
+  const extrudeSlider = menu.getByLabel('Context extrude distance slider', { exact: true });
+  const insetNumber = menu.getByLabel('Context inset distance', { exact: true });
+  const insetSlider = menu.getByLabel('Context inset distance slider', { exact: true });
+
+  await expect(extrudeNumber).toHaveValue('0.5');
+  await expect(extrudeSlider).toHaveValue('0.5');
+  await expect(insetNumber).toHaveValue('0.1');
+  await expect(insetSlider).toHaveValue('0.1');
+
+  await extrudeSlider.fill('1.2');
+  await expect(extrudeNumber).toHaveValue('1.2');
+  await extrudeNumber.fill('2.5');
+  await extrudeNumber.press('Tab');
+  expect(await page.evaluate(() => (window as any).__forgeModelingSettings.extrudeDistance)).toBe(2.5);
+
+  await insetSlider.fill('0.35');
+  await expect(insetNumber).toHaveValue('0.35');
+  expect(await page.evaluate(() => (window as any).__forgeModelingSettings.insetDistance)).toBe(0.35);
+
+  await page.keyboard.press('Escape');
+  await rightClickViewport(page);
+  await expect(page.locator('#viewport-context-menu').getByLabel('Context extrude distance', { exact: true })).toHaveValue('2.5');
+  await expect(page.locator('#viewport-context-menu').getByLabel('Context inset distance', { exact: true })).toHaveValue('0.35');
+});
+
+test('Edge context exposes inline Bevel width and Enter executes with the typed value', async ({ page }) => {
+  await page.locator('#mode').selectOption('edit');
+  await page.getByLabel('Mesh component').selectOption('edge');
+  await page.evaluate(() => {
+    const e = (window as any).__forge;
+    e.selectComponent(0);
+    (window as any).__contextCalls = [];
+    e.runModeling = async (operation: unknown) => { (window as any).__contextCalls.push(operation); };
+  });
+  await rightClickViewport(page);
+
+  const menu = page.locator('#viewport-context-menu');
+  const bevelNumber = menu.getByLabel('Context bevel width', { exact: true });
+  const bevelSlider = menu.getByLabel('Context bevel width slider', { exact: true });
+  await bevelSlider.fill('0.4');
+  await expect(bevelNumber).toHaveValue('0.4');
+  await bevelNumber.fill('0.65');
+  await bevelNumber.press('Enter');
+  await expect(menu).toBeHidden();
+
+  expect(await page.evaluate(() => (window as any).__contextCalls[0])).toMatchObject({
+    kind: 'bevel',
+    width: 0.65,
+  });
+});
+
+test('Vertex context keeps Snap target beside Snap Selection and Enter starts the chosen target mode', async ({ page }) => {
+  await page.locator('#mode').selectOption('edit');
+  await page.getByLabel('Mesh component').selectOption('vertex');
+  await page.evaluate(() => (window as any).__forge.selectComponent(0));
+  await rightClickViewport(page);
+
+  const menu = page.locator('#viewport-context-menu');
+  const snapTarget = menu.getByLabel('Context snap target', { exact: true });
+  await snapTarget.selectOption('surface');
+  expect(await page.evaluate(() => (window as any).__forgeModelingSettings.snapTarget)).toBe('surface');
+  await snapTarget.press('Enter');
+  await expect(menu).toBeHidden();
+  expect(await page.evaluate(() => ({
+    pending: (window as any).__forge.snapTargetPending,
+    kind: (window as any).__forge.snapTargetKind,
+  }))).toEqual({ pending: true, kind: 'surface' });
 });
 
 test('Edit Mode RMB menu changes with Vertex, Edge and Face component mode', async ({ page }) => {

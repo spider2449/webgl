@@ -65,7 +65,7 @@ test('viewport-selected face extrudes repeatedly through UI with history and pro
   });
   await page.mouse.click(point.x,point.y);
   const before=await page.evaluate(()=>(window as any).__forge.snapshot());
-  await page.getByLabel('Extrusion distance').fill('0.5');
+  await page.evaluate(() => { (window as any).__forgeModelingSettings.extrudeDistance = 0.5; });
   await page.evaluate(() => (window as any).__forgeCommands.extrudeFace());
   await page.waitForFunction(() => !(window as any).__forge.modelingBusy);
   await expect(page.locator('#toast')).toContainText('Face extruded');
