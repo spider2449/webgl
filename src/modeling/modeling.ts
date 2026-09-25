@@ -216,6 +216,67 @@ function finish(polygons: Polygon[]): THREE.BufferGeometry {
   return finishDetailed(polygons).geometry;
 }
 
+function translatedCorner(corner: Corner, offset: THREE.Vector3): Corner {
+  return Object.fromEntries(Object.entries(corner).map(([name, data]) => [
+    name,
+    name === 'position'
+      ? [
+          Math.fround(data[0] + offset.x),
+          Math.fround(data[1] + offset.y),
+          Math.fround(data[2] + offset.z),
+        ]
+      : [...data],
+  ]));
+}
+
+export function extrudeLogicalFace(
+  source: THREE.BufferGeometry,
+  face: number,
+  distance: number,
+  polygonTriangles?: number[][],
+) {
+  if (!Number.isFinite(distance) || distance < 0.0001 || distance > 1000) {
+    throw new Error('Distance must be between 0.0001 and 1000 local units.');
+  }
+  const inspection = inspectGeometry(source, polygonTriangles ?? false);
+  const { topology } = inspection;
+  const { polygons, normals } = logicalSurface(source, inspection);
+  if (!Number.isInteger(face) || face < 0 || face >= polygons.length || !topology.polygons[face]) {
+    throw new Error('Select one valid logical face for extrusion.');
+  }
+
+  const polygon = polygons[face];
+  const normal = normals[face];
+  const offset = normal.clone().multiplyScalar(distance);
+  const moved = polygon.corners.map(corner => translatedCorner(corner, offset));
+  for (let i = 0; i < polygon.corners.length; i++) {
+    const before = vector(polygon.corners[i]);
+    const after = vector(moved[i]);
+    if (![after.x, after.y, after.z].every(Number.isFinite) || after.distanceToSquared(before) === 0) {
+      throw new Error('Extrusion distance collapses at mesh coordinate precision.');
+    }
+  }
+
+  const output = polygons.map((item, id) =>
+    id === face ? { material: item.material, corners: moved } : item,
+  );
+  for (let edge = 0; edge < polygon.corners.length; edge++) {
+    const next = (edge + 1) % polygon.corners.length;
+    output.push({
+      material: polygon.material,
+      corners: [
+        polygon.corners[edge],
+        polygon.corners[next],
+        moved[next],
+        moved[edge],
+      ],
+    });
+  }
+
+  const result = finishDetailed(output);
+  return { ...result, selectedFace: face };
+}
+
 export function bevelLogicalEdges(source: THREE.BufferGeometry, edges: number[], width: number, polygonTriangles?: number[][]) {
   if (!Number.isFinite(width) || width < 0.0001 || width > 1000) throw new Error('Bevel width must be between 0.0001 and 1000.');
   const inspection = inspectGeometry(source, polygonTriangles ?? false);
