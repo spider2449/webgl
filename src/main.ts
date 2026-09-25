@@ -1070,14 +1070,16 @@ document.querySelectorAll<HTMLInputElement>('[data-transform]').forEach(input =>
 on('reset-transform', () => { if (editor.selected) { editor.selected.position.set(0,0,0); editor.selected.rotation.set(0,0,0); editor.selected.scale.set(1,1,1); rigSystem.captureEditedRest(); editor.commit(); } });
 on('extrude-face', async () => {
   try {
-    if (!editor.editMode || editor.componentMode !== 'face' || editor.componentSelection.length !== 1 || !editor.meshTopology) throw new Error('Select exactly one triangle face in Edit Mode first.');
+    if (!editor.editMode || editor.componentMode !== 'face' || editor.componentSelection.length !== 1 || !editor.meshTopology) throw new Error('Select exactly one face in Edit Mode first.');
     const polygon = editor.componentSelection[0];
-    const triangles = editor.meshTopology.polygonTriangles[polygon];
     const distance = Number($<HTMLInputElement>('#extrude-distance').value);
-    if (!triangles?.length) throw new Error('Selected face has no renderer triangles.');
-    if (triangles.length !== 1) throw new Error('Quad/polygon extrude is not implemented yet; use a triangle face.');
-    await editor.runModeling({ kind: 'extrude', face: triangles[0], distance });
-    toast('Triangle extruded. Move the selected cap or extrude again.');
+    await editor.runModeling({
+      kind: 'extrude',
+      face: polygon,
+      distance,
+      polygonTriangles: editor.meshTopology.polygonTriangles.map(group => [...group]),
+    });
+    toast('Face extruded. The cap remains selected for moving or repeated extrusion.');
   } catch (error) { toast((error as Error).message); }
 });
 $('#extrude-face').insertAdjacentHTML('afterend', '<button class="wide-button" id="extrude-region">Extrude planar region</button><p class="field-help">Shift-select connected coplanar faces. Logical polygons are expanded to their renderer triangles before region extrusion.</p>');
