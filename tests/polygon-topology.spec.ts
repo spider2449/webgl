@@ -16,7 +16,8 @@ test('native cube exposes six quad faces and twelve modeling edges', async ({ pa
     e.camera.updateMatrixWorld(true);
     e.content.updateMatrixWorld(true);
     const rect = e.host.getBoundingClientRect();
-    const world = e.selected.localToWorld(new (window as any).THREE.Vector3(0, 0, 1));
+    const world = e.selected.position.clone();
+    world.z += 1;
     const projected = world.project(e.camera);
     return {
       x: rect.left + (projected.x + 1) * rect.width / 2,
