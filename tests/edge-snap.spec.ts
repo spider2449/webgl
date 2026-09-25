@@ -33,7 +33,7 @@ test('edge targets reject selected endpoints and cancel without mutation', async
   await page.locator('#vertex-snap').click();
   const result = await page.evaluate(() => {
     const e = (window as any).__forge, errors = [];
-    const shared = e.topology.edges.findIndex((vs: number[]) => vs.includes(0));
+    const shared = e.topology.polygonEdges.findIndex((vs: number[]) => vs.includes(0));
     for (const id of [-1, NaN, 1000000, shared]) {
       try { e.snapSelectionToEdge(id); } catch (error) { errors.push(String(error)); }
     }
