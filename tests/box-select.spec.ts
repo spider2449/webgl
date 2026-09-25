@@ -138,13 +138,68 @@ test('Select Tool does not attach Move gizmo after Edit Mode component selection
       selected: e.componentSelection.length,
       gizmoObject: e.transform.object?.name ?? null,
       edgeOverlay: e.selectedEdgeOverlay?.visible ?? false,
-      edgeOverlayCount: e.selectedEdgeOverlay?.geometry.getAttribute('position')?.count ?? 0,
+      edgeSegments: e.selectedEdgeOverlay?.geometry.getAttribute('instanceStart')?.count ?? 0,
+      selectedWidth: e.selectedEdgeOverlay?.material.linewidth ?? 0,
+      selectedColor: e.selectedEdgeOverlay?.material.color.getHex() ?? 0,
+      activeOverlay: e.activeEdgeOverlay?.visible ?? false,
+      activeSegments: e.activeEdgeOverlay?.geometry.getAttribute('instanceStart')?.count ?? 0,
+      activeWidth: e.activeEdgeOverlay?.material.linewidth ?? 0,
+      activeColor: e.activeEdgeOverlay?.material.color.getHex() ?? 0,
+      baseEdgeColor: e.componentEdges?.material.color.getHex() ?? 0,
     };
   });
   expect(result.selected).toBe(1);
   expect(result.gizmoObject).toBeNull();
   expect(result.edgeOverlay).toBe(true);
-  expect(result.edgeOverlayCount).toBe(2);
+  expect(result.edgeSegments).toBe(1);
+  expect(result.selectedWidth).toBe(5);
+  expect(result.selectedColor).toBe(0xffa94d);
+  expect(result.activeOverlay).toBe(true);
+  expect(result.activeSegments).toBe(1);
+  expect(result.activeWidth).toBe(2);
+  expect(result.activeColor).toBe(0xfff2db);
+  expect(result.baseEdgeColor).toBe(0x252a31);
+});
+
+test('selected edge overlay stays high-contrast in Wireframe shading', async ({ page }) => {
+  await page.evaluate(() => {
+    const e = (window as any).__forge;
+    e.selected.rotation.set(0, 0, 0);
+    e.commit();
+    e.view('front');
+  });
+  await page.locator('#mode').selectOption('edit');
+  await page.locator('#tool-select').click();
+  await page.getByLabel('Mesh component').selectOption('edge');
+  await page.locator('#shading-wire').click();
+
+  await page.evaluate(() => {
+    const e = (window as any).__forge;
+    e.selectComponent(0);
+  });
+
+  const result = await page.evaluate(() => {
+    const e = (window as any).__forge;
+    return {
+      mode: e.componentMode,
+      selected: e.componentSelection.length,
+      selectedVisible: e.selectedEdgeOverlay?.visible ?? false,
+      selectedWidth: e.selectedEdgeOverlay?.material.linewidth ?? 0,
+      selectedDepthTest: e.selectedEdgeOverlay?.material.depthTest ?? true,
+      activeVisible: e.activeEdgeOverlay?.visible ?? false,
+      activeWidth: e.activeEdgeOverlay?.material.linewidth ?? 0,
+      activeDepthTest: e.activeEdgeOverlay?.material.depthTest ?? true,
+    };
+  });
+
+  expect(result.mode).toBe('edge');
+  expect(result.selected).toBe(1);
+  expect(result.selectedVisible).toBe(true);
+  expect(result.selectedWidth).toBeGreaterThanOrEqual(4);
+  expect(result.selectedDepthTest).toBe(false);
+  expect(result.activeVisible).toBe(true);
+  expect(result.activeWidth).toBeGreaterThanOrEqual(2);
+  expect(result.activeDepthTest).toBe(false);
 });
 
 for (const mode of ['vertex', 'edge', 'face'] as const) {
