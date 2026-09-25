@@ -139,7 +139,7 @@ test('Select Tool does not attach Move gizmo after Edit Mode component selection
   const point = await page.evaluate(() => {
     const e = (window as any).__forge;
     const mesh = e.selected, topology = e.meshTopology, position = mesh.geometry.getAttribute('position');
-    const edge = topology.edges[0];
+    const edge = topology.polygonEdges[0];
     const center = edge.reduce((sum: any, vertex: number) => {
       const index = topology.vertices[vertex][0];
       return sum.add(mesh.localToWorld(mesh.position.clone().set(position.getX(index), position.getY(index), position.getZ(index))));
@@ -206,7 +206,7 @@ test('full Edge marquee selects every component edge and renders every selected 
   const result = await page.evaluate(() => {
     const e = (window as any).__forge;
     const selected = [...e.componentSelection].sort((a:number,b:number)=>a-b);
-    const edgeCount = e.meshTopology.edges.length;
+    const edgeCount = e.meshTopology.polygonEdges.length;
     const overlayCount = e.selectedEdgeOverlay?.geometry?.getAttribute('instanceStart')?.count ?? 0;
     const baseCount = (e.componentEdges?.geometry?.getAttribute('position')?.count ?? 0) / 2;
     const missing = Array.from({length: edgeCount}, (_,i)=>i).filter(i=>!selected.includes(i));
@@ -250,7 +250,7 @@ test('Edge box-select remains stable after primitive parameter regeneration', as
         y: rect.top + (1 - point.y) * rect.height / 2,
       };
     };
-    const candidates = topology.edges.map((edge: number[], id: number) => {
+    const candidates = topology.polygonEdges.map((edge: number[], id: number) => {
       const a = projectVertex(edge[0]), b = projectVertex(edge[1]);
       return { id, a, b, length: Math.hypot(b.x-a.x,b.y-a.y) };
     }).filter((item: any) => item.length > 20).sort((a: any,b: any)=>b.length-a.length);
@@ -299,7 +299,7 @@ test('Edge box-select selects a substantial screen-space segment without requiri
         y: rect.top + (1 - point.y) * rect.height / 2,
       };
     };
-    const candidates = topology.edges.map((edge: number[], id: number) => {
+    const candidates = topology.polygonEdges.map((edge: number[], id: number) => {
       const a = projectVertex(edge[0]), b = projectVertex(edge[1]);
       const length = Math.hypot(b.x - a.x, b.y - a.y);
       return { id, a, b, length };
@@ -426,7 +426,7 @@ for (const mode of ['vertex', 'edge', 'face'] as const) {
         };
       };
       if (mode === 'edge') {
-        const edge = topology.edges[Math.floor(topology.edges.length / 2)];
+        const edge = topology.polygonEdges[Math.floor(topology.polygonEdges.length / 2)];
         const a = projectVertex(edge[0]), b = projectVertex(edge[1]);
         const x = (a.x + b.x) / 2, y = (a.y + b.y) / 2;
         return { left: x - 14, top: y - 14, right: x + 14, bottom: y + 14 };
@@ -435,7 +435,7 @@ for (const mode of ['vertex', 'edge', 'face'] as const) {
       if (mode === 'vertex') {
         point = projectVertex(topology.vertices.length - 1);
       } else {
-        const face = topology.faces[Math.floor(topology.faces.length / 2)];
+        const face = topology.polygons[Math.floor(topology.polygons.length / 2)];
         const worldPoint = face.reduce((sum: any, vertex: number) => {
           const index = topology.vertices[vertex][0];
           return sum.add(mesh.localToWorld(mesh.position.clone().set(
@@ -486,7 +486,7 @@ test('face selection overlay does not change scene geometry stats', async ({ pag
   const point = await page.evaluate(() => {
     const e = (window as any).__forge;
     const mesh = e.selected, topology = e.meshTopology, position = mesh.geometry.getAttribute('position');
-    const face = topology.faces[0];
+    const face = topology.polygons[0];
     const center = face.reduce((sum: any, vertex: number) => {
       const index = topology.vertices[vertex][0];
       return sum.add(mesh.localToWorld(mesh.position.clone().set(position.getX(index), position.getY(index), position.getZ(index))));
