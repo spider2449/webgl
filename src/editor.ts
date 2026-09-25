@@ -117,8 +117,8 @@ export class Editor extends EventTarget {
   transformOrientation: TransformOrientation = 'world';
   private transformTool: 'select' | 'translate' | 'rotate' | 'scale' = 'translate';
   private viewStyle = 'material';
-  private solid = new THREE.MeshStandardMaterial({ color: 0x888c92, roughness: 0.8 });
-  private wire = new THREE.MeshBasicMaterial({ color: 0x60656d, wireframe: true });
+  private solid = new THREE.MeshStandardMaterial({ color: 0x666a70, roughness: 0.9, metalness: 0 });
+  private wire = new THREE.MeshBasicMaterial({ color: 0x555a62, wireframe: true });
   private resizeObserver: ResizeObserver;
 
   constructor(readonly host: HTMLElement) {
@@ -324,13 +324,13 @@ export class Editor extends EventTarget {
       const screen = projectToScreen(point);
       return screen.z >= -1 && screen.z <= 1 && screen.x >= left && screen.x <= right && screen.y >= top && screen.y <= bottom;
     };
-    const segmentIntersectsBox = (a: THREE.Vector3, b: THREE.Vector3) => {
+    const segmentBoxHit = (a: THREE.Vector3, b: THREE.Vector3): number | null => {
       const start = projectToScreen(a), endPoint = projectToScreen(b);
-      if ((start.z < -1 && endPoint.z < -1) || (start.z > 1 && endPoint.z > 1)) return false;
+      if ((start.z < -1 && endPoint.z < -1) || (start.z > 1 && endPoint.z > 1)) return null;
       let t0 = 0, t1 = 1;
       const dx = endPoint.x - start.x, dy = endPoint.y - start.y;
       const clip = (p: number, q: number) => {
-        if (p === 0) return q >= 0;
+        if (Math.abs(p) < 1e-12) return q >= 0;
         const r = q / p;
         if (p < 0) {
           if (r > t1) return false;
@@ -341,11 +341,14 @@ export class Editor extends EventTarget {
         }
         return true;
       };
-      return clip(-dx, start.x - left) &&
-        clip(dx, right - start.x) &&
-        clip(-dy, start.y - top) &&
-        clip(dy, bottom - start.y) &&
-        t0 <= t1;
+      if (
+        !clip(-dx, start.x - left) ||
+        !clip(dx, right - start.x) ||
+        !clip(-dy, start.y - top) ||
+        !clip(dy, bottom - start.y) ||
+        t0 > t1
+      ) return null;
+      return (t0 + t1) * 0.5;
     };
     this.camera.updateMatrixWorld(true);
     this.content.updateMatrixWorld(true);
@@ -357,8 +360,23 @@ export class Editor extends EventTarget {
       if (this.componentMode === 'vertex') {
         this.topology.vertices.forEach((_, vertex) => { if (inside(vertexPoint(vertex))) hits.push(vertex); });
       } else if (this.componentMode === 'edge') {
+        const visibilityRaycaster = new THREE.Raycaster();
+        const visibilityTolerance = Math.max(1e-4, this.camera.position.distanceTo(this.orbit.target) * 5e-4);
+        const edgeVisibleAt = (point: THREE.Vector3) => {
+          if (this.viewStyle === 'wire') return true;
+          const ndc = point.clone().project(this.camera);
+          visibilityRaycaster.setFromCamera(new THREE.Vector2(ndc.x, ndc.y), this.camera);
+          const hit = visibilityRaycaster.intersectObject(this.selected!, false)[0];
+          if (!hit) return true;
+          const edgeDistance = visibilityRaycaster.ray.origin.distanceTo(point);
+          return hit.distance >= edgeDistance - visibilityTolerance;
+        };
         this.topology.edges.forEach((edge, id) => {
-          if (segmentIntersectsBox(vertexPoint(edge[0]), vertexPoint(edge[1]))) hits.push(id);
+          const a = vertexPoint(edge[0]), b = vertexPoint(edge[1]);
+          const hitT = segmentBoxHit(a, b);
+          if (hitT === null) return;
+          const sample = a.clone().lerp(b, hitT);
+          if (edgeVisibleAt(sample)) hits.push(id);
         });
       } else {
         this.topology.faces.forEach((face, id) => {
@@ -524,7 +542,7 @@ export class Editor extends EventTarget {
     this.setEditMode(false);
     const settings = defaultPrimitiveSettings(kind);
     const geometry = createPrimitiveGeometry(settings);
-    const mesh = new THREE.Mesh(geometry, new THREE.MeshStandardMaterial({ color: 0x888c92, roughness: 0.55, metalness: 0.05, side: THREE.DoubleSide }));
+    const mesh = new THREE.Mesh(geometry, new THREE.MeshStandardMaterial({ color: 0x666a70, roughness: 0.8, metalness: 0, side: THREE.DoubleSide }));
     mesh.userData.forgePrimitive = settings;
     mesh.name = this.uniqueName(kind[0].toUpperCase() + kind.slice(1));
     mesh.position.y = kind === 'plane' ? 0 : kind === 'torus' ? 1.35 : kind === 'icosphere' ? 1.2 : 1;
@@ -1616,16 +1634,21 @@ export class Editor extends EventTarget {
       if (o instanceof THREE.Mesh) {
         vertices += o.geometry.getAttribute('position')?.count ?? 0;
         for (const material of Array.isArray(o.material) ? o.material : [o.material]) {
-          if (
-            material instanceof THREE.MeshStandardMaterial &&
-            material.color.getHex() === 0xb8b6b2 &&
-            Math.abs(material.roughness - 0.42) < 1e-9 &&
-            Math.abs(material.metalness - 0.12) < 1e-9
-          ) {
-            material.color.setHex(0x888c92);
-            material.roughness = 0.55;
-            material.metalness = 0.05;
-            material.needsUpdate = true;
+          if (material instanceof THREE.MeshStandardMaterial) {
+            const legacyBright =
+              material.color.getHex() === 0xb8b6b2 &&
+              Math.abs(material.roughness - 0.42) < 1e-9 &&
+              Math.abs(material.metalness - 0.12) < 1e-9;
+            const interimGray =
+              material.color.getHex() === 0x888c92 &&
+              Math.abs(material.roughness - 0.55) < 1e-9 &&
+              Math.abs(material.metalness - 0.05) < 1e-9;
+            if (legacyBright || interimGray) {
+              material.color.setHex(0x666a70);
+              material.roughness = 0.8;
+              material.metalness = 0;
+              material.needsUpdate = true;
+            }
           }
         }
       }
