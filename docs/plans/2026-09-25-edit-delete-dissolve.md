@@ -38,7 +38,7 @@ Add Blender-style destructive mesh editing to Forge's logical polygon workflow.
 2. Renderer triangles are regenerated only for display.
 3. Delete / Dissolve persist fresh polygon-to-renderer-triangle groups.
 4. Re-entering Edit Mode must not fall back to generic renderer triangles.
-5. Dissolve removes the selected logical edge instead of merely hiding a renderer diagonal.
+5. Dissolve removes the selected modeling edge while preserving its renderer crease/triangles as internal implementation geometry when required by the surface.
 6. Component selection is cleared after a destructive topology edit.
 7. Deleting every face from an object is rejected; deleting the whole object remains an Object Mode action.
 
@@ -47,8 +47,9 @@ Add Blender-style destructive mesh editing to Forge's logical polygon workflow.
 - One selected edge at a time.
 - Edge must be manifold and shared by exactly two polygons.
 - Adjacent polygons must have consistent opposite winding.
-- If adjacent polygons use different geometry material-group indices, the merged n-gon inherits the earlier logical face material deterministically.
-- Self-touching merged polygons are rejected.
+- Dissolve changes logical polygon ownership only; renderer triangles, positions, indices and material groups remain unchanged.
+- Folded / non-planar regions are therefore preserved exactly, with the dissolved logical edge remaining only as an internal renderer edge.
+- The merged logical polygon may span renderer material groups; later operators that require one flat/material-uniform polygon may still reject that n-gon.
 
 ## Validation
 
