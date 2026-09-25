@@ -1,0 +1,543 @@
+import { test, expect } from '@playwright/test';
+
+async function dragBox(
+  page: import('@playwright/test').Page,
+  box: { left: number; top: number; right: number; bottom: number },
+  add = false,
+  toggle = false,
+) {
+  if (add) await page.keyboard.down('Shift');
+  if (toggle) await page.keyboard.down('Control');
+  await page.mouse.move(box.left, box.top);
+  await page.mouse.down();
+  await page.mouse.move(box.right, box.bottom, { steps: 4 });
+  await page.mouse.up();
+  if (toggle) await page.keyboard.up('Control');
+  if (add) await page.keyboard.up('Shift');
+}
+
+test.beforeEach(async ({ page }) => {
+  await page.goto('/');
+  await page.waitForFunction(() => (window as any).__forge?.selected);
+});
+
+test('Object Mode drag-box selects multiple objects and Shift adds', async ({ page }) => {
+  const points = await page.evaluate(() => {
+    const e = (window as any).__forge;
+    const sphere = e.add('sphere', false);
+    sphere.position.x = 3;
+    const cone = e.add('cone', false);
+    cone.position.x = 6;
+    e.commit();
+    e.view('front');
+    e.setTool('select');
+    e.content.updateMatrixWorld(true);
+    e.camera.updateMatrixWorld(true);
+    const rect = e.host.getBoundingClientRect();
+    const screen = (object: any) => {
+      const point = object.getWorldPosition(object.position.clone().set(0, 0, 0)).project(e.camera);
+      return {
+        name: object.name,
+        x: rect.left + (point.x + 1) * rect.width / 2,
+        y: rect.top + (1 - point.y) * rect.height / 2,
+      };
+    };
+    return e.content.children.map(screen);
+  });
+
+  const cube = points.find(point => point.name === 'Cube')!;
+  const sphere = points.find(point => point.name.startsWith('Sphere'))!;
+  const cone = points.find(point => point.name.startsWith('Cone'))!;
+  await dragBox(page, {
+    left: Math.min(cube.x, sphere.x) - 24,
+    top: Math.min(cube.y, sphere.y) - 24,
+    right: Math.max(cube.x, sphere.x) + 24,
+    bottom: Math.max(cube.y, sphere.y) + 24,
+  });
+
+  expect(await page.evaluate(() => [...(window as any).__forge.selectedObjects].map((object: any) => object.name).sort())).toEqual(['Cube', 'Sphere']);
+  await expect(page.locator('.viewport-box-select')).toBeHidden();
+
+  await dragBox(page, {
+    left: cone.x - 24,
+    top: cone.y - 24,
+    right: cone.x + 24,
+    bottom: cone.y + 24,
+  }, true);
+
+  expect(await page.evaluate(() => [...(window as any).__forge.selectedObjects].map((object: any) => object.name).sort())).toEqual(['Cone', 'Cube', 'Sphere']);
+
+  const cubeSphereBox = {
+    left: Math.min(cube.x, sphere.x) - 24,
+    top: Math.min(cube.y, sphere.y) - 24,
+    right: Math.max(cube.x, sphere.x) + 24,
+    bottom: Math.max(cube.y, sphere.y) + 24,
+  };
+  await dragBox(page, cubeSphereBox, false, true);
+  expect(await page.evaluate(() => [...(window as any).__forge.selectedObjects].map((object: any) => object.name).sort())).toEqual(['Cone']);
+
+  await dragBox(page, cubeSphereBox, false, true);
+  expect(await page.evaluate(() => [...(window as any).__forge.selectedObjects].map((object: any) => object.name).sort())).toEqual(['Cone', 'Cube', 'Sphere']);
+});
+
+test('Shift-click accumulates Object Mode selection and Select Tool stays gizmo-free', async ({ page }) => {
+  const points = await page.evaluate(() => {
+    const e = (window as any).__forge;
+    const sphere = e.add('sphere', false);
+    sphere.position.x = 3;
+    e.commit();
+    e.view('front');
+    e.setTool('select');
+    e.content.updateMatrixWorld(true);
+    e.camera.updateMatrixWorld(true);
+    const rect = e.host.getBoundingClientRect();
+    return e.content.children.map((object: any) => {
+      const point = object.getWorldPosition(object.position.clone().set(0, 0, 0)).project(e.camera);
+      return {
+        name: object.name,
+        x: rect.left + (point.x + 1) * rect.width / 2,
+        y: rect.top + (1 - point.y) * rect.height / 2,
+      };
+    });
+  });
+
+  const cube = points.find((point: any) => point.name === 'Cube')!;
+  const sphere = points.find((point: any) => point.name.startsWith('Sphere'))!;
+  await page.mouse.click(cube.x, cube.y);
+  await page.keyboard.down('Shift');
+  await page.mouse.click(sphere.x, sphere.y);
+  await page.keyboard.up('Shift');
+
+  const result = await page.evaluate(() => {
+    const e = (window as any).__forge;
+    return {
+      names: [...e.selectedObjects].map((object: any) => object.name).sort(),
+      active: e.selected?.name,
+      helperCount: e.secondarySelectionBoxes.size,
+      gizmoObject: e.transform.object?.name ?? null,
+    };
+  });
+  expect(result.names).toEqual(['Cube', 'Sphere']);
+  expect(result.active).toBe('Sphere');
+  expect(result.helperCount).toBe(1);
+  expect(result.gizmoObject).toBeNull();
+  await expect(page.locator('#selection-label')).toContainText('2 objects selected');
+});
+
+test('Select Tool does not attach Move gizmo after Edit Mode component selection', async ({ page }) => {
+  await page.evaluate(() => {
+    const e = (window as any).__forge;
+    e.selected.rotation.set(0, 0, 0);
+    e.commit();
+    e.view('front');
+  });
+  await page.locator('#mode').selectOption('edit');
+  await page.locator('#tool-select').click();
+  await expect(page.locator('#tool-select')).toHaveClass(/active/);
+  await page.getByLabel('Mesh component').selectOption('edge');
+
+  const point = await page.evaluate(() => {
+    const e = (window as any).__forge;
+    const mesh = e.selected, topology = e.meshTopology, position = mesh.geometry.getAttribute('position');
+    const edge = topology.edges[0];
+    const center = edge.reduce((sum: any, vertex: number) => {
+      const index = topology.vertices[vertex][0];
+      return sum.add(mesh.localToWorld(mesh.position.clone().set(position.getX(index), position.getY(index), position.getZ(index))));
+    }, mesh.position.clone().set(0, 0, 0)).multiplyScalar(0.5);
+    e.camera.updateMatrixWorld(true);
+    center.project(e.camera);
+    const rect = e.host.getBoundingClientRect();
+    return { x: rect.left + (center.x + 1) * rect.width / 2, y: rect.top + (1 - center.y) * rect.height / 2 };
+  });
+
+  await page.mouse.click(point.x, point.y);
+  const result = await page.evaluate(() => {
+    const e = (window as any).__forge;
+    return {
+      selected: e.componentSelection.length,
+      gizmoObject: e.transform.object?.name ?? null,
+      edgeOverlay: e.selectedEdgeOverlay?.visible ?? false,
+      edgeSegments: e.selectedEdgeOverlay?.geometry.getAttribute('instanceStart')?.count ?? 0,
+      selectedWidth: e.selectedEdgeOverlay?.material.linewidth ?? 0,
+      selectedColor: e.selectedEdgeOverlay?.material.color.getHex() ?? 0,
+      activeOverlay: e.activeEdgeOverlay?.visible ?? false,
+      activeSegments: e.activeEdgeOverlay?.geometry.getAttribute('instanceStart')?.count ?? 0,
+      activeWidth: e.activeEdgeOverlay?.material.linewidth ?? 0,
+      activeColor: e.activeEdgeOverlay?.material.color.getHex() ?? 0,
+      baseEdgeColor: e.componentEdges?.material.color.getHex() ?? 0,
+    };
+  });
+  expect(result.selected).toBe(1);
+  expect(result.gizmoObject).toBeNull();
+  expect(result.edgeOverlay).toBe(true);
+  expect(result.edgeSegments).toBe(1);
+  expect(result.selectedWidth).toBe(5);
+  expect(result.selectedColor).toBe(0xffa94d);
+  expect(result.activeOverlay).toBe(true);
+  expect(result.activeSegments).toBe(1);
+  expect(result.activeWidth).toBe(2);
+  expect(result.activeColor).toBe(0xfff2db);
+  expect(result.baseEdgeColor).toBe(0x454b54);
+});
+
+test('full Edge marquee selects every component edge and renders every selected segment', async ({ page }) => {
+  await page.evaluate(() => {
+    const e = (window as any).__forge;
+    e.selected.rotation.set(0, 0, 0);
+    e.selected.scale.set(1, 1, 1);
+    e.view('perspective');
+  });
+  await page.locator('#mode').selectOption('edit');
+  await page.locator('#tool-select').click();
+  await page.getByLabel('Mesh component').selectOption('edge');
+
+  const bounds = await page.evaluate(() => {
+    const e = (window as any).__forge;
+    const rect = e.host.getBoundingClientRect();
+    return {
+      left: rect.left + 2,
+      top: rect.top + 2,
+      right: rect.right - 2,
+      bottom: rect.bottom - 2,
+    };
+  });
+  await dragBox(page, bounds);
+
+  const result = await page.evaluate(() => {
+    const e = (window as any).__forge;
+    const selected = [...e.componentSelection].sort((a:number,b:number)=>a-b);
+    const edgeCount = e.meshTopology.edges.length;
+    const overlayCount = e.selectedEdgeOverlay?.geometry?.getAttribute('instanceStart')?.count ?? 0;
+    const baseCount = (e.componentEdges?.geometry?.getAttribute('position')?.count ?? 0) / 2;
+    const missing = Array.from({length: edgeCount}, (_,i)=>i).filter(i=>!selected.includes(i));
+    return { edgeCount, selectedCount: selected.length, overlayCount, baseCount, missing };
+  });
+
+  expect(result, JSON.stringify(result)).toEqual({
+    edgeCount: result.edgeCount,
+    selectedCount: result.edgeCount,
+    overlayCount: result.edgeCount,
+    baseCount: result.edgeCount,
+    missing: [],
+  });
+});
+
+test('Edge box-select remains stable after primitive parameter regeneration', async ({ page }) => {
+  await page.evaluate(() => {
+    const e = (window as any).__forge;
+    e.setPrimitiveParameter('width', 2.37);
+    e.setPrimitiveParameter('height', 1.83);
+    e.setPrimitiveParameter('depth', 2.11);
+    e.view('front');
+  });
+  await page.locator('#mode').selectOption('edit');
+  await page.locator('#tool-select').click();
+  await page.getByLabel('Mesh component').selectOption('edge');
+
+  const target = await page.evaluate(() => {
+    const e = (window as any).__forge;
+    const mesh = e.selected, topology = e.meshTopology, position = mesh.geometry.getAttribute('position');
+    mesh.updateMatrixWorld(true);
+    e.camera.updateMatrixWorld(true);
+    const rect = e.host.getBoundingClientRect();
+    const projectVertex = (vertex: number) => {
+      const index = topology.vertices[vertex][0];
+      const point = mesh.localToWorld(mesh.position.clone().set(
+        position.getX(index), position.getY(index), position.getZ(index)
+      )).project(e.camera);
+      return {
+        x: rect.left + (point.x + 1) * rect.width / 2,
+        y: rect.top + (1 - point.y) * rect.height / 2,
+      };
+    };
+    const candidates = topology.edges.map((edge: number[], id: number) => {
+      const a = projectVertex(edge[0]), b = projectVertex(edge[1]);
+      return { id, a, b, length: Math.hypot(b.x-a.x,b.y-a.y) };
+    }).filter((item: any) => item.length > 20).sort((a: any,b: any)=>b.length-a.length);
+    const chosen = candidates[0];
+    const mx = (chosen.a.x + chosen.b.x) / 2;
+    const my = (chosen.a.y + chosen.b.y) / 2;
+    return {
+      id: chosen.id,
+      box: { left: mx - 6, top: my - 6, right: mx + 6, bottom: my + 6 },
+      logicalVertices: topology.vertices.length,
+      duplicateGroups: topology.vertices.filter((copies: number[]) => copies.length > 1).length,
+    };
+  });
+
+  expect(target.logicalVertices).toBe(8);
+  expect(target.duplicateGroups).toBeGreaterThan(0);
+  await dragBox(page, target.box);
+  expect(await page.evaluate(() => (window as any).__forge.componentSelection)).toContain(target.id);
+});
+
+test('Edge box-select selects a substantial screen-space segment without requiring both endpoints', async ({ page }) => {
+  await page.evaluate(() => {
+    const e = (window as any).__forge;
+    e.selected.rotation.set(0, 0, 0);
+    e.selected.scale.set(1, 1, 1);
+    e.commit();
+    e.view('front');
+  });
+  await page.locator('#mode').selectOption('edit');
+  await page.locator('#tool-select').click();
+  await page.getByLabel('Mesh component').selectOption('edge');
+
+  const target = await page.evaluate(() => {
+    const e = (window as any).__forge;
+    const mesh = e.selected, topology = e.meshTopology, position = mesh.geometry.getAttribute('position');
+    mesh.updateMatrixWorld(true);
+    e.camera.updateMatrixWorld(true);
+    const rect = e.host.getBoundingClientRect();
+    const projectVertex = (vertex: number) => {
+      const index = topology.vertices[vertex][0];
+      const point = mesh.localToWorld(mesh.position.clone().set(
+        position.getX(index), position.getY(index), position.getZ(index)
+      )).project(e.camera);
+      return {
+        x: rect.left + (point.x + 1) * rect.width / 2,
+        y: rect.top + (1 - point.y) * rect.height / 2,
+      };
+    };
+    const candidates = topology.edges.map((edge: number[], id: number) => {
+      const a = projectVertex(edge[0]), b = projectVertex(edge[1]);
+      const length = Math.hypot(b.x - a.x, b.y - a.y);
+      return { id, a, b, length };
+    }).filter((item: any) => item.length > 24).sort((a: any,b: any)=>b.length-a.length);
+    const chosen = candidates[0];
+    return { id: chosen.id, a: chosen.a, b: chosen.b };
+  });
+
+  await dragBox(page, {
+    left: Math.min(target.a.x, target.b.x) - 8,
+    top: Math.min(target.a.y, target.b.y) - 8,
+    right: Math.max(target.a.x, target.b.x) + 8,
+    bottom: Math.max(target.a.y, target.b.y) + 8,
+  });
+  expect(await page.evaluate(() => (window as any).__forge.componentSelection)).toContain(target.id);
+
+  const mx = (target.a.x + target.b.x) / 2;
+  const my = (target.a.y + target.b.y) / 2;
+  await dragBox(page, { left: mx - 6, top: my - 6, right: mx + 6, bottom: my + 6 });
+  expect(await page.evaluate(() => (window as any).__forge.componentSelection)).toContain(target.id);
+});
+
+test('Edit Mode base edge contrast follows shading mode', async ({ page }) => {
+  await page.locator('#mode').selectOption('edit');
+  await page.getByLabel('Mesh component').selectOption('edge');
+
+  const materialColor = await page.evaluate(() => {
+    const e = (window as any).__forge;
+    e.setShading('material');
+    return e.componentEdges.material.color.getHex();
+  });
+  expect(materialColor).toBe(0x454b54);
+
+  const wireColor = await page.evaluate(() => {
+    const e = (window as any).__forge;
+    e.setShading('wire');
+    return e.componentEdges.material.color.getHex();
+  });
+  expect(wireColor).toBe(0x9aa1aa);
+
+  const solidColor = await page.evaluate(() => {
+    const e = (window as any).__forge;
+    e.setShading('solid');
+    return e.componentEdges.material.color.getHex();
+  });
+  expect(solidColor).toBe(0x454b54);
+});
+
+test('selected edge overlay stays high-contrast in Wireframe shading', async ({ page }) => {
+  await page.evaluate(() => {
+    const e = (window as any).__forge;
+    e.selected.rotation.set(0, 0, 0);
+    e.commit();
+    e.view('front');
+  });
+  await page.locator('#mode').selectOption('edit');
+  await page.locator('#tool-select').click();
+  await page.getByLabel('Mesh component').selectOption('edge');
+  await page.locator('#shading-wire').click();
+
+  await page.evaluate(() => {
+    const e = (window as any).__forge;
+    e.selectComponent(0);
+  });
+
+  const result = await page.evaluate(() => {
+    const e = (window as any).__forge;
+    return {
+      mode: e.componentMode,
+      selected: e.componentSelection.length,
+      selectedVisible: e.selectedEdgeOverlay?.visible ?? false,
+      selectedWidth: e.selectedEdgeOverlay?.material.linewidth ?? 0,
+      selectedDepthTest: e.selectedEdgeOverlay?.material.depthTest ?? true,
+      activeVisible: e.activeEdgeOverlay?.visible ?? false,
+      activeWidth: e.activeEdgeOverlay?.material.linewidth ?? 0,
+      activeDepthTest: e.activeEdgeOverlay?.material.depthTest ?? true,
+      baseEdgeColor: e.componentEdges?.material.color.getHex() ?? 0,
+      wireColor: e.wire.color.getHex(),
+    };
+  });
+
+  expect(result.mode).toBe('edge');
+  expect(result.selected).toBe(1);
+  expect(result.selectedVisible).toBe(true);
+  expect(result.selectedWidth).toBeGreaterThanOrEqual(4);
+  expect(result.selectedDepthTest).toBe(false);
+  expect(result.activeVisible).toBe(true);
+  expect(result.activeWidth).toBeGreaterThanOrEqual(2);
+  expect(result.activeDepthTest).toBe(false);
+  expect(result.baseEdgeColor).toBe(0x9aa1aa);
+  expect(result.wireColor).toBe(0x555a62);
+  expect(result.baseEdgeColor).not.toBe(result.wireColor);
+});
+
+for (const mode of ['vertex', 'edge', 'face'] as const) {
+  test(`Edit Mode drag-box selects ${mode} components without changing selection type`, async ({ page }) => {
+    await page.evaluate(() => {
+      const e = (window as any).__forge;
+      e.selected.rotation.set(0, 0, 0);
+      e.selected.scale.set(1, 1, 1);
+      e.commit();
+      e.view('front');
+      e.setTool('select');
+    });
+    await page.locator('#mode').selectOption('edit');
+    await page.getByLabel('Mesh component').selectOption(mode);
+    const target = await page.evaluate((mode) => {
+      const e = (window as any).__forge;
+      const mesh = e.selected;
+      const topology = e.meshTopology;
+      const position = mesh.geometry.getAttribute('position');
+      mesh.updateMatrixWorld(true);
+      e.camera.updateMatrixWorld(true);
+      const rect = e.host.getBoundingClientRect();
+      const projectVertex = (vertex: number) => {
+        const point = mesh.localToWorld(mesh.position.clone().set(
+          position.getX(topology.vertices[vertex][0]),
+          position.getY(topology.vertices[vertex][0]),
+          position.getZ(topology.vertices[vertex][0]),
+        )).project(e.camera);
+        return {
+          x: rect.left + (point.x + 1) * rect.width / 2,
+          y: rect.top + (1 - point.y) * rect.height / 2,
+        };
+      };
+      if (mode === 'edge') {
+        const edge = topology.edges[Math.floor(topology.edges.length / 2)];
+        const a = projectVertex(edge[0]), b = projectVertex(edge[1]);
+        const x = (a.x + b.x) / 2, y = (a.y + b.y) / 2;
+        return { left: x - 14, top: y - 14, right: x + 14, bottom: y + 14 };
+      }
+      let point;
+      if (mode === 'vertex') {
+        point = projectVertex(topology.vertices.length - 1);
+      } else {
+        const face = topology.faces[Math.floor(topology.faces.length / 2)];
+        const worldPoint = face.reduce((sum: any, vertex: number) => {
+          const index = topology.vertices[vertex][0];
+          return sum.add(mesh.localToWorld(mesh.position.clone().set(
+            position.getX(index), position.getY(index), position.getZ(index)
+          )));
+        }, mesh.position.clone().set(0, 0, 0)).multiplyScalar(1 / 3).project(e.camera);
+        point = {
+          x: rect.left + (worldPoint.x + 1) * rect.width / 2,
+          y: rect.top + (1 - worldPoint.y) * rect.height / 2,
+        };
+      }
+      return {
+        left: point.x - 14,
+        top: point.y - 14,
+        right: point.x + 14,
+        bottom: point.y + 14,
+      };
+    }, mode);
+
+    await dragBox(page, target);
+
+    const result = await page.evaluate(() => {
+      const e = (window as any).__forge;
+      return { mode: e.componentMode, selected: e.componentSelection.length, editMode: e.editMode };
+    });
+    expect(result.editMode).toBe(true);
+    expect(result.mode).toBe(mode);
+    expect(result.selected).toBeGreaterThan(0);
+
+    await dragBox(page, target, false, true);
+    expect(await page.evaluate(() => (window as any).__forge.componentSelection.length)).toBe(0);
+
+    await dragBox(page, target, false, true);
+    expect(await page.evaluate(() => (window as any).__forge.componentSelection.length)).toBe(result.selected);
+  });
+}
+
+test('face selection overlay does not change scene geometry stats', async ({ page }) => {
+  const before = await page.evaluate(() => {
+    const e = (window as any).__forge;
+    return e.stats();
+  });
+
+  await page.locator('#mode').selectOption('edit');
+  await page.getByLabel('Mesh component').selectOption('face');
+  await page.locator('#tool-select').click();
+
+  const point = await page.evaluate(() => {
+    const e = (window as any).__forge;
+    const mesh = e.selected, topology = e.meshTopology, position = mesh.geometry.getAttribute('position');
+    const face = topology.faces[0];
+    const center = face.reduce((sum: any, vertex: number) => {
+      const index = topology.vertices[vertex][0];
+      return sum.add(mesh.localToWorld(mesh.position.clone().set(position.getX(index), position.getY(index), position.getZ(index))));
+    }, mesh.position.clone().set(0, 0, 0)).multiplyScalar(1 / 3);
+    e.camera.updateMatrixWorld(true);
+    center.project(e.camera);
+    const rect = e.host.getBoundingClientRect();
+    return { x: rect.left + (center.x + 1) * rect.width / 2, y: rect.top + (1 - center.y) * rect.height / 2 };
+  });
+
+  await page.mouse.click(point.x, point.y);
+  const after = await page.evaluate(() => {
+    const e = (window as any).__forge;
+    return {
+      stats: e.stats(),
+      selectedFaces: e.componentSelection.length,
+      helper: e.selectedFaceOverlay?.userData.forgeEditorHelper === true,
+    };
+  });
+  expect(after.selectedFaces).toBe(1);
+  expect(after.helper).toBe(true);
+  expect(after.stats.vertices).toBe(before.vertices);
+  expect(after.stats.triangles).toBe(before.triangles);
+});
+
+test('Escape cancels an active viewport box without changing selection', async ({ page }) => {
+  const box = await page.evaluate(() => {
+    const e = (window as any).__forge;
+    const sphere = e.add('sphere', false);
+    sphere.position.x = 3;
+    e.commit();
+    e.view('front');
+    e.setTool('select');
+    e.select(e.content.children[0]);
+    const rect = e.host.getBoundingClientRect();
+    return {
+      left: rect.left + 40,
+      top: rect.top + 40,
+      right: rect.right - 40,
+      bottom: rect.bottom - 40,
+    };
+  });
+
+  await page.mouse.move(box.left, box.top);
+  await page.mouse.down();
+  await page.mouse.move(box.right, box.bottom, { steps: 4 });
+  await expect.poll(() => page.evaluate(() => (window as any).__forge.boxSelecting)).toBe(true);
+  await page.keyboard.press('Escape');
+  await expect.poll(() => page.evaluate(() => (window as any).__forge.boxSelecting)).toBe(false);
+  await page.mouse.up();
+
+  expect(await page.evaluate(() => [...(window as any).__forge.selectedObjects].map((object: any) => object.name))).toEqual(['Cube']);
+  await expect(page.locator('.viewport-box-select')).toBeHidden();
+});

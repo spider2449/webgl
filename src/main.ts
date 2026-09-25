@@ -544,7 +544,9 @@ function updateUI() {
   const object = editor.selected;
   $('#project-name').setAttribute('title', editor.name);
   if (document.activeElement !== $('#project-name')) $<HTMLInputElement>('#project-name').value = editor.name;
-  $('#selection-label').textContent = object ? `Scene Collection / ${object.name}` : 'Scene Collection';
+  $('#selection-label').textContent = editor.selectedObjects.size > 1
+    ? `${editor.selectedObjects.size} objects selected · Active: ${object?.name ?? 'None'}`
+    : object ? `Scene Collection / ${object.name}` : 'Scene Collection';
   $('#timeline-object').textContent = object?.name ?? 'No selection';
   $('#selection-count').textContent = editor.selectedObjects.size ? `${editor.selectedObjects.size} object${editor.selectedObjects.size === 1 ? '' : 's'} selected` : 'No selection';
   $('#object-count').textContent = String(editor.stats().objects);
@@ -617,7 +619,7 @@ function renderOutliner() {
     const label = document.createElement('span');
     label.textContent = object.name;
     select.append(label);
-    select.onclick = event => { editor.select(object, event.shiftKey); editor.setTool(activeTool as 'translate'); };
+    select.onclick = event => { editor.select(object, event.shiftKey); editor.setTool(activeTool as 'select' | 'translate' | 'rotate' | 'scale'); };
     const visibility = document.createElement('button');
     visibility.className = 'object-visibility';
     visibility.title = `${object.visible ? 'Hide' : 'Show'} ${object.name}`;
@@ -1000,10 +1002,10 @@ editor.addEventListener('mode', () => {
   $('#component-mode').classList.toggle('hidden', !editor.editMode || editor.weightMode);
   $<HTMLSelectElement>('#mode').value = editor.weightMode ? 'weight' : editor.editMode ? 'edit' : 'object';
   $('#mode-hint').textContent = editor.weightMode
-    ? 'Weight Mode · click a vertex, Shift-click to toggle more; choose a bone and assign influence.'
+    ? 'Weight Mode · click or drag-box vertices; Shift adds; Ctrl toggles; choose a bone and assign influence.'
     : editor.editMode
-      ? `Select a ${editor.componentMode === 'face' ? 'triangle face' : editor.componentMode}, Shift-click to toggle more; drag the move gizmo.`
-      : 'Build something extraordinary.';
+      ? `Select a ${editor.componentMode === 'face' ? 'triangle face' : editor.componentMode}, drag-box to select more, Shift adds, Ctrl toggles; drag the move gizmo.`
+      : 'Click or drag-box to select objects; Shift adds; Ctrl-drag toggles.';
 });
 editor.addEventListener('view', () => { $('#view-label').textContent = editor.camera instanceof THREE.OrthographicCamera ? 'User Orthographic' : 'User Perspective'; });
 let cachedStats = '';
@@ -2070,7 +2072,7 @@ $<HTMLInputElement>('#model-input').onchange = async e => {
     if (file.name.toLowerCase().endsWith('.obj')) {
       const { OBJLoader } = await import('three/addons/loaders/OBJLoader.js');
       root = new OBJLoader().parse(await file.text());
-      root.traverse(o => { if (o instanceof THREE.Mesh) { const old = o.material; o.material = new THREE.MeshStandardMaterial({ color: 0xb8b6b2, roughness: 0.55, side: THREE.DoubleSide }); (Array.isArray(old) ? old : [old]).forEach(m => m.dispose()); } });
+      root.traverse(o => { if (o instanceof THREE.Mesh) { const old = o.material; o.material = new THREE.MeshStandardMaterial({ color: 0x666a70, roughness: 0.8, metalness: 0, side: THREE.DoubleSide }); (Array.isArray(old) ? old : [old]).forEach(m => m.dispose()); } });
     } else {
       const { GLTFLoader } = await import('three/addons/loaders/GLTFLoader.js');
       const manager = new THREE.LoadingManager();
@@ -2164,7 +2166,10 @@ document.addEventListener('keydown', e => {
   if (key === '/') { e.preventDefault(); $('#object-search').focus(); }
   if (key === 'escape') {
     closeMenus();
-    if (timelineSelectedFrames.size) {
+    if (editor.boxSelecting) {
+      e.preventDefault();
+      editor.cancelBoxSelection();
+    } else if (timelineSelectedFrames.size) {
       e.preventDefault();
       timelineSelectedFrames.clear();
       timelineState = '';
@@ -2180,6 +2185,6 @@ document.addEventListener('keydown', e => {
   }
 });
 document.addEventListener('keyup', e => { if (e.key === 'Alt') editor.orbit.mouseButtons.LEFT = null as unknown as THREE.MOUSE; });
-window.addEventListener('blur', () => { editor.orbit.mouseButtons.LEFT = null as unknown as THREE.MOUSE; cancelTimelineKeyDrag(); cancelTimelineBoxDrag(); cancelTimelinePanDrag(); cancelTimelineScrollbarDrag(); if (editor.playing) editor.togglePlayback(); });
+window.addEventListener('blur', () => { editor.orbit.mouseButtons.LEFT = null as unknown as THREE.MOUSE; editor.cancelBoxSelection(); cancelTimelineKeyDrag(); cancelTimelineBoxDrag(); cancelTimelinePanDrag(); cancelTimelineScrollbarDrag(); if (editor.playing) editor.togglePlayback(); });
 document.addEventListener('visibilitychange', () => { if (document.hidden && editor.playing) editor.togglePlayback(); });
 if (import.meta.env.DEV) Object.assign(window, { __forge: editor, __rig: rigSystem });

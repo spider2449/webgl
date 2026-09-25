@@ -24,6 +24,72 @@ async function createGenericThreeBoneArmature(page: Page) {
   });
 }
 
+test('default mesh shading uses neutral gray while preserving custom material edits', async ({ page }) => {
+  await page.goto('/');
+  await page.waitForFunction(() => (window as any).__forge?.selected);
+
+  const defaults = await page.evaluate(() => {
+    const e = (window as any).__forge;
+    return {
+      primitive: e.selected.material.color.getHex(),
+      solid: e.solid.color.getHex(),
+      wire: e.wire.color.getHex(),
+    };
+  });
+  expect(defaults.primitive).toBe(0x666a70);
+  expect(defaults.solid).toBe(0x666a70);
+  expect(defaults.wire).toBe(0x555a62);
+
+  await page.evaluate(() => {
+    const e = (window as any).__forge;
+    e.selected.material.color.setHex(0x336699);
+    e.setShading('solid');
+    e.setShading('material');
+  });
+  expect(await page.evaluate(() => (window as any).__forge.selected.material.color.getHex())).toBe(0x336699);
+});
+
+test('legacy default primitive material migrates to neutral gray on project load', async ({ page }) => {
+  const result = await page.evaluate(() => {
+    const e = (window as any).__forge;
+    const material = e.selected.material;
+    material.color.setHex(0xb8b6b2);
+    material.roughness = 0.42;
+    material.metalness = 0.12;
+    const saved = JSON.parse(e.snapshot());
+    const meshObject = saved.scene?.object?.children?.[0];
+    if (meshObject?.userData) delete meshObject.userData.forgePrimitive;
+    e.load(saved);
+    const migrated = e.selected.material;
+    const migratedResult = {
+      color: migrated.color.getHex(),
+      roughness: migrated.roughness,
+      metalness: migrated.metalness,
+    };
+
+    migrated.color.setHex(0xb8b6b2);
+    migrated.roughness = 0.6;
+    migrated.metalness = 0.12;
+    const customSaved = JSON.parse(e.snapshot());
+    e.load(customSaved);
+    const custom = e.selected.material;
+
+    return {
+      migratedColor: migratedResult.color,
+      migratedRoughness: migratedResult.roughness,
+      migratedMetalness: migratedResult.metalness,
+      customColor: custom.color.getHex(),
+      customRoughness: custom.roughness,
+    };
+  });
+
+  expect(result.migratedColor).toBe(0x666a70);
+  expect(result.migratedRoughness).toBeCloseTo(0.8);
+  expect(result.migratedMetalness).toBeCloseTo(0);
+  expect(result.customColor).toBe(0xb8b6b2);
+  expect(result.customRoughness).toBeCloseTo(0.6);
+});
+
 test('new scenes start with zero cube rotation', async ({ page }) => {
   const initial = await page.evaluate(() => {
     const e = (window as any).__forge;
@@ -202,6 +268,7 @@ test('topology modeling preserves Edge mode and supports multiple Undo / Redo st
   expect(result.undoDepth).toBeGreaterThanOrEqual(3);
   await expect(page.locator('#primitive-fields')).toHaveClass(/hidden/);
 
+  await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
   await page.keyboard.press('Control+z');
   const undo1 = await page.evaluate(() => {
     const e = (window as any).__forge;
@@ -222,6 +289,7 @@ test('topology modeling preserves Edge mode and supports multiple Undo / Redo st
   expect(undo1.undoDepth).toBeGreaterThanOrEqual(2);
   expect(undo1.redoDepth).toBe(1);
 
+  await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
   await page.keyboard.press('Control+z');
   const undo2 = await page.evaluate(() => {
     const e = (window as any).__forge;
@@ -241,6 +309,7 @@ test('topology modeling preserves Edge mode and supports multiple Undo / Redo st
   expect(undo2.undoDepth).toBeGreaterThanOrEqual(1);
   expect(undo2.redoDepth).toBe(2);
 
+  await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
   await page.keyboard.press('Control+z');
   const undo3 = await page.evaluate(() => {
     const e = (window as any).__forge;
@@ -258,8 +327,11 @@ test('topology modeling preserves Edge mode and supports multiple Undo / Redo st
   expect(undo3.heightSegments).toBe(1);
   expect(undo3.canRedo).toBe(true);
 
+  await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
   await page.keyboard.press('Control+Shift+z');
+  await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
   await page.keyboard.press('Control+Shift+z');
+  await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
   await page.keyboard.press('Control+Shift+z');
   const redone = await page.evaluate(() => {
     const e = (window as any).__forge;

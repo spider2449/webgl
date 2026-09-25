@@ -2,6 +2,9 @@ import * as THREE from 'three';
 import { allAnimationFrames, animationChannels, effectiveBezierHandle, sampleAnimationChannel, trackKeys, validAnimationChannel, validAnimationTracks, validKeyInterpolation, validKeyTangentMode } from './animation/animation';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { TransformControls } from 'three/addons/controls/TransformControls.js';
+import { LineSegments2 } from 'three/addons/lines/LineSegments2.js';
+import { LineSegmentsGeometry } from 'three/addons/lines/LineSegmentsGeometry.js';
+import { LineMaterial } from 'three/addons/lines/LineMaterial.js';
 import { GimbalControls } from './viewport/gimbal-controls';
 import { clone as cloneSkeleton } from 'three/addons/utils/SkeletonUtils.js';
 import { createGrid, setGridPlane } from './viewport/grid';
@@ -58,7 +61,8 @@ export class Editor extends EventTarget {
   readonly transform: TransformControls;
   readonly gimbal: GimbalControls;
   readonly grid = createGrid();
-  readonly selectionBox = new THREE.BoxHelper(new THREE.Object3D(), 0xd6ac78);
+  readonly selectionBox = new THREE.BoxHelper(new THREE.Object3D(), 0xf3c27d);
+  private readonly secondarySelectionBoxes = new Map<THREE.Object3D, THREE.BoxHelper>();
   selected: THREE.Object3D | null = null;
   readonly selectedObjects = new Set<THREE.Object3D>();
   modelingBusy = false;
@@ -84,6 +88,10 @@ export class Editor extends EventTarget {
   private selectedComponents = new Set<number>();
   private topology: MeshTopology | null = null;
   private componentEdges: THREE.LineSegments | null = null;
+  private selectedVertexOverlay: THREE.Points | null = null;
+  private selectedEdgeOverlay: LineSegments2 | null = null;
+  private activeEdgeOverlay: LineSegments2 | null = null;
+  private selectedFaceOverlay: THREE.Mesh | null = null;
   private componentCenter = new THREE.Vector3();
   private proportionalEnabled = false;
   private proportionalRadius = 2;
@@ -99,6 +107,8 @@ export class Editor extends EventTarget {
   private raycaster = new THREE.Raycaster();
   private mouseDown = new THREE.Vector2();
   private suppressClick = false;
+  private boxSelectOverlay!: HTMLDivElement;
+  private boxSelectDrag: { pointerId: number; start: THREE.Vector2; current: THREE.Vector2; mode: 'replace' | 'add' | 'toggle'; active: boolean } | null = null;
   private rotationDragObject: THREE.Object3D | null = null;
   private rotationDragReference = new THREE.Vector3();
   private rotationDragMatrix = new THREE.Matrix4();
@@ -107,8 +117,8 @@ export class Editor extends EventTarget {
   transformOrientation: TransformOrientation = 'world';
   private transformTool: 'select' | 'translate' | 'rotate' | 'scale' = 'translate';
   private viewStyle = 'material';
-  private solid = new THREE.MeshStandardMaterial({ color: 0xadb0b7, roughness: 0.8 });
-  private wire = new THREE.MeshBasicMaterial({ color: 0xaac7d7, wireframe: true });
+  private solid = new THREE.MeshStandardMaterial({ color: 0x666a70, roughness: 0.9, metalness: 0 });
+  private wire = new THREE.MeshBasicMaterial({ color: 0x555a62, wireframe: true });
   private resizeObserver: ResizeObserver;
 
   constructor(readonly host: HTMLElement) {
@@ -120,6 +130,10 @@ export class Editor extends EventTarget {
     this.renderer.toneMappingExposure = 1.3;
     host.prepend(this.renderer.domElement);
     this.renderer.domElement.setAttribute('aria-label', 'Interactive 3D viewport');
+    this.boxSelectOverlay = document.createElement('div');
+    this.boxSelectOverlay.className = 'viewport-box-select';
+    this.boxSelectOverlay.hidden = true;
+    this.renderer.domElement.after(this.boxSelectOverlay);
     this.gimbal = new GimbalControls(host, this.camera);
     this.gimbal.onDraggingChange = dragging => { this.orbit.enabled = !dragging; if (dragging) this.suppressClick = true; };
     this.gimbal.onChange = () => {
@@ -170,7 +184,7 @@ export class Editor extends EventTarget {
     // Shift selection must also work where a selected component meets the gizmo.
     let selectionPointer: number | null = null;
     this.renderer.domElement.addEventListener('pointerdown', e => {
-      if ((e.shiftKey || (this.editMode && !this.weightMode && this.snapTargetPending)) && e.button === 0 && !this.transform.dragging) {
+      if ((e.shiftKey || e.ctrlKey || (this.editMode && !this.weightMode && this.snapTargetPending)) && e.button === 0 && !this.transform.dragging) {
         selectionPointer = e.pointerId;
         this.transform.enabled = false;
         this.renderer.domElement.setPointerCapture(e.pointerId);
@@ -182,8 +196,41 @@ export class Editor extends EventTarget {
     this.renderer.domElement.addEventListener('pointerdown', e => {
       this.mouseDown.set(e.clientX, e.clientY);
       this.suppressClick = this.transform.dragging;
+      if (e.button === 0 && !e.altKey && !this.transform.dragging && !this.playing && !this.modelingBusy && !this.snapTargetPending) {
+        const rect = host.getBoundingClientRect();
+        const start = new THREE.Vector2(e.clientX - rect.left, e.clientY - rect.top);
+        this.boxSelectDrag = { pointerId: e.pointerId, start, current: start.clone(), mode: e.ctrlKey ? 'toggle' : e.shiftKey ? 'add' : 'replace', active: false };
+      } else this.boxSelectDrag = null;
+    });
+    this.renderer.domElement.addEventListener('pointermove', e => {
+      const drag = this.boxSelectDrag;
+      if (!drag || drag.pointerId !== e.pointerId) return;
+      if (this.transform.dragging || this.suppressClick || this.snapTargetPending) {
+        this.cancelBoxSelection();
+        return;
+      }
+      const rect = host.getBoundingClientRect();
+      drag.current.set(e.clientX - rect.left, e.clientY - rect.top);
+      if (!drag.active && drag.start.distanceTo(drag.current) > 4) {
+        drag.active = true;
+        this.transform.enabled = false;
+        this.orbit.enabled = false;
+        this.renderer.domElement.setPointerCapture(e.pointerId);
+        this.boxSelectOverlay.hidden = false;
+      }
+      if (drag.active) this.updateBoxSelectOverlay(drag.start, drag.current);
     });
     this.renderer.domElement.addEventListener('pointerup', e => {
+      const box = this.boxSelectDrag;
+      if (box && box.pointerId === e.pointerId && box.active) {
+        const end = box.current.clone();
+        const start = box.start.clone();
+        const mode = box.mode;
+        this.finishBoxSelection(e.pointerId);
+        this.applyBoxSelection(start, end, mode);
+        return;
+      }
+      if (box && box.pointerId === e.pointerId) this.boxSelectDrag = null;
       if (e.button !== 0 || this.suppressClick || this.mouseDown.distanceTo(new THREE.Vector2(e.clientX, e.clientY)) > 4) return;
       const rect = host.getBoundingClientRect();
       this.raycaster.setFromCamera(new THREE.Vector2((e.clientX - rect.left) / rect.width * 2 - 1, -(e.clientY - rect.top) / rect.height * 2 + 1), this.camera);
@@ -226,12 +273,157 @@ export class Editor extends EventTarget {
       this.select(object, e.shiftKey);
     });
     this.renderer.domElement.addEventListener('pointerup', restoreTransform);
-    this.renderer.domElement.addEventListener('pointercancel', restoreTransform);
-    this.renderer.domElement.addEventListener('lostpointercapture', restoreTransform);
+    this.renderer.domElement.addEventListener('pointercancel', e => { restoreTransform(e); this.cancelBoxSelection(); });
+    this.renderer.domElement.addEventListener('lostpointercapture', e => { restoreTransform(e); if (this.boxSelectDrag?.pointerId === e.pointerId) this.cancelBoxSelection(); });
     this.renderer.domElement.addEventListener('contextmenu', e => e.preventDefault());
     this.resizeObserver = new ResizeObserver(() => this.resize());
     this.resizeObserver.observe(host);
     this.resize();
+  }
+
+  get boxSelecting() { return !!this.boxSelectDrag?.active; }
+  cancelBoxSelection() {
+    const drag = this.boxSelectDrag;
+    if (!drag) return false;
+    const pointerId = drag.pointerId;
+    this.boxSelectDrag = null;
+    this.boxSelectOverlay.hidden = true;
+    if (this.renderer.domElement.hasPointerCapture(pointerId)) this.renderer.domElement.releasePointerCapture(pointerId);
+    this.transform.enabled = true;
+    this.orbit.enabled = true;
+    return true;
+  }
+  private finishBoxSelection(pointerId: number) {
+    this.boxSelectDrag = null;
+    this.boxSelectOverlay.hidden = true;
+    if (this.renderer.domElement.hasPointerCapture(pointerId)) this.renderer.domElement.releasePointerCapture(pointerId);
+    this.transform.enabled = true;
+    this.orbit.enabled = true;
+  }
+  private updateBoxSelectOverlay(start: THREE.Vector2, end: THREE.Vector2) {
+    const left = Math.min(start.x, end.x), top = Math.min(start.y, end.y);
+    this.boxSelectOverlay.style.left = `${left}px`;
+    this.boxSelectOverlay.style.top = `${top}px`;
+    this.boxSelectOverlay.style.width = `${Math.abs(end.x - start.x)}px`;
+    this.boxSelectOverlay.style.height = `${Math.abs(end.y - start.y)}px`;
+  }
+  private applyBoxSelection(start: THREE.Vector2, end: THREE.Vector2, mode: 'replace' | 'add' | 'toggle') {
+    this.modelingVersion++;
+    const left = Math.min(start.x, end.x), right = Math.max(start.x, end.x);
+    const top = Math.min(start.y, end.y), bottom = Math.max(start.y, end.y);
+    const rect = this.host.getBoundingClientRect();
+    const projectToScreen = (point: THREE.Vector3) => {
+      const projected = point.clone().project(this.camera);
+      return {
+        x: (projected.x + 1) * rect.width * 0.5,
+        y: (1 - projected.y) * rect.height * 0.5,
+        z: projected.z,
+      };
+    };
+    const inside = (point: THREE.Vector3) => {
+      const screen = projectToScreen(point);
+      return screen.z >= -1 && screen.z <= 1 && screen.x >= left && screen.x <= right && screen.y >= top && screen.y <= bottom;
+    };
+    const edgeBoxOverlapPixels = (a: THREE.Vector3, b: THREE.Vector3) => {
+      const start = projectToScreen(a), endPoint = projectToScreen(b);
+      if ((start.z < -1 && endPoint.z < -1) || (start.z > 1 && endPoint.z > 1)) return 0;
+      const dx = endPoint.x - start.x, dy = endPoint.y - start.y;
+      const length = Math.hypot(dx, dy);
+      if (length < 1e-6) return 0;
+      let t0 = 0, t1 = 1;
+      const clip = (p: number, q: number) => {
+        if (Math.abs(p) < 1e-12) return q >= 0;
+        const r = q / p;
+        if (p < 0) {
+          if (r > t1) return false;
+          if (r > t0) t0 = r;
+        } else {
+          if (r < t0) return false;
+          if (r < t1) t1 = r;
+        }
+        return true;
+      };
+      if (
+        !clip(-dx, start.x - left) ||
+        !clip(dx, right - start.x) ||
+        !clip(-dy, start.y - top) ||
+        !clip(dy, bottom - start.y) ||
+        t0 > t1
+      ) return 0;
+      return Math.max(0, t1 - t0) * length;
+    };
+    this.camera.updateMatrixWorld(true);
+    this.content.updateMatrixWorld(true);
+
+    if (this.editMode && this.selected instanceof THREE.Mesh && this.topology) {
+      const positions = this.selected.geometry.getAttribute('position');
+      const vertexPoint = (vertex: number) => this.selected!.localToWorld(new THREE.Vector3().fromBufferAttribute(positions, this.topology!.vertices[vertex][0]));
+      const hits: number[] = [];
+      if (this.componentMode === 'vertex') {
+        this.topology.vertices.forEach((_, vertex) => { if (inside(vertexPoint(vertex))) hits.push(vertex); });
+      } else if (this.componentMode === 'edge') {
+        this.topology.edges.forEach((edge, id) => {
+          const a = vertexPoint(edge[0]), b = vertexPoint(edge[1]);
+          const screenA = projectToScreen(a), screenB = projectToScreen(b);
+          const screenLength = Math.hypot(screenB.x - screenA.x, screenB.y - screenA.y);
+          const requiredOverlap = Math.min(4, screenLength * 0.5);
+          if (requiredOverlap > 0 && edgeBoxOverlapPixels(a, b) >= requiredOverlap) hits.push(id);
+        });
+      } else {
+        this.topology.faces.forEach((face, id) => {
+          const center = face.reduce((sum, vertex) => sum.add(vertexPoint(vertex)), new THREE.Vector3()).multiplyScalar(1 / 3);
+          if (inside(center)) hits.push(id);
+        });
+      }
+      if (mode === 'replace') this.selectedComponents.clear();
+      if (mode === 'toggle') {
+        hits.forEach(id => {
+          if (this.selectedComponents.has(id)) this.selectedComponents.delete(id);
+          else this.selectedComponents.add(id);
+        });
+      } else hits.forEach(id => this.selectedComponents.add(id));
+      this.selectedFace = this.componentMode === 'face' && this.selectedComponents.size === 1 ? [...this.selectedComponents][0] : null;
+      const vertices = [...this.selectedComponents].flatMap(id => this.componentMode === 'vertex' ? [id] : this.componentMode === 'edge' ? this.topology!.edges[id] : this.topology!.faces[id]);
+      this.selectComponentVertices(vertices);
+      this.emit('component-selection');
+      this.emit();
+      return;
+    }
+
+    const roots: THREE.Object3D[] = [];
+    for (const child of this.content.children) {
+      if (this.isCollection(child)) roots.push(...child.children);
+      else roots.push(child);
+    }
+    const hits = roots.filter(object => {
+      if (!this.isVisible(object) || object instanceof THREE.Bone || object instanceof THREE.Points) return false;
+      const bounds = new THREE.Box3().setFromObject(object);
+      if (bounds.isEmpty()) return false;
+      const min = bounds.min, max = bounds.max;
+      const corners = [
+        [min.x, min.y, min.z], [min.x, min.y, max.z], [min.x, max.y, min.z], [min.x, max.y, max.z],
+        [max.x, min.y, min.z], [max.x, min.y, max.z], [max.x, max.y, min.z], [max.x, max.y, max.z],
+      ].map(([x, y, z]) => new THREE.Vector3(x, y, z).project(this.camera))
+        .filter(point => point.z >= -1 && point.z <= 1);
+      if (!corners.length) return false;
+      const objectLeft = Math.min(...corners.map(point => (point.x + 1) * rect.width * 0.5));
+      const objectRight = Math.max(...corners.map(point => (point.x + 1) * rect.width * 0.5));
+      const objectTop = Math.min(...corners.map(point => (1 - point.y) * rect.height * 0.5));
+      const objectBottom = Math.max(...corners.map(point => (1 - point.y) * rect.height * 0.5));
+      return objectRight >= left && objectLeft <= right && objectBottom >= top && objectTop <= bottom;
+    });
+    if (mode === 'replace') this.selectedObjects.clear();
+    if (mode === 'toggle') {
+      hits.forEach(object => {
+        if (this.selectedObjects.has(object)) this.selectedObjects.delete(object);
+        else this.selectedObjects.add(object);
+      });
+    } else hits.forEach(object => this.selectedObjects.add(object));
+    this.selected = [...this.selectedObjects].at(-1) ?? null;
+    this.syncTransformControls();
+    this.updateSelection();
+    this.emit();
+    this.invalidate();
   }
 
   private beginRotationDrag() {
@@ -316,7 +508,10 @@ export class Editor extends EventTarget {
     this.gimbal.update();
     const originals = new Map<THREE.Mesh, THREE.Material | THREE.Material[]>();
     if (this.viewStyle !== 'material') this.content.traverse(o => {
-      if (o instanceof THREE.Mesh) { originals.set(o, o.material); o.material = this.viewStyle === 'wire' ? this.wire : this.solid; }
+      if (o instanceof THREE.Mesh && o.userData.forgeEditorHelper !== true) {
+        originals.set(o, o.material);
+        o.material = this.viewStyle === 'wire' ? this.wire : this.solid;
+      }
     });
     this.renderer.render(this.scene, this.camera);
     originals.forEach((material, mesh) => mesh.material = material);
@@ -326,6 +521,8 @@ export class Editor extends EventTarget {
   resize() {
     const { width, height } = this.host.getBoundingClientRect();
     this.renderer.setSize(width, height);
+    if (this.selectedEdgeOverlay) (this.selectedEdgeOverlay.material as LineMaterial).resolution.set(width, height);
+    if (this.activeEdgeOverlay) (this.activeEdgeOverlay.material as LineMaterial).resolution.set(width, height);
     this.perspective.aspect = width / height;
     this.perspective.updateProjectionMatrix();
     const extent = 7;
@@ -346,7 +543,7 @@ export class Editor extends EventTarget {
     this.setEditMode(false);
     const settings = defaultPrimitiveSettings(kind);
     const geometry = createPrimitiveGeometry(settings);
-    const mesh = new THREE.Mesh(geometry, new THREE.MeshStandardMaterial({ color: 0xb8b6b2, roughness: 0.42, metalness: 0.12, side: THREE.DoubleSide }));
+    const mesh = new THREE.Mesh(geometry, new THREE.MeshStandardMaterial({ color: 0x666a70, roughness: 0.8, metalness: 0, side: THREE.DoubleSide }));
     mesh.userData.forgePrimitive = settings;
     mesh.name = this.uniqueName(kind[0].toUpperCase() + kind.slice(1));
     mesh.position.y = kind === 'plane' ? 0 : kind === 'torus' ? 1.35 : kind === 'icosphere' ? 1.2 : 1;
@@ -464,15 +661,44 @@ export class Editor extends EventTarget {
     this.invalidate();
   }
   updateSelection() {
+    for (const [object, helper] of [...this.secondarySelectionBoxes]) {
+      if (this.editMode || !this.selectedObjects.has(object) || object === this.selected || !this.isVisible(object)) {
+        helper.removeFromParent();
+        helper.geometry.dispose();
+        (helper.material as THREE.Material).dispose();
+        this.secondarySelectionBoxes.delete(object);
+      }
+    }
+
+    if (!this.editMode) {
+      for (const object of this.selectedObjects) {
+        if (object === this.selected || object instanceof THREE.Bone || !this.isVisible(object)) continue;
+        const bounds = new THREE.Box3().setFromObject(object);
+        if (bounds.isEmpty()) continue;
+        let helper = this.secondarySelectionBoxes.get(object);
+        if (!helper) {
+          helper = new THREE.BoxHelper(object, 0x8fb7d9);
+          helper.renderOrder = 20;
+          (helper.material as THREE.LineBasicMaterial).depthTest = false;
+          this.secondarySelectionBoxes.set(object, helper);
+          this.scene.add(helper);
+        } else helper.update();
+      }
+    }
+
     this.selectionBox.visible = !!this.selected && this.selected.visible && !this.editMode && !(this.selected instanceof THREE.Bone);
     if (this.selected) {
       const bounds = new THREE.Box3().setFromObject(this.selected);
       if (bounds.isEmpty()) this.selectionBox.visible = false;
-      else this.selectionBox.setFromObject(this.selected);
+      else {
+        this.selectionBox.setFromObject(this.selected);
+        this.selectionBox.renderOrder = 21;
+        (this.selectionBox.material as THREE.LineBasicMaterial).depthTest = false;
+      }
     }
   }
   private syncTransformControls() {
-    const mode = this.editMode ? 'translate' : this.transformTool;
+    const mode = this.editMode && this.transformTool !== 'select' ? 'translate' : this.transformTool;
     const useGimbal = !this.editMode && mode === 'rotate' && this.transformOrientation === 'gimbal' && !!this.selected?.visible;
     this.gimbal.attach(this.selected);
     this.gimbal.setEnabled(useGimbal);
@@ -572,7 +798,11 @@ export class Editor extends EventTarget {
     this.content.traverse(o => { if (!removedNodes.has(o)) collect(o,retained); });
     resources.forEach(r => { if (!retained.has(r)) r.dispose(); });
   }
-  setShading(value: string) { this.viewStyle = value; this.invalidate(); }
+  setShading(value: string) {
+    this.viewStyle = value;
+    this.refreshComponents();
+    this.invalidate();
+  }
   setQuality(value: string) { this.renderer.setPixelRatio(Math.min(devicePixelRatio, value === 'high' ? 2 : value === 'low' ? 1 : 1.5)); this.resize(); }
   view(axis: 'front' | 'right' | 'top' | 'perspective') {
     const distance = Math.max(0.001, this.camera.position.distanceTo(this.orbit.target));
@@ -802,6 +1032,14 @@ export class Editor extends EventTarget {
       this.componentEdges?.geometry.dispose();
       if (this.componentEdges) (this.componentEdges.material as THREE.Material).dispose();
       this.componentEdges = null;
+      for (const overlay of [this.selectedVertexOverlay, this.selectedEdgeOverlay, this.activeEdgeOverlay, this.selectedFaceOverlay]) {
+        overlay?.geometry.dispose();
+        if (overlay) (overlay.material as THREE.Material).dispose();
+      }
+      this.selectedVertexOverlay = null;
+      this.selectedEdgeOverlay = null;
+      this.activeEdgeOverlay = null;
+      this.selectedFaceOverlay = null;
       this.topology = null;
       this.vertexPoints.geometry.dispose();
       (this.vertexPoints.material as THREE.Material).dispose();
@@ -817,9 +1055,28 @@ export class Editor extends EventTarget {
       this.topology = preparedTopology ?? buildTopology(position.array, this.selected.geometry.index?.array);
       geometry.setAttribute('color', new THREE.Float32BufferAttribute(new Float32Array(position.count * 3).fill(1), 3));
       (this.vertexPoints.material as THREE.PointsMaterial).vertexColors = true;
-      this.componentEdges = new THREE.LineSegments(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({ color: 0xe4b578, transparent: true, opacity: 0.65, depthTest: false }));
+      this.componentEdges = new THREE.LineSegments(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({ color: 0x454b54, transparent: true, opacity: 0.9, depthTest: false }));
       this.componentEdges.renderOrder = 9;
-      this.vertexPoints.add(this.componentEdges);
+      this.selectedVertexOverlay = new THREE.Points(new THREE.BufferGeometry(), new THREE.PointsMaterial({ color: 0xffcf85, size: 10, sizeAttenuation: false, depthTest: false }));
+      this.selectedVertexOverlay.userData.forgeEditorHelper = true;
+      this.selectedVertexOverlay.renderOrder = 12;
+
+      const selectedEdgeMaterial = new LineMaterial({ color: 0xffa94d, linewidth: 5, worldUnits: false, depthTest: false, depthWrite: false });
+      selectedEdgeMaterial.resolution.copy(this.renderer.getSize(new THREE.Vector2()));
+      this.selectedEdgeOverlay = new LineSegments2(new LineSegmentsGeometry(), selectedEdgeMaterial);
+      this.selectedEdgeOverlay.userData.forgeEditorHelper = true;
+      this.selectedEdgeOverlay.renderOrder = 13;
+
+      const activeEdgeMaterial = new LineMaterial({ color: 0xfff2db, linewidth: 2, worldUnits: false, depthTest: false, depthWrite: false });
+      activeEdgeMaterial.resolution.copy(this.renderer.getSize(new THREE.Vector2()));
+      this.activeEdgeOverlay = new LineSegments2(new LineSegmentsGeometry(), activeEdgeMaterial);
+      this.activeEdgeOverlay.userData.forgeEditorHelper = true;
+      this.activeEdgeOverlay.renderOrder = 14;
+
+      this.selectedFaceOverlay = new THREE.Mesh(new THREE.BufferGeometry(), new THREE.MeshBasicMaterial({ color: 0xffb95f, transparent: true, opacity: 0.32, depthTest: false, depthWrite: false, side: THREE.DoubleSide }));
+      this.selectedFaceOverlay.userData.forgeEditorHelper = true;
+      this.selectedFaceOverlay.renderOrder = 11;
+      this.vertexPoints.add(this.componentEdges, this.selectedVertexOverlay, this.selectedEdgeOverlay, this.activeEdgeOverlay, this.selectedFaceOverlay);
       this.refreshComponents();
     } else {
       this.syncTransformControls();
@@ -850,6 +1107,9 @@ export class Editor extends EventTarget {
   }
   private refreshComponents() {
     if (!this.vertexPoints || !this.componentEdges || !this.topology || !(this.selected instanceof THREE.Mesh)) return;
+    const edgeMaterial = this.componentEdges.material as THREE.LineBasicMaterial;
+    edgeMaterial.color.setHex(this.viewStyle === 'wire' ? 0x9aa1aa : 0x454b54);
+    edgeMaterial.opacity = this.viewStyle === 'wire' ? 1 : 0.9;
     const position = this.selected.geometry.getAttribute('position');
     let edges = this.componentEdges.geometry.getAttribute('position');
     if (!edges || edges.count !== this.topology.edges.length * 2) {
@@ -866,8 +1126,55 @@ export class Editor extends EventTarget {
     this.componentEdges.visible = this.componentMode !== 'vertex' || (this.snapTargetPending && this.snapTargetKind === 'edge');
     const colors = this.vertexPoints.geometry.getAttribute('color');
     const selected = new Set(this.vertexIndices);
-    for (let i = 0; i < colors.count; i++) colors.setXYZ(i, 1, selected.has(i) ? 0.3 : 1, selected.has(i) ? 0.05 : 1);
+    for (let i = 0; i < colors.count; i++) colors.setXYZ(i, 1, selected.has(i) ? 0.45 : 1, selected.has(i) ? 0.12 : 1);
     colors.needsUpdate = true;
+
+    if (this.selectedVertexOverlay && this.selectedEdgeOverlay && this.activeEdgeOverlay && this.selectedFaceOverlay) {
+      const vertexValues: number[] = [];
+      const edgeValues: number[] = [];
+      const activeEdgeValues: number[] = [];
+      const faceValues: number[] = [];
+      const pushVertex = (vertex: number, target: number[]) => {
+        const index = this.topology!.vertices[vertex][0];
+        target.push(position.getX(index), position.getY(index), position.getZ(index));
+      };
+
+      if (this.componentMode === 'vertex') {
+        for (const vertex of this.selectedComponents) pushVertex(vertex, vertexValues);
+      } else if (this.componentMode === 'edge') {
+        for (const edgeId of this.selectedComponents) {
+          const edge = this.topology.edges[edgeId];
+          if (!edge) continue;
+          pushVertex(edge[0], edgeValues);
+          pushVertex(edge[1], edgeValues);
+        }
+        const activeEdgeId = [...this.selectedComponents].at(-1);
+        const activeEdge = activeEdgeId === undefined ? undefined : this.topology.edges[activeEdgeId];
+        if (activeEdge) {
+          pushVertex(activeEdge[0], activeEdgeValues);
+          pushVertex(activeEdge[1], activeEdgeValues);
+        }
+      } else {
+        for (const faceId of this.selectedComponents) {
+          const face = this.topology.faces[faceId];
+          if (!face) continue;
+          face.forEach(vertex => pushVertex(vertex, faceValues));
+        }
+      }
+
+      this.selectedVertexOverlay.geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertexValues, 3));
+      (this.selectedEdgeOverlay.geometry as LineSegmentsGeometry).setPositions(edgeValues);
+      (this.activeEdgeOverlay.geometry as LineSegmentsGeometry).setPositions(activeEdgeValues);
+      this.selectedFaceOverlay.geometry.setAttribute('position', new THREE.Float32BufferAttribute(faceValues, 3));
+      this.selectedVertexOverlay.visible = this.componentMode === 'vertex' && vertexValues.length > 0;
+      this.selectedEdgeOverlay.visible = this.componentMode === 'edge' && edgeValues.length > 0;
+      this.activeEdgeOverlay.visible = this.componentMode === 'edge' && activeEdgeValues.length > 0;
+      this.selectedFaceOverlay.visible = this.componentMode === 'face' && faceValues.length > 0;
+      if (vertexValues.length) this.selectedVertexOverlay.geometry.computeBoundingSphere();
+      if (edgeValues.length) this.selectedEdgeOverlay.computeLineDistances();
+      if (activeEdgeValues.length) this.activeEdgeOverlay.computeLineDistances();
+      if (faceValues.length) this.selectedFaceOverlay.geometry.computeBoundingSphere();
+    }
   }
   private pickVertex(toggle = false) {
     if (!this.vertexPoints || !this.topology || !(this.selected instanceof THREE.Mesh)) return;
@@ -915,7 +1222,7 @@ export class Editor extends EventTarget {
       }
       this.componentCenter.divideScalar(unique.length);
       this.vertexProxy.position.copy(this.selected.localToWorld(this.componentCenter.clone()));
-      if (!this.weightMode) {
+      if (!this.weightMode && this.transformTool !== 'select') {
         this.transform.setMode('translate');
         this.transform.attach(this.vertexProxy);
       }
@@ -1325,7 +1632,27 @@ export class Editor extends EventTarget {
     if (!(root instanceof THREE.Group)) { this.disposeObject(root); throw new Error('Project scene must be a group.'); }
     let vertices = 0;
     try { root.traverse(o => {
-      if (o instanceof THREE.Mesh) vertices += o.geometry.getAttribute('position')?.count ?? 0;
+      if (o instanceof THREE.Mesh) {
+        vertices += o.geometry.getAttribute('position')?.count ?? 0;
+        for (const material of Array.isArray(o.material) ? o.material : [o.material]) {
+          if (material instanceof THREE.MeshStandardMaterial) {
+            const legacyBright =
+              material.color.getHex() === 0xb8b6b2 &&
+              Math.abs(material.roughness - 0.42) < 1e-9 &&
+              Math.abs(material.metalness - 0.12) < 1e-9;
+            const interimGray =
+              material.color.getHex() === 0x888c92 &&
+              Math.abs(material.roughness - 0.55) < 1e-9 &&
+              Math.abs(material.metalness - 0.05) < 1e-9;
+            if (legacyBright || interimGray) {
+              material.color.setHex(0x666a70);
+              material.roughness = 0.8;
+              material.metalness = 0;
+              material.needsUpdate = true;
+            }
+          }
+        }
+      }
       if (o.userData.modifierStack !== undefined) {
         if (!(o instanceof THREE.Mesh) || o instanceof THREE.SkinnedMesh) throw new Error('Only ordinary meshes support modifiers.');
         validateModifierStack(o.userData.modifierStack);
@@ -2323,7 +2650,12 @@ export class Editor extends EventTarget {
 
   stats() {
     let vertices = 0, triangles = 0;
-    this.content.traverse(o => { if (o instanceof THREE.Mesh) { vertices += o.geometry.getAttribute('position')?.count ?? 0; triangles += (o.geometry.index?.count ?? o.geometry.getAttribute('position')?.count ?? 0) / 3; } });
+    this.content.traverse(o => {
+      if (o instanceof THREE.Mesh && o.userData.forgeEditorHelper !== true) {
+        vertices += o.geometry.getAttribute('position')?.count ?? 0;
+        triangles += (o.geometry.index?.count ?? o.geometry.getAttribute('position')?.count ?? 0) / 3;
+      }
+    });
     return { objects: this.content.children.filter(object => !this.isCollection(object)).length + this.collections.reduce((count, collection) => count + collection.children.length, 0), vertices, triangles: Math.round(triangles), calls: this.renderer.info.render.calls, frames: this.renderedFrames };
   }
 }
