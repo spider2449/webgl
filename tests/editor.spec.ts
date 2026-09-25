@@ -24,6 +24,31 @@ async function createGenericThreeBoneArmature(page: Page) {
   });
 }
 
+test('default mesh shading uses neutral gray while preserving custom material edits', async ({ page }) => {
+  await page.goto('/');
+  await page.waitForFunction(() => (window as any).__forge?.selected);
+
+  const defaults = await page.evaluate(() => {
+    const e = (window as any).__forge;
+    return {
+      primitive: e.selected.material.color.getHex(),
+      solid: e.solid.color.getHex(),
+      wire: e.wire.color.getHex(),
+    };
+  });
+  expect(defaults.primitive).toBe(0x888c92);
+  expect(defaults.solid).toBe(0x888c92);
+  expect(defaults.wire).toBe(0x60656d);
+
+  await page.evaluate(() => {
+    const e = (window as any).__forge;
+    e.selected.material.color.setHex(0x336699);
+    e.setShading('solid');
+    e.setShading('material');
+  });
+  expect(await page.evaluate(() => (window as any).__forge.selected.material.color.getHex())).toBe(0x336699);
+});
+
 test('new scenes start with zero cube rotation', async ({ page }) => {
   const initial = await page.evaluate(() => {
     const e = (window as any).__forge;
