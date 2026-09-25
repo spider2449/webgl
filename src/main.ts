@@ -1000,10 +1000,10 @@ editor.addEventListener('mode', () => {
   $('#component-mode').classList.toggle('hidden', !editor.editMode || editor.weightMode);
   $<HTMLSelectElement>('#mode').value = editor.weightMode ? 'weight' : editor.editMode ? 'edit' : 'object';
   $('#mode-hint').textContent = editor.weightMode
-    ? 'Weight Mode · click a vertex, Shift-click to toggle more; choose a bone and assign influence.'
+    ? 'Weight Mode · click or drag-box vertices; Shift adds; choose a bone and assign influence.'
     : editor.editMode
-      ? `Select a ${editor.componentMode === 'face' ? 'triangle face' : editor.componentMode}, Shift-click to toggle more; drag the move gizmo.`
-      : 'Build something extraordinary.';
+      ? `Select a ${editor.componentMode === 'face' ? 'triangle face' : editor.componentMode}, drag-box to select more, Shift adds; drag the move gizmo.`
+      : 'Click or drag-box to select objects; Shift adds.';
 });
 editor.addEventListener('view', () => { $('#view-label').textContent = editor.camera instanceof THREE.OrthographicCamera ? 'User Orthographic' : 'User Perspective'; });
 let cachedStats = '';
@@ -2164,7 +2164,10 @@ document.addEventListener('keydown', e => {
   if (key === '/') { e.preventDefault(); $('#object-search').focus(); }
   if (key === 'escape') {
     closeMenus();
-    if (timelineSelectedFrames.size) {
+    if (editor.boxSelecting) {
+      e.preventDefault();
+      editor.cancelBoxSelection();
+    } else if (timelineSelectedFrames.size) {
       e.preventDefault();
       timelineSelectedFrames.clear();
       timelineState = '';
@@ -2180,6 +2183,6 @@ document.addEventListener('keydown', e => {
   }
 });
 document.addEventListener('keyup', e => { if (e.key === 'Alt') editor.orbit.mouseButtons.LEFT = null as unknown as THREE.MOUSE; });
-window.addEventListener('blur', () => { editor.orbit.mouseButtons.LEFT = null as unknown as THREE.MOUSE; cancelTimelineKeyDrag(); cancelTimelineBoxDrag(); cancelTimelinePanDrag(); cancelTimelineScrollbarDrag(); if (editor.playing) editor.togglePlayback(); });
+window.addEventListener('blur', () => { editor.orbit.mouseButtons.LEFT = null as unknown as THREE.MOUSE; editor.cancelBoxSelection(); cancelTimelineKeyDrag(); cancelTimelineBoxDrag(); cancelTimelinePanDrag(); cancelTimelineScrollbarDrag(); if (editor.playing) editor.togglePlayback(); });
 document.addEventListener('visibilitychange', () => { if (document.hidden && editor.playing) editor.togglePlayback(); });
 if (import.meta.env.DEV) Object.assign(window, { __forge: editor, __rig: rigSystem });
