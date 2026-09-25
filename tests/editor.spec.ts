@@ -57,8 +57,15 @@ test('legacy default primitive material migrates to neutral gray on project load
     material.roughness = 0.42;
     material.metalness = 0.12;
     const saved = JSON.parse(e.snapshot());
+    const meshObject = saved.scene?.object?.children?.[0];
+    if (meshObject?.userData) delete meshObject.userData.forgePrimitive;
     e.load(saved);
     const migrated = e.selected.material;
+    const migratedResult = {
+      color: migrated.color.getHex(),
+      roughness: migrated.roughness,
+      metalness: migrated.metalness,
+    };
 
     migrated.color.setHex(0xb8b6b2);
     migrated.roughness = 0.6;
@@ -68,9 +75,9 @@ test('legacy default primitive material migrates to neutral gray on project load
     const custom = e.selected.material;
 
     return {
-      migratedColor: migrated.color.getHex(),
-      migratedRoughness: migrated.roughness,
-      migratedMetalness: migrated.metalness,
+      migratedColor: migratedResult.color,
+      migratedRoughness: migratedResult.roughness,
+      migratedMetalness: migratedResult.metalness,
       customColor: custom.color.getHex(),
       customRoughness: custom.roughness,
     };
