@@ -83,6 +83,15 @@ test('invalid polygon metadata safely falls back to triangle modeling faces', ()
   expect(t.triangleToPolygon).toEqual([0, 1]);
   expect(t.polygonEdges).toEqual(t.edges);
   plane.dispose();
+
+  const fanPositions = [
+    -1,-1,0, 1,-1,0, 1,1,0, -1,1,0, 0,0,0,
+  ];
+  const fanIndices = [0,1,4, 1,2,4, 2,3,4, 3,0,4];
+  const interior = buildTopology(fanPositions, fanIndices, [[0,1,2,3]]);
+  expect(interior.polygons).toHaveLength(4);
+  expect(interior.polygons.every(face => face.length === 3)).toBe(true);
+  expect(interior.triangleToPolygon).toEqual([0,1,2,3]);
 });
 test('adjacent and all-edge bevels remain closed; planar grid cuts reach both boundaries', () => {
   const box = new THREE.BoxGeometry(2, 2, 2), t = topology(box), p = box.getAttribute('position');
