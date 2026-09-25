@@ -267,7 +267,7 @@ test('Delete key removes selected Edit Mode faces without deleting the object', 
     e.selectComponent(0);
     return { uuid: e.selected.uuid, snapshot: e.snapshot() };
   });
-  await page.locator('#viewport canvas').focus();
+  await page.getByLabel('Mesh component').evaluate((element: HTMLSelectElement) => element.blur());
   await page.keyboard.press('Delete');
   await page.waitForFunction(() => !(window as any).__forge.modelingBusy);
   await expect(page.locator('#toast')).toContainText('Faces deleted');
