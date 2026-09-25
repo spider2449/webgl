@@ -1640,8 +1640,12 @@ export class Editor extends EventTarget {
     const position = this.selected.geometry.getAttribute('position');
     const points = this.vertexPoints.geometry.getAttribute('position');
 
-    if (target) {
-      const delta = target.clone().sub(center);
+    if (target || this.transform.mode === 'translate') {
+      // Keep the established translation path. Besides matching the gizmo drag,
+      // this intentionally supports direct objectChange updates used by editor
+      // integrations and tests even when no dragging-changed event preceded it.
+      const local = target ?? this.selected.worldToLocal(this.vertexProxy.position.clone());
+      const delta = local.clone().sub(center);
       for (let i = 0; i < weights.length; i++) {
         if (!weights[i]) continue;
         const x = positions[i * 3] + delta.x * weights[i];
@@ -1650,7 +1654,7 @@ export class Editor extends EventTarget {
         position.setXYZ(i, x, y, z);
         points.setXYZ(i, x, y, z);
       }
-      this.componentCenter.copy(target);
+      this.componentCenter.copy(local);
     } else if (proxyStart && meshWorld && meshWorldInverse) {
       this.vertexProxy.updateMatrixWorld(true);
       const deltaWorld = this.vertexProxy.matrixWorld.clone().multiply(proxyStart.clone().invert());

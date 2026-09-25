@@ -144,8 +144,12 @@ for (const mode of ['vertex', 'edge', 'face'] as const) {
 
 test('G R S shortcuts switch the selected component gizmo between translate rotate and scale', async ({ page }) => {
   await page.locator('#mode').selectOption('edit');
-  await page.getByLabel('Mesh component').selectOption('face');
+  const componentMode = page.getByLabel('Mesh component');
+  await componentMode.selectOption('face');
   await page.evaluate(() => (window as any).__forge.selectComponent(0));
+  // Viewport shortcuts intentionally do not fire while a form control owns
+  // keyboard focus. Blur the mode select to model normal viewport interaction.
+  await componentMode.evaluate((element: HTMLSelectElement) => element.blur());
 
   await page.keyboard.press('r');
   expect(await page.evaluate(() => (window as any).__forge.transform.mode)).toBe('rotate');
