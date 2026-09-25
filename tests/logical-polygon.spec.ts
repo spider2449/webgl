@@ -31,18 +31,41 @@ test('Cube viewport topology exposes six quads and twelve boundary edges', async
   expect(result.logicalFlag).toBe(true);
 });
 
-test('quad inset stays explicitly staged while polygon extrusion is supported', async ({ page }) => {
+test('Cube quad inset preserves logical quads and inner-face selection', async ({ page }) => {
   await page.locator('#mode').selectOption('edit');
   await page.getByLabel('Mesh component').selectOption('face');
-  const before = await page.evaluate(() => {
+  await page.evaluate(() => {
     const e = (window as any).__forge;
     e.selectComponent(0);
-    return e.snapshot();
+    (window as any).__forgeModelingSettings.insetDistance = 0.1;
   });
 
   await page.evaluate(() => (window as any).__forgeCommands.insetFace());
-  await expect(page.locator('#toast')).toContainText('Quad/polygon inset is not implemented yet');
-  expect(await page.evaluate(() => (window as any).__forge.snapshot())).toBe(before);
+  await page.waitForFunction(() => !(window as any).__forge.modelingBusy);
+  await expect(page.locator('#toast')).toContainText('Face inset');
+
+  expect(await page.evaluate(() => {
+    const e = (window as any).__forge, t = e.meshTopology;
+    return {
+      polygons: t.polygons.length,
+      vertices: t.vertices.length,
+      triangles: t.faces.length,
+      sizes: t.polygons.map((polygon: number[]) => polygon.length),
+      selection: e.componentSelection,
+      selectedFace: e.selectedFace,
+      stored: e.selected.userData.forgePolygonTriangles?.length,
+      logicalFlag: e.selected.userData.forgeLogicalQuads,
+    };
+  })).toEqual({
+    polygons: 10,
+    vertices: 12,
+    triangles: 20,
+    sizes: new Array(10).fill(4),
+    selection: [0],
+    selectedFace: 0,
+    stored: 10,
+    logicalFlag: undefined,
+  });
 });
 
 test('Cube quad extrudes as logical polygons, keeps the cap selected, and survives repeat and reload', async ({ page }) => {
