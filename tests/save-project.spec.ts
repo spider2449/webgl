@@ -7,6 +7,7 @@ test.beforeEach(async ({ page }) => {
 });
 
 test('Save project asks for a filename and keeps project name aligned with the download', async ({ page }) => {
+  await page.locator('[data-menu="file-menu"]').click();
   await page.locator('#save-project').click();
   await expect(page.locator('#save-dialog')).toBeVisible();
   await expect(page.getByLabel('Project file name')).toHaveValue('Untitled scene');
@@ -46,7 +47,8 @@ test('Save filename normalization avoids duplicate extensions and unsafe Windows
   await expect(page.locator('#save-dialog')).toBeHidden();
   expect(await page.evaluate(() => (window as any).__forge.name)).toBe('Scene');
 
-  await page.locator('#save-project').click();
+  await page.keyboard.press('Control+s');
+  await expect(page.locator('#save-dialog')).toBeVisible();
   await page.getByLabel('Project file name').fill('look/dev:*?.forge');
   await expect(page.locator('#save-file-preview')).toHaveText('look_dev___.forge');
 
