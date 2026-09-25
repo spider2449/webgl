@@ -161,6 +161,49 @@ test('Select Tool does not attach Move gizmo after Edit Mode component selection
   expect(result.baseEdgeColor).toBe(0x454b54);
 });
 
+test('Edge box-select uses segment intersection instead of midpoint sampling', async ({ page }) => {
+  await page.evaluate(() => {
+    const e = (window as any).__forge;
+    e.selected.rotation.set(0, 0, 0);
+    e.selected.scale.set(1, 1, 1);
+    e.commit();
+    e.view('front');
+  });
+  await page.locator('#mode').selectOption('edit');
+  await page.locator('#tool-select').click();
+  await page.getByLabel('Mesh component').selectOption('edge');
+
+  const target = await page.evaluate(() => {
+    const e = (window as any).__forge;
+    const mesh = e.selected, topology = e.meshTopology, position = mesh.geometry.getAttribute('position');
+    mesh.updateMatrixWorld(true);
+    e.camera.updateMatrixWorld(true);
+    const rect = e.host.getBoundingClientRect();
+    const projectVertex = (vertex: number) => {
+      const index = topology.vertices[vertex][0];
+      const point = mesh.localToWorld(mesh.position.clone().set(position.getX(index), position.getY(index), position.getZ(index))).project(e.camera);
+      return { x: rect.left + (point.x + 1) * rect.width / 2, y: rect.top + (1 - point.y) * rect.height / 2 };
+    };
+    const candidates = topology.edges.map((edge: number[], id: number) => {
+      const a = projectVertex(edge[0]), b = projectVertex(edge[1]);
+      const length = Math.hypot(b.x - a.x, b.y - a.y);
+      return { id, a, b, length };
+    }).filter((item: any) => item.length > 35).sort((a: any, b: any) => b.length - a.length);
+    const chosen = candidates[0];
+    const t = 0.18;
+    const x = chosen.a.x + (chosen.b.x - chosen.a.x) * t;
+    const y = chosen.a.y + (chosen.b.y - chosen.a.y) * t;
+    const midpoint = { x: (chosen.a.x + chosen.b.x) / 2, y: (chosen.a.y + chosen.b.y) / 2 };
+    return { id: chosen.id, x, y, midpoint };
+  });
+
+  expect(Math.hypot(target.x - target.midpoint.x, target.y - target.midpoint.y)).toBeGreaterThan(12);
+  await dragBox(page, { left: target.x - 6, top: target.y - 6, right: target.x + 6, bottom: target.y + 6 });
+
+  const selected = await page.evaluate(() => (window as any).__forge.componentSelection);
+  expect(selected).toContain(target.id);
+});
+
 test('Edit Mode base edge contrast follows shading mode', async ({ page }) => {
   await page.locator('#mode').selectOption('edit');
   await page.getByLabel('Mesh component').selectOption('edge');
