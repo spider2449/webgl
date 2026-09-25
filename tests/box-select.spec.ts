@@ -161,6 +161,48 @@ test('Select Tool does not attach Move gizmo after Edit Mode component selection
   expect(result.baseEdgeColor).toBe(0x454b54);
 });
 
+test('full Edge marquee selects every component edge and renders every selected segment', async ({ page }) => {
+  await page.evaluate(() => {
+    const e = (window as any).__forge;
+    e.selected.rotation.set(0, 0, 0);
+    e.selected.scale.set(1, 1, 1);
+    e.view('perspective');
+  });
+  await page.locator('#mode').selectOption('edit');
+  await page.locator('#tool-select').click();
+  await page.getByLabel('Mesh component').selectOption('edge');
+
+  const bounds = await page.evaluate(() => {
+    const e = (window as any).__forge;
+    const rect = e.host.getBoundingClientRect();
+    return {
+      left: rect.left + 2,
+      top: rect.top + 2,
+      right: rect.right - 2,
+      bottom: rect.bottom - 2,
+    };
+  });
+  await dragBox(page, bounds);
+
+  const result = await page.evaluate(() => {
+    const e = (window as any).__forge;
+    const selected = [...e.componentSelection].sort((a:number,b:number)=>a-b);
+    const edgeCount = e.meshTopology.edges.length;
+    const overlayCount = e.selectedEdgeOverlay?.geometry?.getAttribute('instanceStart')?.count ?? 0;
+    const baseCount = (e.componentEdges?.geometry?.getAttribute('position')?.count ?? 0) / 2;
+    const missing = Array.from({length: edgeCount}, (_,i)=>i).filter(i=>!selected.includes(i));
+    return { edgeCount, selectedCount: selected.length, overlayCount, baseCount, missing };
+  });
+
+  expect(result, JSON.stringify(result)).toEqual({
+    edgeCount: result.edgeCount,
+    selectedCount: result.edgeCount,
+    overlayCount: result.edgeCount,
+    baseCount: result.edgeCount,
+    missing: [],
+  });
+});
+
 test('Edge box-select remains stable after primitive parameter regeneration', async ({ page }) => {
   await page.evaluate(() => {
     const e = (window as any).__forge;
