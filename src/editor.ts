@@ -1296,7 +1296,7 @@ export class Editor extends EventTarget {
     this.content.traverse(object => { if (object instanceof THREE.Mesh && object.geometry === original) retained = true; });
     if (!retained) original.dispose();
     this.setEditMode(true);
-    this.selectComponent(face);
+    this.selectComponent(polygon);
     this.commit();
   }
   extrudePlanarRegion(distance: number) {
