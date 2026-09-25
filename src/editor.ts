@@ -362,7 +362,7 @@ export class Editor extends EventTarget {
       if (this.componentMode === 'vertex') {
         this.topology.vertices.forEach((_, vertex) => { if (inside(vertexPoint(vertex))) hits.push(vertex); });
       } else if (this.componentMode === 'edge') {
-        this.topology.edges.forEach((edge, id) => {
+        this.topology.polygonEdges.forEach((edge, id) => {
           const a = vertexPoint(edge[0]), b = vertexPoint(edge[1]);
           const screenA = projectToScreen(a), screenB = projectToScreen(b);
           const screenLength = Math.hypot(screenB.x - screenA.x, screenB.y - screenA.y);
@@ -370,8 +370,8 @@ export class Editor extends EventTarget {
           if (requiredOverlap > 0 && edgeBoxOverlapPixels(a, b) >= requiredOverlap) hits.push(id);
         });
       } else {
-        this.topology.faces.forEach((face, id) => {
-          const center = face.reduce((sum, vertex) => sum.add(vertexPoint(vertex)), new THREE.Vector3()).multiplyScalar(1 / 3);
+        this.topology.polygons.forEach((face, id) => {
+          const center = face.reduce((sum, vertex) => sum.add(vertexPoint(vertex)), new THREE.Vector3()).multiplyScalar(1 / face.length);
           if (inside(center)) hits.push(id);
         });
       }
@@ -383,7 +383,7 @@ export class Editor extends EventTarget {
         });
       } else hits.forEach(id => this.selectedComponents.add(id));
       this.selectedFace = this.componentMode === 'face' && this.selectedComponents.size === 1 ? [...this.selectedComponents][0] : null;
-      const vertices = [...this.selectedComponents].flatMap(id => this.componentMode === 'vertex' ? [id] : this.componentMode === 'edge' ? this.topology!.edges[id] : this.topology!.faces[id]);
+      const vertices = [...this.selectedComponents].flatMap(id => this.componentMode === 'vertex' ? [id] : this.componentMode === 'edge' ? this.topology!.polygonEdges[id] : this.topology!.polygons[id]);
       this.selectComponentVertices(vertices);
       this.emit('component-selection');
       this.emit();
@@ -1052,7 +1052,7 @@ export class Editor extends EventTarget {
       this.vertexPoints.renderOrder = 10;
       this.selected.add(this.vertexPoints);
       const position = this.selected.geometry.getAttribute('position');
-      this.topology = preparedTopology ?? buildTopology(position.array, this.selected.geometry.index?.array);
+      this.topology = preparedTopology ?? buildTopology(position.array, this.selected.geometry.index?.array, this.selected.geometry.userData.forgePolygonTriangles);
       geometry.setAttribute('color', new THREE.Float32BufferAttribute(new Float32Array(position.count * 3).fill(1), 3));
       (this.vertexPoints.material as THREE.PointsMaterial).vertexColors = true;
       this.componentEdges = new THREE.LineSegments(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({ color: 0x454b54, transparent: true, opacity: 0.9, depthTest: false }));
@@ -1112,12 +1112,12 @@ export class Editor extends EventTarget {
     edgeMaterial.opacity = this.viewStyle === 'wire' ? 1 : 0.9;
     const position = this.selected.geometry.getAttribute('position');
     let edges = this.componentEdges.geometry.getAttribute('position');
-    if (!edges || edges.count !== this.topology.edges.length * 2) {
-      edges = new THREE.Float32BufferAttribute(new Float32Array(this.topology.edges.length * 6), 3);
+    if (!edges || edges.count !== this.topology.polygonEdges.length * 2) {
+      edges = new THREE.Float32BufferAttribute(new Float32Array(this.topology.polygonEdges.length * 6), 3);
       this.componentEdges.geometry.setAttribute('position', edges);
     }
     let cursor = 0;
-    for (const edge of this.topology.edges) for (const vertex of edge) {
+    for (const edge of this.topology.polygonEdges) for (const vertex of edge) {
       const i = this.topology.vertices[vertex][0];
       edges.setXYZ(cursor++, position.getX(i), position.getY(i), position.getZ(i));
     }
@@ -1143,22 +1143,22 @@ export class Editor extends EventTarget {
         for (const vertex of this.selectedComponents) pushVertex(vertex, vertexValues);
       } else if (this.componentMode === 'edge') {
         for (const edgeId of this.selectedComponents) {
-          const edge = this.topology.edges[edgeId];
+          const edge = this.topology.polygonEdges[edgeId];
           if (!edge) continue;
           pushVertex(edge[0], edgeValues);
           pushVertex(edge[1], edgeValues);
         }
         const activeEdgeId = [...this.selectedComponents].at(-1);
-        const activeEdge = activeEdgeId === undefined ? undefined : this.topology.edges[activeEdgeId];
+        const activeEdge = activeEdgeId === undefined ? undefined : this.topology.polygonEdges[activeEdgeId];
         if (activeEdge) {
           pushVertex(activeEdge[0], activeEdgeValues);
           pushVertex(activeEdge[1], activeEdgeValues);
         }
       } else {
         for (const faceId of this.selectedComponents) {
-          const face = this.topology.faces[faceId];
-          if (!face) continue;
-          face.forEach(vertex => pushVertex(vertex, faceValues));
+          const triangles = this.topology.polygonTriangles[faceId];
+          if (!triangles) continue;
+          triangles.forEach(triangle => this.topology!.faces[triangle]?.forEach(vertex => pushVertex(vertex, faceValues)));
         }
       }
 
@@ -1190,7 +1190,7 @@ export class Editor extends EventTarget {
       if (hit?.index !== undefined) component = Math.floor(hit.index / 2);
     } else {
       const hit = this.raycaster.intersectObject(this.selected, false)[0];
-      if (hit?.faceIndex !== undefined && hit.faceIndex !== null) component = hit.faceIndex;
+      if (hit?.faceIndex !== undefined && hit.faceIndex !== null) component = this.topology.triangleToPolygon[hit.faceIndex];
     }
     this.selectComponent(component, toggle);
   }
@@ -1233,7 +1233,7 @@ export class Editor extends EventTarget {
   private captureSubdivisionEdges(edgeIds: number[]): [[number, number, number], [number, number, number]][] {
     if (!this.topology || !(this.selected instanceof THREE.Mesh)) return [];
     const positions = this.selected.geometry.getAttribute('position');
-    return edgeIds.map(id => this.topology!.edges[id]).filter((edge): edge is [number, number] => !!edge).map(edge =>
+    return edgeIds.map(id => this.topology!.polygonEdges[id]).filter((edge): edge is [number, number] => !!edge).map(edge =>
       edge.map(vertex => {
         const index = this.topology!.vertices[vertex][0];
         return [positions.getX(index), positions.getY(index), positions.getZ(index)] as [number, number, number];
@@ -1257,7 +1257,7 @@ export class Editor extends EventTarget {
         vertexByPosition.set(positionKey([positions.getX(index), positions.getY(index), positions.getZ(index)]), vertex);
       });
       const edgeKey = (a: number, b: number) => `${Math.min(a, b)}:${Math.max(a, b)}`;
-      const edgeByKey = new Map(this.topology.edges.map((edge, id) => [edgeKey(edge[0], edge[1]), id]));
+      const edgeByKey = new Map(this.topology.polygonEdges.map((edge, id) => [edgeKey(edge[0], edge[1]), id]));
       const splitEdges: number[] = [];
       for (const [aPosition, bPosition] of oldEdges) {
         const midpointPosition: [number, number, number] = [
@@ -1274,7 +1274,7 @@ export class Editor extends EventTarget {
         if (first !== undefined && second !== undefined) splitEdges.push(first, second);
       }
       this.selectedComponents = new Set(splitEdges);
-      this.selectComponentVertices([...this.selectedComponents].flatMap(id => this.topology!.edges[id]));
+      this.selectComponentVertices([...this.selectedComponents].flatMap(id => this.topology!.polygonEdges[id]));
     } else {
       this.selectedComponents.clear();
       this.selectedFace = null;
@@ -1321,7 +1321,7 @@ export class Editor extends EventTarget {
     if (!this.editMode || this.componentMode !== 'edge' || !this.selectedComponents.size || !this.topology || !(this.selected instanceof THREE.Mesh) || this.selected instanceof THREE.SkinnedMesh || this.playing || this.transform.dragging) throw new Error('Select one or more edges in Edit Mode and finish the current drag first.');
     const selectedEdgeIds = [...this.selectedComponents];
     const oldEdges = this.captureSubdivisionEdges(selectedEdgeIds);
-    const endpoints = selectedEdgeIds.map(id => this.topology!.edges[id].map(v => this.topology!.vertices[v][0]) as [number, number]);
+    const endpoints = selectedEdgeIds.map(id => this.topology!.polygonEdges[id].map(v => this.topology!.vertices[v][0]) as [number, number]);
     const mesh = this.selected, original = mesh.geometry, midpointIndex = original.getAttribute('position').count;
     const geometry = subdivideEdges(original, endpoints);
     if (this.stats().vertices + geometry.getAttribute('position').count - midpointIndex > 2_000_000) {
@@ -1364,8 +1364,8 @@ export class Editor extends EventTarget {
   }
   snapSelectionToEdge(edge: number) {
     if (!this.editMode || !this.topology || !(this.selected instanceof THREE.Mesh) || !this.vertexIndices.length || this.playing || this.transform.dragging) throw new Error('Select mesh components in Edit Mode and finish the current drag first.');
-    if (!Number.isInteger(edge) || !this.topology.edges[edge]) throw new Error('Invalid snap target edge.');
-    const indices = this.topology.edges[edge].map(vertex => this.topology!.vertices[vertex][0]);
+    if (!Number.isInteger(edge) || !this.topology.polygonEdges[edge]) throw new Error('Invalid snap target edge.');
+    const indices = this.topology.polygonEdges[edge].map(vertex => this.topology!.vertices[vertex][0]);
     if (indices.some(index => this.vertexIndices.includes(index))) throw new Error('Choose an edge with both endpoints unselected.');
     const attribute = this.selected.geometry.getAttribute('position');
     const target = new THREE.Vector3().fromBufferAttribute(attribute, indices[0])
@@ -1407,6 +1407,15 @@ export class Editor extends EventTarget {
   get selectedVertexBufferIndices() { return [...new Set(this.vertexIndices)]; }
   get selectedLogicalVertexCount() { return this.componentMode === 'vertex' ? this.selectedComponents.size : 0; }
   get meshTopology() { return this.topology; }
+  componentEdgeToTriangleEdge(edge: number) {
+    return this.topology?.polygonEdgeToEdge[edge];
+  }
+  componentFaceTriangles(face: number) {
+    return this.topology?.polygonTriangles[face] ? [...this.topology.polygonTriangles[face]] : [];
+  }
+  selectedFacesAreTriangles() {
+    return this.componentMode === 'face' && [...this.selectedComponents].every(face => this.topology?.polygonTriangles[face]?.length === 1);
+  }
   cancelModeling() { this.cancelJob?.(); }
   private replaceGeometry(mesh: THREE.Mesh, geometry: THREE.BufferGeometry) {
     const old = mesh.geometry; mesh.geometry = geometry;
