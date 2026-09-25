@@ -161,23 +161,35 @@ test('parametric cube subdivisions regenerate geometry and survive project reloa
   await expect(page.getByLabel('Primitive Segments X')).toHaveValue('4');
 });
 
-test('topology modeling applies primitive parameters and Undo keeps Edit Mode', async ({ page }) => {
-  await page.getByLabel('Primitive Segments X').fill('3');
+test('topology modeling preserves Edge mode and supports multiple Undo / Redo steps', async ({ page }) => {
+  await page.getByLabel('Primitive Segments X').fill('2');
   await page.getByLabel('Primitive Segments X').press('Enter');
+  await page.getByLabel('Primitive Segments Y').fill('2');
+  await page.getByLabel('Primitive Segments Y').press('Enter');
   await page.locator('#mode').selectOption('edit');
   await page.getByLabel('Mesh component').selectOption('edge');
 
   const result = await page.evaluate(async () => {
     const e = (window as any).__forge;
     const before = e.selected.geometry.getAttribute('position').count;
-    await e.runModeling({ kind: 'subdivide-all' });
-    const after = e.selected.geometry.getAttribute('position').count;
+    const topology = e.meshTopology;
+    const edge = topology.edges.findIndex((pair: number[]) => pair[0] !== pair[1]);
+    (e as any).selectComponent(edge);
+    const selectedBefore = e.componentSelection.length;
+    const operation = {
+      kind: 'subdivide',
+      edges: e.componentSelection.map((id: number) => topology.edges[id].map((v: number) => topology.vertices[v][0])),
+    };
+    await e.runModeling(operation);
     return {
       before,
-      after,
+      after: e.selected.geometry.getAttribute('position').count,
       primitive: e.selected.userData.forgePrimitive,
       editMode: e.editMode,
       componentMode: e.componentMode,
+      selectedBefore,
+      selectedAfter: e.componentSelection.length,
+      undoDepth: e.undoDepth,
     };
   });
 
@@ -185,23 +197,69 @@ test('topology modeling applies primitive parameters and Undo keeps Edit Mode', 
   expect(result.primitive).toBeUndefined();
   expect(result.editMode).toBe(true);
   expect(result.componentMode).toBe('edge');
+  expect(result.selectedBefore).toBe(1);
+  expect(result.selectedAfter).toBe(2);
+  expect(result.undoDepth).toBeGreaterThanOrEqual(3);
   await expect(page.locator('#primitive-fields')).toHaveClass(/hidden/);
 
   await page.keyboard.press('Control+z');
-  const undone = await page.evaluate(() => {
+  const undo1 = await page.evaluate(() => {
     const e = (window as any).__forge;
     return {
       editMode: e.editMode,
       componentMode: e.componentMode,
       vertices: e.selected.geometry.getAttribute('position').count,
       primitive: e.selected.userData.forgePrimitive,
+      undoDepth: e.undoDepth,
+      redoDepth: e.redoDepth,
     };
   });
-  expect(undone.editMode).toBe(true);
-  expect(undone.componentMode).toBe('edge');
-  expect(undone.vertices).toBe(result.before);
-  expect(undone.primitive.widthSegments).toBe(3);
+  expect(undo1.editMode).toBe(true);
+  expect(undo1.componentMode).toBe('edge');
+  expect(undo1.vertices).toBe(result.before);
+  expect(undo1.primitive.widthSegments).toBe(2);
+  expect(undo1.primitive.heightSegments).toBe(2);
+  expect(undo1.undoDepth).toBeGreaterThanOrEqual(2);
+  expect(undo1.redoDepth).toBe(1);
 
+  await page.keyboard.press('Control+z');
+  const undo2 = await page.evaluate(() => {
+    const e = (window as any).__forge;
+    return {
+      editMode: e.editMode,
+      componentMode: e.componentMode,
+      widthSegments: e.selected.userData.forgePrimitive.widthSegments,
+      heightSegments: e.selected.userData.forgePrimitive.heightSegments,
+      undoDepth: e.undoDepth,
+      redoDepth: e.redoDepth,
+    };
+  });
+  expect(undo2.editMode).toBe(true);
+  expect(undo2.componentMode).toBe('edge');
+  expect(undo2.widthSegments).toBe(2);
+  expect(undo2.heightSegments).toBe(1);
+  expect(undo2.undoDepth).toBeGreaterThanOrEqual(1);
+  expect(undo2.redoDepth).toBe(2);
+
+  await page.keyboard.press('Control+z');
+  const undo3 = await page.evaluate(() => {
+    const e = (window as any).__forge;
+    return {
+      editMode: e.editMode,
+      componentMode: e.componentMode,
+      widthSegments: e.selected.userData.forgePrimitive.widthSegments,
+      heightSegments: e.selected.userData.forgePrimitive.heightSegments,
+      canRedo: e.canRedo,
+    };
+  });
+  expect(undo3.editMode).toBe(true);
+  expect(undo3.componentMode).toBe('edge');
+  expect(undo3.widthSegments).toBe(1);
+  expect(undo3.heightSegments).toBe(1);
+  expect(undo3.canRedo).toBe(true);
+
+  await page.keyboard.press('Control+Shift+z');
+  await page.keyboard.press('Control+Shift+z');
   await page.keyboard.press('Control+Shift+z');
   const redone = await page.evaluate(() => {
     const e = (window as any).__forge;
@@ -210,12 +268,14 @@ test('topology modeling applies primitive parameters and Undo keeps Edit Mode', 
       componentMode: e.componentMode,
       vertices: e.selected.geometry.getAttribute('position').count,
       primitive: e.selected.userData.forgePrimitive,
+      canRedo: e.canRedo,
     };
   });
   expect(redone.editMode).toBe(true);
   expect(redone.componentMode).toBe('edge');
   expect(redone.vertices).toBe(result.after);
   expect(redone.primitive).toBeUndefined();
+  expect(redone.canRedo).toBe(false);
 });
 
 test('primitive parameter validation rejects unsafe segment counts without replacing geometry', async ({ page }) => {
