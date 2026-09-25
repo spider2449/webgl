@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import * as THREE from 'three';
-import { bevelEdges, bevelLogicalEdges, deleteLogicalComponents, dissolveLogicalEdge, extrudeLogicalFace, insetLogicalFace, loopCut, loopCutLogicalEdge, editUV } from '../src/modeling/modeling';
+import { bevelEdges, bevelLogicalEdges, deleteLogicalComponents, extrudeLogicalFace, insetLogicalFace, loopCut, loopCutLogicalEdge, editUV } from '../src/modeling/modeling';
 import { buildTopology } from '../src/modeling/topology';
 import { evaluateModifiers } from '../src/modeling/modifiers';
 
@@ -184,8 +184,11 @@ test('logical Cube loop cut follows opposite quad edges without renderer-triangl
   expect(cut.geometry.boundingBox!.max.toArray()).toEqual([1, 1, 1]);
 });
 
-test('logical component deletion removes faces without promoting renderer triangles', () => {
+test('logical component deletion reduces modeling topology without deleting incident surfaces', () => {
   const box = new THREE.BoxGeometry(2, 2, 2);
+  const beforePositions = Array.from(box.getAttribute('position').array);
+  const beforeIndices = Array.from(box.index!.array);
+  const beforeGroups = box.groups.map(group => ({ ...group }));
   const input = buildTopology(box.getAttribute('position').array, box.index?.array, true);
 
   const faceDelete = deleteLogicalComponents(box, 'face', [0], input.polygonTriangles);
@@ -193,48 +196,39 @@ test('logical component deletion removes faces without promoting renderer triang
   expect(faceTopology.polygons).toHaveLength(5);
   expect(faceTopology.polygons.every(polygon => polygon.length === 4)).toBe(true);
   expect(faceTopology.faces).toHaveLength(10);
-  expect(faceTopology.vertices).toHaveLength(8);
+  expect(faceTopology.logicalVertices).toHaveLength(8);
 
+  const dissolvedEdge = input.polygonEdges[0];
   const edgeDelete = deleteLogicalComponents(box, 'edge', [0], input.polygonTriangles);
+  expect(Array.from(edgeDelete.geometry.getAttribute('position').array)).toEqual(beforePositions);
+  expect(Array.from(edgeDelete.geometry.index!.array)).toEqual(beforeIndices);
+  expect(edgeDelete.geometry.groups).toEqual(beforeGroups);
   const edgeTopology = buildTopology(edgeDelete.geometry.getAttribute('position').array, edgeDelete.geometry.index?.array, edgeDelete.polygonTriangles);
-  expect(edgeTopology.polygons).toHaveLength(4);
-  expect(edgeTopology.polygons.every(polygon => polygon.length === 4)).toBe(true);
-  expect(edgeTopology.faces).toHaveLength(8);
+  expect(edgeTopology.polygons).toHaveLength(5);
+  expect(edgeTopology.polygons.map(polygon => polygon.length).sort((a,b) => a-b)).toEqual([4,4,4,4,6]);
+  expect(edgeTopology.faces).toHaveLength(12);
+  expect(edgeTopology.logicalVertices).toHaveLength(8);
+  expect(edgeTopology.polygonEdges).toHaveLength(11);
+  expect(edgeTopology.polygonEdges.some(([a,b]) =>
+    (a === dissolvedEdge[0] && b === dissolvedEdge[1]) ||
+    (a === dissolvedEdge[1] && b === dissolvedEdge[0])
+  )).toBe(false);
 
-  const vertexDelete = deleteLogicalComponents(box, 'vertex', [0], input.polygonTriangles);
+  const removedVertex = input.logicalVertices[0];
+  const vertexDelete = deleteLogicalComponents(box, 'vertex', [removedVertex], input.polygonTriangles);
+  expect(Array.from(vertexDelete.geometry.getAttribute('position').array)).toEqual(beforePositions);
+  expect(Array.from(vertexDelete.geometry.index!.array)).toEqual(beforeIndices);
+  expect(vertexDelete.geometry.groups).toEqual(beforeGroups);
   const vertexTopology = buildTopology(vertexDelete.geometry.getAttribute('position').array, vertexDelete.geometry.index?.array, vertexDelete.polygonTriangles);
-  expect(vertexTopology.polygons).toHaveLength(3);
-  expect(vertexTopology.polygons.every(polygon => polygon.length === 4)).toBe(true);
-  expect(vertexTopology.faces).toHaveLength(6);
-  expect(vertexTopology.vertices).toHaveLength(7);
+  expect(vertexTopology.polygons).toHaveLength(4);
+  expect(vertexTopology.polygons.map(polygon => polygon.length).sort((a,b) => a-b)).toEqual([4,4,4,6]);
+  expect(vertexTopology.faces).toHaveLength(12);
+  expect(vertexTopology.vertices).toHaveLength(8);
+  expect(vertexTopology.logicalVertices).toHaveLength(7);
+  expect(vertexTopology.logicalVertices).not.toContain(removedVertex);
+  expect(vertexTopology.polygonEdges).toHaveLength(9);
 
   expect(() => deleteLogicalComponents(box, 'face', [0,1,2,3,4,5], input.polygonTriangles)).toThrow(/entire mesh/);
-});
-
-test('dissolving one Cube logical edge merges two quads into one n-gon without changing the surface', () => {
-  const box = new THREE.BoxGeometry(2, 2, 2);
-  const before = JSON.stringify(box.toJSON());
-  const positions = Array.from(box.getAttribute('position').array);
-  const indices = Array.from(box.index!.array);
-  const groups = box.groups.map(group => ({ ...group }));
-  const input = buildTopology(box.getAttribute('position').array, box.index?.array, true);
-  const dissolved = input.polygonEdges[0];
-  const result = dissolveLogicalEdge(box, 0, input.polygonTriangles);
-  expect(JSON.stringify(box.toJSON())).toBe(before);
-  closed(result.geometry);
-
-  expect(Array.from(result.geometry.getAttribute('position').array)).toEqual(positions);
-  expect(Array.from(result.geometry.index!.array)).toEqual(indices);
-  expect(result.geometry.groups).toEqual(groups);
-
-  const output = buildTopology(result.geometry.getAttribute('position').array, result.geometry.index?.array, result.polygonTriangles);
-  expect(output.polygons).toHaveLength(5);
-  expect(output.polygons.map(polygon => polygon.length).sort((a,b) => a-b)).toEqual([4,4,4,4,6]);
-  expect(output.vertices).toHaveLength(8);
-  expect(output.faces).toHaveLength(12);
-  expect(output.polygonEdges).toHaveLength(11);
-  expect(output.polygonEdges.some(([a,b]) => (a === dissolved[0] && b === dissolved[1]) || (a === dissolved[1] && b === dissolved[0]))).toBe(false);
-  expect(new Set(output.polygons.flat()).size).toBe(output.vertices.length);
 });
 
 test('adjacent and all-edge bevels remain closed; planar grid cuts reach both boundaries', () => {
