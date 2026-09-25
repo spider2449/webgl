@@ -923,6 +923,37 @@ export class Editor extends EventTarget {
     this.refreshComponents();
     this.invalidate();
   }
+  private restoreSubdivisionSelection(mode: ComponentMode, oldEdges: [number, number][], midpointIndex: number) {
+    if (!this.topology) return;
+    this.setComponentMode(mode);
+    const midpointVertices = new Set(this.topology.bufferToVertex.slice(midpointIndex));
+    if (mode === 'vertex') {
+      const vertices = [...midpointVertices];
+      this.selectedComponents = new Set(vertices);
+      this.selectComponentVertices(vertices);
+    } else if (mode === 'edge' && oldEdges.length) {
+      const key = (a: number, b: number) => `${Math.min(a, b)}:${Math.max(a, b)}`;
+      const edgeByKey = new Map(this.topology.edges.map((edge, id) => [key(edge[0], edge[1]), id]));
+      const splitEdges: number[] = [];
+      for (const [a, b] of oldEdges) {
+        for (const midpoint of midpointVertices) {
+          const first = edgeByKey.get(key(a, midpoint));
+          const second = edgeByKey.get(key(midpoint, b));
+          if (first !== undefined && second !== undefined) {
+            splitEdges.push(first, second);
+            break;
+          }
+        }
+      }
+      this.selectedComponents = new Set(splitEdges);
+      this.selectComponentVertices(splitEdges.flatMap(id => this.topology!.edges[id]));
+    } else {
+      this.selectedComponents.clear();
+      this.selectedFace = null;
+      this.selectComponentVertices();
+    }
+    this.emit('component-selection');
+  }
   extrudeFace(distance: number, inset = false) {
     if (!this.editMode || this.componentMode !== 'face' || this.selectedFace === null || !(this.selected instanceof THREE.Mesh) || this.selected instanceof THREE.SkinnedMesh || this.playing) throw new Error('Select exactly one triangle face in Edit Mode first.');
     const mesh = this.selected, face = this.selectedFace;
@@ -960,7 +991,8 @@ export class Editor extends EventTarget {
   }
   subdivideSelectedEdge() {
     if (!this.editMode || this.componentMode !== 'edge' || !this.selectedComponents.size || !this.topology || !(this.selected instanceof THREE.Mesh) || this.selected instanceof THREE.SkinnedMesh || this.playing || this.transform.dragging) throw new Error('Select one or more edges in Edit Mode and finish the current drag first.');
-    const endpoints = [...this.selectedComponents].map(id => this.topology!.edges[id].map(v => this.topology!.vertices[v][0]) as [number, number]);
+    const oldEdges = [...this.selectedComponents].map(id => [...this.topology!.edges[id]] as [number, number]);
+    const endpoints = oldEdges.map(edge => edge.map(v => this.topology!.vertices[v][0]) as [number, number]);
     const mesh = this.selected, original = mesh.geometry, midpointIndex = original.getAttribute('position').count;
     const geometry = subdivideEdges(original, endpoints);
     if (this.stats().vertices + geometry.getAttribute('position').count - midpointIndex > 2_000_000) {
@@ -974,10 +1006,7 @@ export class Editor extends EventTarget {
     this.content.traverse(object => { if (object instanceof THREE.Mesh && object.geometry === original) retained = true; });
     if (!retained) original.dispose();
     this.setEditMode(true);
-    this.setComponentMode('vertex');
-    const midpoints = [...new Set(this.topology!.bufferToVertex.slice(midpointIndex))];
-    this.selectedComponents = new Set(midpoints);
-    this.selectComponentVertices(midpoints);
+    this.restoreSubdivisionSelection('edge', oldEdges, midpointIndex);
     this.commit();
   }
   cancelVertexSnap() {
@@ -1079,6 +1108,9 @@ export class Editor extends EventTarget {
       const total = this.stats().vertices + results.reduce((sum, g, i) => sum + g.getAttribute('position').count - meshes[i].geometry.getAttribute('position').count, 0);
       if (total > 2_000_000) throw new Error('Modeling exceeds the scene vertex budget.');
       const oldMode = this.componentMode, oldSelection = this.componentSelection;
+      const oldEdges = oldMode === 'edge' && this.topology
+        ? oldSelection.map(id => this.topology!.edges[id]).filter((edge): edge is [number, number] => !!edge).map(edge => [...edge] as [number, number])
+        : [];
       const midpoint = meshes[0].geometry.getAttribute('position').count;
       this.setEditMode(false);
       meshes.forEach(mesh => this.markPrimitiveApplied(mesh));
@@ -1086,8 +1118,9 @@ export class Editor extends EventTarget {
       if (editing) {
         this.setEditMode(true, topologies[0]);
         if (operation.kind === 'subdivide') {
-          this.setComponentMode('vertex');
-          const ids = [...new Set(this.topology!.bufferToVertex.slice(midpoint))]; this.selectedComponents = new Set(ids); this.selectComponentVertices(ids);
+          this.restoreSubdivisionSelection(oldMode, oldEdges, midpoint);
+        } else if (operation.kind === 'subdivide-all') {
+          this.setComponentMode(oldMode);
         } else if (['uv', 'inset', 'extrude', 'region'].includes(operation.kind)) {
           this.setComponentMode(oldMode); this.selectedComponents = new Set(oldSelection);
           this.selectedFace = oldSelection.length === 1 ? oldSelection[0] : null;
@@ -1218,6 +1251,8 @@ export class Editor extends EventTarget {
   }
   get canUndo() { return this.historyIndex > 0; }
   get canRedo() { return this.historyIndex < this.history.length - 1; }
+  get undoDepth() { return Math.max(0, this.historyIndex); }
+  get redoDepth() { return Math.max(0, this.history.length - this.historyIndex - 1); }
   undo() { if (this.canUndo) this.restoreHistory(--this.historyIndex); }
   redo() { if (this.canRedo) this.restoreHistory(++this.historyIndex); }
   private restoreHistory(index: number) {
