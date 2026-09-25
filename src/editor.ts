@@ -99,7 +99,14 @@ export class Editor extends EventTarget {
   private proportionalConnected = false;
   snapTargetPending = false;
   snapTargetKind: 'vertex' | 'edge' | 'surface' = 'vertex';
-  private componentDrag: { positions: number[]; weights: Float32Array; center: THREE.Vector3 } | null = null;
+  private componentDrag: {
+    positions: number[];
+    weights: Float32Array;
+    center: THREE.Vector3;
+    proxyStart?: THREE.Matrix4;
+    meshWorld?: THREE.Matrix4;
+    meshWorldInverse?: THREE.Matrix4;
+  } | null = null;
   private history: string[] = [];
   private historyIndex = -1;
   private pending = false;
@@ -171,6 +178,7 @@ export class Editor extends EventTarget {
         this.beginComponentDrag();
         this.beginRotationDrag();
       } else {
+        if (this.editMode && !this.weightMode) this.resetComponentProxyTransform();
         this.componentDrag = null;
         this.rotationDragObject = null;
         this.commit();
@@ -723,18 +731,22 @@ export class Editor extends EventTarget {
     }
   }
   private syncTransformControls() {
-    const mode = this.editMode && this.transformTool !== 'select' ? 'translate' : this.transformTool;
+    const mode = this.transformTool;
     const useGimbal = !this.editMode && mode === 'rotate' && this.transformOrientation === 'gimbal' && !!this.selected?.visible;
     this.gimbal.attach(this.selected);
     this.gimbal.setEnabled(useGimbal);
     if (this.weightMode || useGimbal || mode === 'select') {
       this.transform.detach();
-    } else if (this.editMode && this.vertexIndices.length) {
-      this.transform.attach(this.vertexProxy);
-    } else if (!this.editMode && this.selected?.visible) {
-      this.transform.attach(this.selected);
     } else {
-      this.transform.detach();
+      this.transform.setMode(mode);
+      if (this.editMode && this.vertexIndices.length) {
+        this.resetComponentProxyTransform();
+        this.transform.attach(this.vertexProxy);
+      } else if (!this.editMode && this.selected?.visible) {
+        this.transform.attach(this.selected);
+      } else {
+        this.transform.detach();
+      }
     }
   }
   setTransformOrientation(orientation: TransformOrientation) {
@@ -752,7 +764,7 @@ export class Editor extends EventTarget {
   }
   setTool(mode: 'translate' | 'rotate' | 'scale' | 'select') {
     this.transformTool = mode;
-    this.transform.setMode(this.editMode ? 'translate' : mode === 'select' ? 'translate' : mode);
+    this.transform.setMode(mode === 'select' ? 'translate' : mode);
     this.transform.setSpace(this.transformOrientation === 'world' ? 'world' : 'local');
     if (mode === 'select') {
       this.gimbal.setEnabled(false);
@@ -1252,9 +1264,9 @@ export class Editor extends EventTarget {
         this.componentCenter.add(new THREE.Vector3().fromBufferAttribute(positions, this.topology.vertices[vertex][0]));
       }
       this.componentCenter.divideScalar(unique.length);
-      this.vertexProxy.position.copy(this.selected.localToWorld(this.componentCenter.clone()));
+      this.resetComponentProxyTransform();
       if (!this.weightMode && this.transformTool !== 'select') {
-        this.transform.setMode('translate');
+        this.transform.setMode(this.transformTool);
         this.transform.attach(this.vertexProxy);
       }
     }
@@ -1447,6 +1459,7 @@ export class Editor extends EventTarget {
     this.componentDrag = { positions, weights, center: this.componentCenter.clone() };
     this.vertexProxy.position.copy(this.selected.localToWorld(target.clone()));
     this.updateVertex(target);
+    this.resetComponentProxyTransform();
     this.componentDrag = null;
     this.cancelVertexSnap();
     this.commit();
@@ -1591,6 +1604,14 @@ export class Editor extends EventTarget {
     this.proportionalConnected = connected;
     this.componentDrag = null;
   }
+  private resetComponentProxyTransform() {
+    if (!(this.selected instanceof THREE.Mesh) || !this.vertexIndices.length) return;
+    this.selected.updateWorldMatrix(true, false);
+    this.vertexProxy.position.copy(this.selected.localToWorld(this.componentCenter.clone()));
+    this.vertexProxy.quaternion.copy(this.selected.getWorldQuaternion(new THREE.Quaternion()));
+    this.vertexProxy.scale.set(1, 1, 1);
+    this.vertexProxy.updateMatrixWorld(true);
+  }
   private beginComponentDrag() {
     this.componentDrag = null;
     if (!this.editMode || this.weightMode || !(this.selected instanceof THREE.Mesh) || !this.topology || !this.vertexIndices.length) return;
@@ -1599,24 +1620,61 @@ export class Editor extends EventTarget {
     const positions = Array.from({ length: attribute.count }, (_, i) => [attribute.getX(i), attribute.getY(i), attribute.getZ(i)]).flat();
     const weights = this.proportionalEnabled ? proportionalWeights(positions, this.topology, this.vertexIndices, this.proportionalRadius, this.proportionalConnected) : new Float32Array(attribute.count);
     if (!this.proportionalEnabled) for (const i of this.vertexIndices) weights[i] = 1;
-    this.componentDrag = { positions, weights, center: this.componentCenter.clone() };
+    this.selected.updateWorldMatrix(true, false);
+    this.vertexProxy.updateMatrixWorld(true);
+    const meshWorld = this.selected.matrixWorld.clone();
+    this.componentDrag = {
+      positions,
+      weights,
+      center: this.componentCenter.clone(),
+      proxyStart: this.vertexProxy.matrixWorld.clone(),
+      meshWorld,
+      meshWorldInverse: meshWorld.clone().invert(),
+    };
   }
   private updateVertex(target?: THREE.Vector3) {
     if (this.weightMode || !(this.selected instanceof THREE.Mesh) || !this.vertexPoints) return;
     if (!this.componentDrag) this.beginComponentDrag();
     if (!this.componentDrag) return;
-    const { positions, weights, center } = this.componentDrag;
-    const local = target ?? this.selected.worldToLocal(this.vertexProxy.position.clone());
-    const delta = local.clone().sub(center);
+    const { positions, weights, center, proxyStart, meshWorld, meshWorldInverse } = this.componentDrag;
     const position = this.selected.geometry.getAttribute('position');
     const points = this.vertexPoints.geometry.getAttribute('position');
-    for (let i = 0; i < weights.length; i++) {
-      if (!weights[i]) continue;
-      const x = positions[i * 3] + delta.x * weights[i], y = positions[i * 3 + 1] + delta.y * weights[i], z = positions[i * 3 + 2] + delta.z * weights[i];
-      position.setXYZ(i, x, y, z);
-      points.setXYZ(i, x, y, z);
+
+    if (target || this.transform.mode === 'translate') {
+      // Keep the established translation path. Besides matching the gizmo drag,
+      // this intentionally supports direct objectChange updates used by editor
+      // integrations and tests even when no dragging-changed event preceded it.
+      const local = target ?? this.selected.worldToLocal(this.vertexProxy.position.clone());
+      const delta = local.clone().sub(center);
+      for (let i = 0; i < weights.length; i++) {
+        if (!weights[i]) continue;
+        const x = positions[i * 3] + delta.x * weights[i];
+        const y = positions[i * 3 + 1] + delta.y * weights[i];
+        const z = positions[i * 3 + 2] + delta.z * weights[i];
+        position.setXYZ(i, x, y, z);
+        points.setXYZ(i, x, y, z);
+      }
+      this.componentCenter.copy(local);
+    } else if (proxyStart && meshWorld && meshWorldInverse) {
+      this.vertexProxy.updateMatrixWorld(true);
+      const deltaWorld = this.vertexProxy.matrixWorld.clone().multiply(proxyStart.clone().invert());
+      const original = new THREE.Vector3();
+      const transformed = new THREE.Vector3();
+      for (let i = 0; i < weights.length; i++) {
+        const weight = weights[i];
+        if (!weight) continue;
+        original.set(positions[i * 3], positions[i * 3 + 1], positions[i * 3 + 2]);
+        transformed.copy(original).applyMatrix4(meshWorld).applyMatrix4(deltaWorld).applyMatrix4(meshWorldInverse);
+        transformed.lerpVectors(original, transformed, weight);
+        if (![transformed.x, transformed.y, transformed.z].every(value => Number.isFinite(Math.fround(value)))) {
+          throw new Error('Component transform exceeds mesh coordinate precision.');
+        }
+        position.setXYZ(i, transformed.x, transformed.y, transformed.z);
+        points.setXYZ(i, transformed.x, transformed.y, transformed.z);
+      }
+      this.componentCenter.copy(this.selected.worldToLocal(this.vertexProxy.position.clone()));
     }
-    this.componentCenter.copy(local);
+
     position.needsUpdate = points.needsUpdate = true;
     this.selected.geometry.computeVertexNormals();
     this.selected.geometry.computeBoundingSphere();
