@@ -170,6 +170,90 @@ test('Edit Mode RMB menu changes with Vertex, Edge and Face component mode', asy
   await expect(menu.getByRole('menuitem', { name: 'Bevel Edges' })).toHaveCount(0);
 });
 
+test('RMB Bevel mutates the default Cube through the real worker path', async ({ page }) => {
+  await page.locator('#mode').selectOption('edit');
+  await page.getByLabel('Mesh component').selectOption('edge');
+  const before = await page.evaluate(() => {
+    const e = (window as any).__forge;
+    e.selectComponent(0);
+    (window as any).__forgeModelingSettings.bevelWidth = 0.1;
+    return { polygons: e.meshTopology.polygons.length, vertices: e.meshTopology.vertices.length };
+  });
+  await rightClickViewport(page);
+  await page.locator('#viewport-context-menu').getByRole('menuitem', { name: 'Bevel Edges' }).click();
+  await page.waitForFunction(() => !(window as any).__forge.modelingBusy);
+  await expect(page.locator('#toast')).toContainText('Bevel complete');
+  const after = await page.evaluate(() => {
+    const e = (window as any).__forge;
+    return {
+      polygons: e.meshTopology.polygons.length,
+      vertices: e.meshTopology.vertices.length,
+      stored: e.selected.userData.forgePolygonTriangles?.length,
+    };
+  });
+  expect(after.polygons).toBeGreaterThan(before.polygons);
+  expect(after.vertices).toBeGreaterThan(before.vertices);
+  expect(after.stored).toBe(after.polygons);
+});
+
+test('RMB Loop Cut splits the default Cube logical quad ring', async ({ page }) => {
+  await page.locator('#mode').selectOption('edit');
+  await page.getByLabel('Mesh component').selectOption('edge');
+  await page.evaluate(() => (window as any).__forge.selectComponent(0));
+  await rightClickViewport(page);
+  await page.locator('#viewport-context-menu').getByRole('menuitem', { name: 'Loop Cut' }).click();
+  await page.waitForFunction(() => !(window as any).__forge.modelingBusy);
+  await expect(page.locator('#toast')).toContainText('Loop cut complete');
+  expect(await page.evaluate(() => {
+    const e = (window as any).__forge, t = e.meshTopology;
+    return {
+      polygons: t.polygons.length,
+      vertices: t.vertices.length,
+      triangles: t.faces.length,
+      sizes: t.polygons.map((polygon: number[]) => polygon.length),
+      stored: e.selected.userData.forgePolygonTriangles?.length,
+      mode: e.componentMode,
+    };
+  })).toEqual({
+    polygons: 10,
+    vertices: 12,
+    triangles: 20,
+    sizes: new Array(10).fill(4),
+    stored: 10,
+    mode: 'edge',
+  });
+});
+
+test('RMB Inset Face insets a default Cube quad instead of rejecting renderer-backed polygons', async ({ page }) => {
+  await page.locator('#mode').selectOption('edit');
+  await page.getByLabel('Mesh component').selectOption('face');
+  await page.evaluate(() => {
+    const e = (window as any).__forge;
+    e.selectComponent(0);
+    (window as any).__forgeModelingSettings.insetDistance = 0.1;
+  });
+  await rightClickViewport(page);
+  await page.locator('#viewport-context-menu').getByRole('menuitem', { name: 'Inset Face' }).click();
+  await page.waitForFunction(() => !(window as any).__forge.modelingBusy);
+  await expect(page.locator('#toast')).toContainText('Face inset');
+  expect(await page.evaluate(() => {
+    const e = (window as any).__forge, t = e.meshTopology;
+    return {
+      polygons: t.polygons.length,
+      vertices: t.vertices.length,
+      triangles: t.faces.length,
+      selection: e.componentSelection,
+      stored: e.selected.userData.forgePolygonTriangles?.length,
+    };
+  })).toEqual({
+    polygons: 10,
+    vertices: 12,
+    triangles: 20,
+    selection: [0],
+    stored: 10,
+  });
+});
+
 test('Edit Mode context Rotate and Scale commands switch the component gizmo', async ({ page }) => {
   await page.locator('#mode').selectOption('edit');
   await page.getByLabel('Mesh component').selectOption('face');

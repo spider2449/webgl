@@ -1104,11 +1104,15 @@ async function extrudeSelectedRegion() {
 }
 async function insetSelectedFace() {
   try {
-    if (!editor.editMode || editor.componentMode !== 'face' || editor.componentSelection.length !== 1 || !editor.meshTopology) throw new Error('Select exactly one triangle face in Edit Mode first.');
-    const triangles = editor.meshTopology.polygonTriangles[editor.componentSelection[0]];
-    if (triangles?.length !== 1) throw new Error('Quad/polygon inset is not implemented yet; use a triangle face.');
-    await editor.runModeling({ kind: 'inset', face: triangles[0], distance: modelingToolSettings.insetDistance });
-    toast('Triangle inset. The inner face remains selected.');
+    if (!editor.editMode || editor.componentMode !== 'face' || editor.componentSelection.length !== 1 || !editor.meshTopology) throw new Error('Select exactly one face in Edit Mode first.');
+    const face = editor.componentSelection[0];
+    await editor.runModeling({
+      kind: 'inset',
+      face,
+      distance: modelingToolSettings.insetDistance,
+      polygonTriangles: editor.meshTopology.polygonTriangles.map(group => [...group]),
+    });
+    toast('Face inset. The inner polygon remains selected.');
   } catch (error) { toast((error as Error).message); }
 }
 $('#mirror').insertAdjacentHTML('beforebegin', '<label class="property-row">Proportional editing<input id="proportional-enabled" aria-label="Proportional editing" type="checkbox"></label><label class="property-row">Influence radius<input id="proportional-radius" aria-label="Proportional radius" type="number" min="0.0001" step="0.1" value="2"></label><p class="field-help">Edit Mode: nearby vertices follow with smooth falloff. Radius uses local units and can reach disconnected geometry.</p>');
@@ -1214,10 +1218,11 @@ async function bevelSelectedEdges() {
 async function loopCutSelectedEdge() {
   try {
     if (!editor.editMode || editor.componentMode !== 'edge' || editor.componentSelection.length !== 1 || !editor.meshTopology) throw new Error('Select exactly one quad boundary edge.');
-    const logicalEdge = editor.componentSelection[0];
-    const rendererEdge = editor.meshTopology.polygonEdgeToEdge[logicalEdge];
-    if (rendererEdge === undefined) throw new Error('Selected logical edge has no renderer edge.');
-    await editor.runModeling({ kind: 'loop', edge: rendererEdge });
+    await editor.runModeling({
+      kind: 'loop',
+      edge: editor.componentSelection[0],
+      polygonTriangles: editor.meshTopology.polygonTriangles.map(group => [...group]),
+    });
     toast('Loop cut complete.');
   } catch (error) { toast((error as Error).message); }
 }

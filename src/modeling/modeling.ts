@@ -277,6 +277,199 @@ export function extrudeLogicalFace(
   return { ...result, selectedFace: face };
 }
 
+function cornerAtPoint(
+  source: THREE.BufferGeometry,
+  inspection: ReturnType<typeof inspectGeometry>,
+  polygonId: number,
+  point: THREE.Vector3,
+): Corner {
+  const { topology, indices } = inspection;
+  const epsilon = 1e-6;
+  for (const face of topology.polygonTriangles[polygonId] ?? []) {
+    const raw = indices.slice(face * 3, face * 3 + 3);
+    const positions = raw.map(index => new THREE.Vector3().fromBufferAttribute(source.getAttribute('position'), index));
+    const v0 = positions[1].clone().sub(positions[0]);
+    const v1 = positions[2].clone().sub(positions[0]);
+    const v2 = point.clone().sub(positions[0]);
+    const d00 = v0.dot(v0), d01 = v0.dot(v1), d11 = v1.dot(v1);
+    const d20 = v2.dot(v0), d21 = v2.dot(v1);
+    const denominator = d00 * d11 - d01 * d01;
+    if (Math.abs(denominator) < 1e-16) continue;
+    const v = (d11 * d20 - d01 * d21) / denominator;
+    const w = (d00 * d21 - d01 * d20) / denominator;
+    const u = 1 - v - w;
+    if (u < -epsilon || v < -epsilon || w < -epsilon) continue;
+
+    const corner: Corner = {};
+    for (const [name, attribute] of Object.entries(source.attributes)) {
+      if (name === 'normal') continue;
+      corner[name] = Array.from({ length: attribute.itemSize }, (_, component) =>
+        Math.fround(
+          attribute.getComponent(raw[0], component) * u +
+          attribute.getComponent(raw[1], component) * v +
+          attribute.getComponent(raw[2], component) * w
+        )
+      );
+    }
+    corner.position = [Math.fround(point.x), Math.fround(point.y), Math.fround(point.z)];
+    return corner;
+  }
+  throw new Error('Inset point cannot be interpolated from the selected polygon.');
+}
+
+export function insetLogicalFace(
+  source: THREE.BufferGeometry,
+  face: number,
+  distance: number,
+  polygonTriangles?: number[][],
+) {
+  if (!Number.isFinite(distance) || distance < 0.0001 || distance > 1000) {
+    throw new Error('Inset distance must be between 0.0001 and 1000 local units.');
+  }
+  const inspection = inspectGeometry(source, polygonTriangles ?? false);
+  const { topology } = inspection;
+  const { polygons, normals } = logicalSurface(source, inspection);
+  if (!Number.isInteger(face) || face < 0 || face >= polygons.length || !topology.polygons[face]) {
+    throw new Error('Select one valid logical face for inset.');
+  }
+
+  const polygon = polygons[face];
+  const points = polygon.corners.map(vector);
+  if (points.length < 3) throw new Error('Inset requires a polygon face.');
+  const normal = normals[face];
+  const origin = points[0];
+  const u = points[1].clone().sub(origin).normalize();
+  const v = normal.clone().cross(u).normalize();
+  const projected = points.map(point => {
+    const relative = point.clone().sub(origin);
+    return [relative.dot(u), relative.dot(v)] as [number, number];
+  });
+  const cross2 = (a: [number, number], b: [number, number], c: [number, number]) =>
+    (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]);
+  const area2 = projected.reduce((sum, point, i) => {
+    const next = projected[(i + 1) % projected.length];
+    return sum + point[0] * next[1] - next[0] * point[1];
+  }, 0);
+  if (Math.abs(area2) < 1e-12) throw new Error('Inset polygon is degenerate.');
+  const winding = Math.sign(area2);
+  for (let i = 0; i < projected.length; i++) {
+    if (winding * cross2(projected[i], projected[(i + 1) % projected.length], projected[(i + 2) % projected.length]) <= 1e-10) {
+      throw new Error('Inset currently requires a convex polygon.');
+    }
+  }
+
+  const lines = projected.map((a, i) => {
+    const b = projected[(i + 1) % projected.length];
+    const dx = b[0] - a[0], dy = b[1] - a[1];
+    const length = Math.hypot(dx, dy);
+    if (length < 1e-12) throw new Error('Inset polygon has a collapsed boundary edge.');
+    const inward: [number, number] = winding > 0 ? [-dy / length, dx / length] : [dy / length, -dx / length];
+    return { normal: inward, constant: inward[0] * a[0] + inward[1] * a[1] + distance };
+  });
+
+  const inner2 = projected.map((_, i) => {
+    const previous = lines[(i + lines.length - 1) % lines.length];
+    const current = lines[i];
+    const determinant = previous.normal[0] * current.normal[1] - previous.normal[1] * current.normal[0];
+    if (Math.abs(determinant) < 1e-10) throw new Error('Inset cannot offset parallel adjacent edges.');
+    const x = (previous.constant * current.normal[1] - previous.normal[1] * current.constant) / determinant;
+    const y = (previous.normal[0] * current.constant - previous.constant * current.normal[0]) / determinant;
+    return [x, y] as [number, number];
+  });
+
+  const innerArea2 = inner2.reduce((sum, point, i) => {
+    const next = inner2[(i + 1) % inner2.length];
+    return sum + point[0] * next[1] - next[0] * point[1];
+  }, 0);
+  const tolerance = Math.max(1e-8, Math.abs(area2) * 1e-8);
+  if (Math.sign(innerArea2) !== winding || Math.abs(innerArea2) <= tolerance) {
+    throw new Error('Inset distance exceeds the polygon inradius.');
+  }
+  for (const point of inner2) {
+    if (lines.some(line => line.normal[0] * point[0] + line.normal[1] * point[1] < line.constant - 1e-7)) {
+      throw new Error('Inset distance exceeds the polygon inradius.');
+    }
+  }
+
+  const innerPoints = inner2.map(([x, y]) => origin.clone().addScaledVector(u, x).addScaledVector(v, y));
+  const inner = innerPoints.map(point => cornerAtPoint(source, inspection, face, point));
+  const output = polygons.map((item, id) => id === face ? { material: item.material, corners: inner } : item);
+  for (let edge = 0; edge < polygon.corners.length; edge++) {
+    const next = (edge + 1) % polygon.corners.length;
+    output.push({
+      material: polygon.material,
+      corners: [polygon.corners[edge], polygon.corners[next], inner[next], inner[edge]],
+    });
+  }
+  return finishDetailed(output);
+}
+
+export function loopCutLogicalEdge(
+  source: THREE.BufferGeometry,
+  edge: number,
+  polygonTriangles?: number[][],
+) {
+  const inspection = inspectGeometry(source, polygonTriangles ?? false);
+  const { topology } = inspection;
+  const { polygons } = logicalSurface(source, inspection);
+  if (!Number.isInteger(edge) || edge < 0 || !topology.polygonEdges[edge]) {
+    throw new Error('Select one valid logical quad boundary edge.');
+  }
+
+  const uses = new Map<string, { face: number; local: number }[]>();
+  topology.polygons.forEach((vertices, face) => {
+    vertices.forEach((a, local) => {
+      const b = vertices[(local + 1) % vertices.length];
+      const key = edgeKey(a, b);
+      const list = uses.get(key) ?? [];
+      list.push({ face, local });
+      uses.set(key, list);
+    });
+  });
+
+  const start = edgeKey(...topology.polygonEdges[edge]);
+  const queue = [start];
+  const visitedEdges = new Set<string>();
+  const splitFaces = new Map<number, number>();
+
+  while (queue.length) {
+    const key = queue.pop()!;
+    if (visitedEdges.has(key)) continue;
+    visitedEdges.add(key);
+    const edgeUses = uses.get(key) ?? [];
+    if (!edgeUses.length) throw new Error('Loop Cut cannot find the selected logical edge.');
+    for (const use of edgeUses) {
+      const vertices = topology.polygons[use.face];
+      if (vertices.length !== 4) throw new Error('Loop Cut stops at triangles or n-gons; the selected ring must pass through quads.');
+      const existing = splitFaces.get(use.face);
+      if (existing !== undefined) {
+        if (existing % 2 !== use.local % 2) throw new Error('Loop Cut ring intersects itself.');
+        continue;
+      }
+      splitFaces.set(use.face, use.local);
+      const opposite = (use.local + 2) % 4;
+      queue.push(edgeKey(vertices[opposite], vertices[(opposite + 1) % 4]));
+    }
+  }
+  if (!splitFaces.size) throw new Error('No logical quad ring found.');
+
+  const extras: Polygon[] = [];
+  const output = polygons.map((polygon, face) => {
+    const local = splitFaces.get(face);
+    if (local === undefined) return polygon;
+    const corners = polygon.corners;
+    const a = corners[local];
+    const b = corners[(local + 1) % 4];
+    const c = corners[(local + 2) % 4];
+    const d = corners[(local + 3) % 4];
+    const entry = interpolate(a, b, 0.5);
+    const opposite = interpolate(c, d, 0.5);
+    extras.push({ material: polygon.material, corners: [entry, b, c, opposite] });
+    return { material: polygon.material, corners: [a, entry, opposite, d] };
+  });
+  return finishDetailed([...output, ...extras]);
+}
+
 export function bevelLogicalEdges(source: THREE.BufferGeometry, edges: number[], width: number, polygonTriangles?: number[][]) {
   if (!Number.isFinite(width) || width < 0.0001 || width > 1000) throw new Error('Bevel width must be between 0.0001 and 1000.');
   const inspection = inspectGeometry(source, polygonTriangles ?? false);

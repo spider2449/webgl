@@ -2,11 +2,11 @@ import * as THREE from 'three';
 import type { Modifier } from './modifiers';
 export type ModelingOperation =
   | { kind: 'bevel'; edges: number[]; width: number; polygonTriangles?: number[][] }
-  | { kind: 'loop'; edge: number }
+  | { kind: 'loop'; edge: number; polygonTriangles?: number[][] }
   | { kind: 'uv'; faces: number[]; operation: 'project' | 'transform'; values: number[] }
   | { kind: 'modifiers'; items: Modifier[] }
   | { kind: 'extrude'; face: number; distance: number; polygonTriangles?: number[][] }
-  | { kind: 'inset'; face: number; distance: number }
+  | { kind: 'inset'; face: number; distance: number; polygonTriangles?: number[][] }
   | { kind: 'region'; faces: number[]; distance: number }
   | { kind: 'subdivide'; edges: [number, number][] }
   | { kind: 'subdivide-all' }

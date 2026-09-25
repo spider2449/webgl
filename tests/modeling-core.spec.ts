@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import * as THREE from 'three';
-import { bevelEdges, bevelLogicalEdges, extrudeLogicalFace, loopCut, editUV } from '../src/modeling/modeling';
+import { bevelEdges, bevelLogicalEdges, extrudeLogicalFace, insetLogicalFace, loopCut, loopCutLogicalEdge, editUV } from '../src/modeling/modeling';
 import { buildTopology } from '../src/modeling/topology';
 import { evaluateModifiers } from '../src/modeling/modifiers';
 
@@ -65,6 +65,12 @@ test('logical Cube bevel ignores renderer diagonals and returns persistent polyg
     .map(({ id }) => id);
   expect(topEdges).toHaveLength(4);
 
+  const single = bevelLogicalEdges(box, [topEdges[0]], 0.1, input.polygonTriangles);
+  closed(single.geometry);
+  const singleTopology = buildTopology(single.geometry.getAttribute('position').array, single.geometry.index?.array, single.polygonTriangles);
+  expect(singleTopology.polygons.length).toBeGreaterThan(6);
+  expect(singleTopology.vertices.length).toBeGreaterThan(8);
+
   const bevel = bevelLogicalEdges(box, topEdges, 0.1, input.polygonTriangles);
   closed(bevel.geometry);
   const output = buildTopology(bevel.geometry.getAttribute('position').array, bevel.geometry.index?.array, bevel.polygonTriangles);
@@ -117,6 +123,65 @@ test('logical Cube face extrudes as a cap plus side quads without renderer topol
   expect(repeatedTopology.vertices).toHaveLength(16);
   expect(repeatedTopology.faces).toHaveLength(28);
   expect(repeatedTopology.polygons[top].every(vertex => repeatedPosition.getY(repeatedTopology.vertices[vertex][0]) === 1.75)).toBe(true);
+});
+
+test('logical Cube inset keeps polygon topology and selects an inner quad representation', () => {
+  const box = new THREE.BoxGeometry(2, 2, 2);
+  const before = JSON.stringify(box.toJSON());
+  const input = buildTopology(box.getAttribute('position').array, box.index?.array, true);
+  const inset = insetLogicalFace(box, 0, 0.1, input.polygonTriangles);
+  expect(JSON.stringify(box.toJSON())).toBe(before);
+  closed(inset.geometry);
+
+  const output = buildTopology(
+    inset.geometry.getAttribute('position').array,
+    inset.geometry.index?.array,
+    inset.polygonTriangles,
+  );
+  expect(output.polygons).toHaveLength(10);
+  expect(output.polygons.every(polygon => polygon.length === 4)).toBe(true);
+  expect(output.vertices).toHaveLength(12);
+  expect(output.faces).toHaveLength(20);
+  expect(output.polygonEdges).toHaveLength(20);
+  expect(new Set(output.polygons.flat()).size).toBe(output.vertices.length);
+
+  const position = inset.geometry.getAttribute('position');
+  const outer = input.polygons[0].map(vertex => {
+    const index = input.vertices[vertex][0];
+    return new THREE.Vector3(
+      box.getAttribute('position').getX(index),
+      box.getAttribute('position').getY(index),
+      box.getAttribute('position').getZ(index),
+    );
+  });
+  const inner = output.polygons[0].map(vertex => {
+    const index = output.vertices[vertex][0];
+    return new THREE.Vector3(position.getX(index), position.getY(index), position.getZ(index));
+  });
+  expect(inner.every(point => outer.some(candidate => candidate.distanceTo(point) > 0.05))).toBe(true);
+});
+
+test('logical Cube loop cut follows opposite quad edges without renderer-triangle pairing', () => {
+  const box = new THREE.BoxGeometry(2, 2, 2);
+  const before = JSON.stringify(box.toJSON());
+  const input = buildTopology(box.getAttribute('position').array, box.index?.array, true);
+  const cut = loopCutLogicalEdge(box, 0, input.polygonTriangles);
+  expect(JSON.stringify(box.toJSON())).toBe(before);
+  closed(cut.geometry);
+
+  const output = buildTopology(
+    cut.geometry.getAttribute('position').array,
+    cut.geometry.index?.array,
+    cut.polygonTriangles,
+  );
+  expect(output.polygons).toHaveLength(10);
+  expect(output.polygons.every(polygon => polygon.length === 4)).toBe(true);
+  expect(output.vertices).toHaveLength(12);
+  expect(output.faces).toHaveLength(20);
+  expect(output.polygonEdges).toHaveLength(20);
+  expect(new Set(output.polygons.flat()).size).toBe(output.vertices.length);
+  expect(cut.geometry.boundingBox!.min.toArray()).toEqual([-1, -1, -1]);
+  expect(cut.geometry.boundingBox!.max.toArray()).toEqual([1, 1, 1]);
 });
 
 test('adjacent and all-edge bevels remain closed; planar grid cuts reach both boundaries', () => {

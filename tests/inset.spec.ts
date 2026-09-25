@@ -62,7 +62,7 @@ test('inset UI retains inner selection and restores history and projects', async
   });
   await page.evaluate(() => (window as any).__forgeCommands.insetFace());
   await page.waitForFunction(() => !(window as any).__forge.modelingBusy);
-  await expect(page.locator('#toast')).toContainText('Triangle inset');
+  await expect(page.locator('#toast')).toContainText('Face inset');
   await page.evaluate(() => (window as any).__forgeCommands.insetFace());
   await page.waitForFunction(() => !(window as any).__forge.modelingBusy);
   const valid = await page.evaluate(() => (window as any).__forge.snapshot());
