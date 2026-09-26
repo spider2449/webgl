@@ -4,7 +4,7 @@ import './style.css';
 import * as THREE from 'three';
 import { createIcons, Box, ChevronDown, ChevronRight, Plus, MousePointer2, Move, Rotate3d, Scaling, Magnet, Grid2x2, Scan, Eye, EyeOff, Search, SlidersHorizontal, Layers, Diamond, Play, Pause, SkipBack, SkipForward, ChevronFirst, ChevronLast, Undo2, Redo2, Copy, Trash2, X, HelpCircle, Download, Upload, Camera, Check, Circle, Triangle, Hexagon, FolderOpen, FolderPlus, LogOut, Save, FilePlus2, Maximize, Globe, Settings2, Crosshair, Sun, Moon, Activity, PanelRightClose } from 'lucide';
 import { mountModelingUI } from './modeling/modeling-ui';
-import { validateLogicalFaceInteriorKnifeLeg } from './modeling/modeling';
+import { validateLogicalFaceInteriorKnifeLeg, validateLogicalFaceInteriorKnifePath } from './modeling/modeling';
 import { Editor, type AnimationTrackMap, type Primitive, type Project, type KeyInterpolation, type KeyTangentMode, type ScalarAnimationChannel, type TransformOrientation } from './editor';
 import { RigSystem, rigBones } from './rig/rig';
 import { addSomaPreview, createSomaRig, RIG_SOURCE } from './rig/soma77';
@@ -1271,7 +1271,7 @@ type KnifeAnchor =
 
 let knifeActive = false;
 let knifeAnchor: KnifeAnchor | null = null;
-let knifeInterior: { face: number; position: [number, number, number] } | null = null;
+let knifeInteriorPath: { face: number; points: [number, number, number][] } | null = null;
 
 function knifePositionForTarget(target: KnifeTarget): [number, number, number] {
   if (!(editor.selected instanceof THREE.Mesh) || !editor.meshTopology) throw new Error('Knife requires an active editable mesh.');
@@ -1363,8 +1363,8 @@ function armKnife(message: string) {
   } catch (error) {
     knifeActive = false;
     knifeAnchor = null;
-    knifeInterior = null;
-    editor.setKnifePendingBend(null, null);
+    knifeInteriorPath = null;
+    editor.setKnifePendingPath([]);
     editor.setKnifePreviewAnchor(null);
     toast((error as Error).message);
   }
@@ -1373,8 +1373,8 @@ function armKnife(message: string) {
 function cancelKnife() {
   knifeActive = false;
   knifeAnchor = null;
-  knifeInterior = null;
-  editor.setKnifePendingBend(null, null);
+  knifeInteriorPath = null;
+  editor.setKnifePendingPath([]);
   editor.setKnifePreviewAnchor(null);
   if (editor.snapTargetPending && editor.snapTargetKind === 'knife') editor.cancelVertexSnap();
 }
@@ -1384,8 +1384,8 @@ function startKnifeCut() {
     if (editor.snapTargetPending) editor.cancelVertexSnap();
     knifeActive = true;
     knifeAnchor = null;
-    knifeInterior = null;
-    editor.setKnifePendingBend(null, null);
+    knifeInteriorPath = null;
+    editor.setKnifePendingPath([]);
     if (!editor.editMode || editor.componentMode !== 'vertex' || editor.componentSelection.length > 1 || !(editor.selected instanceof THREE.Mesh) || !editor.meshTopology) {
       throw new Error('Knife requires Vertex mode with zero or one selected logical vertex.');
     }
@@ -1421,8 +1421,8 @@ type KnifeSegmentPlan =
   | { kind: 'vertex-edge'; face: number; vertex: number; edge: number; t: number }
   | { kind: 'edge-vertex'; face: number; vertex: number; edge: number; t: number }
   | { kind: 'edge-edge'; face: number; firstEdge: number; firstT: number; secondEdge: number; secondT: number }
-  | { kind: 'set-interior'; face: number; position: [number, number, number] }
-  | { kind: 'face-bend'; face: number; start: KnifeBoundaryPlan; interior: [number, number, number]; end: KnifeBoundaryPlan };
+  | { kind: 'append-interior'; face: number; position: [number, number, number] }
+  | { kind: 'face-path'; face: number; start: KnifeBoundaryPlan; interiors: [number, number, number][]; end: KnifeBoundaryPlan };
 
 function planKnifeSegment(target: KnifeTarget): { plan: KnifeSegmentPlan | null; reason: string | null } {
   const anchor = knifeAnchor;
@@ -1432,43 +1432,63 @@ function planKnifeSegment(target: KnifeTarget): { plan: KnifeSegmentPlan | null;
     return { plan: null, reason: 'Edge-only Knife endpoints cannot be committed on a logical vertex. Move inside the edge or enable Vertex + Edge.' };
   }
 
-  if (knifeInterior) {
-    if (target.kind === 'face') {
-      return { plan: null, reason: 'Choose a logical vertex or edge point to finish the interior Knife bend.' };
+  if (knifeInteriorPath) {
+    if (!(editor.selected instanceof THREE.Mesh)) {
+      return { plan: null, reason: 'Knife requires an active editable mesh.' };
     }
-    const start = knifeAnchorBoundaryOnFace(anchor, knifeInterior.face);
-    const end = knifeTargetBoundaryOnFace(target, knifeInterior.face);
+
+    if (target.kind === 'face') {
+      if (target.face !== knifeInteriorPath.face) {
+        return { plan: null, reason: 'All pending Knife bends must stay on the same logical face.' };
+      }
+      const points = [
+        ...knifeInteriorPath.points.map(point => [...point] as [number, number, number]),
+        [...target.position] as [number, number, number],
+      ];
+      try {
+        validateLogicalFaceInteriorKnifePath(
+          editor.selected.geometry,
+          topology,
+          knifeInteriorPath.face,
+          anchor.position,
+          points,
+        );
+      } catch (error) {
+        return { plan: null, reason: (error as Error).message };
+      }
+      return {
+        plan: { kind: 'append-interior', face: knifeInteriorPath.face, position: [...target.position] },
+        reason: null,
+      };
+    }
+
+    const start = knifeAnchorBoundaryOnFace(anchor, knifeInteriorPath.face);
+    const end = knifeTargetBoundaryOnFace(target, knifeInteriorPath.face);
     if (!start || !end) {
-      return { plan: null, reason: 'The Knife bend must finish on the same logical face boundary.' };
+      return { plan: null, reason: 'The Knife path must finish on the same logical face boundary.' };
     }
     const endPosition = knifePositionForTarget(target);
-    if (Math.hypot(
-      endPosition[0] - anchor.position[0],
-      endPosition[1] - anchor.position[1],
-      endPosition[2] - anchor.position[2],
-    ) < 1e-5) {
-      return { plan: null, reason: 'Knife bend endpoints must be distinct.' };
-    }
     if (!(editor.selected instanceof THREE.Mesh)) {
       return { plan: null, reason: 'Knife requires an active editable mesh.' };
     }
     try {
-      validateLogicalFaceInteriorKnifeLeg(
+      validateLogicalFaceInteriorKnifePath(
         editor.selected.geometry,
         topology,
-        knifeInterior.face,
+        knifeInteriorPath.face,
+        anchor.position,
+        knifeInteriorPath.points,
         endPosition,
-        knifeInterior.position,
       );
     } catch (error) {
       return { plan: null, reason: (error as Error).message };
     }
     return {
       plan: {
-        kind: 'face-bend',
-        face: knifeInterior.face,
+        kind: 'face-path',
+        face: knifeInteriorPath.face,
         start,
-        interior: [...knifeInterior.position],
+        interiors: knifeInteriorPath.points.map(point => [...point] as [number, number, number]),
         end,
       },
       reason: null,
@@ -1484,18 +1504,18 @@ function planKnifeSegment(target: KnifeTarget): { plan: KnifeSegmentPlan | null;
       return { plan: null, reason: 'Knife requires an active editable mesh.' };
     }
     try {
-      validateLogicalFaceInteriorKnifeLeg(
+      validateLogicalFaceInteriorKnifePath(
         editor.selected.geometry,
         topology,
         target.face,
         anchor.position,
-        target.position,
+        [target.position],
       );
     } catch (error) {
       return { plan: null, reason: (error as Error).message };
     }
     return {
-      plan: { kind: 'set-interior', face: target.face, position: [...target.position] },
+      plan: { kind: 'append-interior', face: target.face, position: [...target.position] },
       reason: null,
     };
   }
@@ -1553,21 +1573,22 @@ async function finishKnifeSegment(target: KnifeTarget, targetPosition: [number, 
     const { plan, reason } = planKnifeSegment(target);
     if (!plan) throw new Error(reason ?? 'Invalid Knife segment.');
 
-    if (plan.kind === 'set-interior') {
+    if (plan.kind === 'append-interior') {
       const start = [...knifeAnchor.position] as [number, number, number];
-      knifeInterior = { face: plan.face, position: [...plan.position] };
-      editor.setKnifePendingBend(start, plan.position);
+      if (!knifeInteriorPath) knifeInteriorPath = { face: plan.face, points: [] };
+      knifeInteriorPath.points.push([...plan.position]);
+      editor.setKnifePendingPath([start, ...knifeInteriorPath.points]);
       editor.setKnifePreviewAnchor(plan.position);
-      armKnife('Knife bend point set. Choose a logical vertex or edge point on the same face boundary.');
+      armKnife('Knife bend point added. Add another face point or finish on the same face boundary.');
       return;
     }
 
-    if (plan.kind === 'face-bend') {
+    if (plan.kind === 'face-path') {
       await editor.runModeling({
-        kind: 'cut-face-via-point',
+        kind: 'cut-face-via-path',
         face: plan.face,
         start: plan.start,
-        interior: plan.interior,
+        interiors: plan.interiors,
         end: plan.end,
         polygonTriangles: topology.polygonTriangles.map(group => [...group]),
       });
@@ -1599,8 +1620,8 @@ async function finishKnifeSegment(target: KnifeTarget, targetPosition: [number, 
       });
     }
 
-    knifeInterior = null;
-    editor.setKnifePendingBend(null, null);
+    knifeInteriorPath = null;
+    editor.setKnifePendingPath([]);
     knifeAnchor = { kind: 'vertex', position: targetPosition };
     editor.setKnifePreviewAnchor(targetPosition);
     armKnife('Knife segment complete. Choose the next vertex, edge point, or face bend point; Escape ends Knife.');
