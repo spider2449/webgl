@@ -264,7 +264,7 @@ export class Editor extends EventTarget {
         this.camera,
       );
       const threshold = this.camera.position.distanceTo(this.orbit.target) * 0.012;
-      this.setKnifePreview(this.pickKnifeTarget(threshold));
+      this.setKnifePreview(this.pickKnifeTarget(threshold, 'hover'));
     });
     this.renderer.domElement.addEventListener('pointerleave', () => {
       if (this.snapTargetPending && this.snapTargetKind === 'knife') this.setKnifePreview(null);
@@ -300,7 +300,7 @@ export class Editor extends EventTarget {
                 this.snapSelectionToSurface(hit.faceIndex, weights.toArray());
               }
             } else if (this.snapTargetKind === 'knife') {
-              const pick = this.pickKnifeTarget(threshold);
+              const pick = this.pickKnifeTarget(threshold, 'click');
               if (pick) {
                 this.setKnifePreview(pick);
                 if (pick.commit !== false) {
@@ -1568,7 +1568,7 @@ export class Editor extends EventTarget {
     this.invalidate();
     this.emit('snap-target');
   }
-  private pickKnifeTarget(threshold: number): KnifePick | null {
+  private pickKnifeTarget(threshold: number, interaction: 'hover' | 'click' = 'hover'): KnifePick | null {
     if (!this.componentEdges || !this.selected || !(this.selected instanceof THREE.Mesh) || !this.topology) return null;
     const position = this.selected.geometry.getAttribute('position');
     const vertexPick = (vertex: number): KnifePick => {
@@ -1598,6 +1598,16 @@ export class Editor extends EventTarget {
       }
     } else {
       this.knifeLockedVertex = null;
+      if (interaction === 'click' && this.vertexPoints) {
+        // Edge-only does not proximity-snap while hovering, but an intentional
+        // click directly on the visible logical vertex is still a vertex target.
+        this.raycaster.params.Points.threshold = threshold * 0.25;
+        const vertexHit = this.raycaster.intersectObject(this.vertexPoints, false)[0];
+        if (vertexHit?.index !== undefined) {
+          const vertex = this.topology.bufferToVertex[vertexHit.index];
+          if (this.topology.logicalVertices.includes(vertex)) return vertexPick(vertex);
+        }
+      }
     }
 
     this.raycaster.params.Line.threshold = threshold;
@@ -1611,9 +1621,33 @@ export class Editor extends EventTarget {
     const direction = b.clone().sub(a);
     const lengthSq = direction.lengthSq();
     if (lengthSq < 1e-16) return null;
-    const localPoint = this.selected.worldToLocal(hit.point.clone());
-    const t = localPoint.sub(a).dot(direction) / lengthSq;
+    // Recompute the edge parameter against the infinite world-space edge
+    // rather than using LineSegments' clamped hit.point. This prevents
+    // Edge-only preview from sticking to an endpoint merely because the cursor
+    // entered the line pick radius around that endpoint.
+    const worldA = this.selected.localToWorld(a.clone());
+    const worldB = this.selected.localToWorld(b.clone());
+    const worldDirection = worldB.clone().sub(worldA);
+    const c = worldDirection.lengthSq();
+    if (c < 1e-16) return null;
+    const rayDirection = this.raycaster.ray.direction;
+    const w0 = this.raycaster.ray.origin.clone().sub(worldA);
+    const bDot = rayDirection.dot(worldDirection);
+    const d = rayDirection.dot(w0);
+    const e = worldDirection.dot(w0);
+    const denominator = c - bDot * bDot;
+    let t = Math.abs(denominator) > 1e-16 ? (e - bDot * d) / denominator : e / c;
     if (!Number.isFinite(t)) return null;
+
+    if (t < 0 || t > 1) {
+      // Preserve an endpoint candidate only when the cursor is essentially
+      // exactly there; otherwise Edge-only has no target beyond the segment.
+      const epsilon = 1e-5;
+      if (t >= -epsilon && t < 0) t = 0;
+      else if (t <= 1 + epsilon && t > 1) t = 1;
+      else return null;
+    }
+
     if (t <= 1e-5) {
       return {
         detail: { kind: 'edge', edge, t: 0 },
