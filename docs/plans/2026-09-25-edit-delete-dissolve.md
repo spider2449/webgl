@@ -83,6 +83,27 @@ Unrelated logical faces retain their existing renderer triangles.
 - Delete / Backspace uses these logical semantics in Edit Mode.
 - Object Mode Delete continues to remove objects.
 
+## Viewport face display
+
+Backface visibility is a viewport concern, not project material authoring.
+
+Forge exposes:
+
+- **Double-Sided** — default modeling display; front and back faces are visible.
+- **Front Only** — backface culling is enabled so winding / normal problems are easier to diagnose.
+
+The mode applies consistently to Material, Solid and Wire shading.
+
+Changing this mode must not change:
+
+- project snapshots
+- authored material `side`
+- mesh topology
+- normals
+- exported geometry
+
+The editor temporarily overrides material side for viewport rendering and restores authored values during serialization.
+
 ## Future topology increase: Cut Face / Knife
 
 Delete reduces topology. Cut Face / Knife will increase it.
