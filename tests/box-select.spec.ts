@@ -165,19 +165,22 @@ test('Select Tool does not attach Move gizmo after Edit Mode component selection
       activeWidth: e.activeEdgeOverlay?.material.linewidth ?? 0,
       activeColor: e.activeEdgeOverlay?.material.color.getHex() ?? 0,
       baseEdgeColor: e.componentEdges?.material.color.getHex() ?? 0,
+      baseEdgeOpacity: e.componentEdges?.material.opacity ?? 1,
     };
   });
   expect(result.selected).toBe(1);
   expect(result.gizmoObject).toBeNull();
   expect(result.edgeOverlay).toBe(true);
   expect(result.edgeSegments).toBe(1);
-  expect(result.selectedWidth).toBe(5);
+  expect(result.selectedWidth).toBe(4);
   expect(result.selectedColor).toBe(0xffa94d);
   expect(result.activeOverlay).toBe(true);
   expect(result.activeSegments).toBe(1);
-  expect(result.activeWidth).toBe(2);
+  expect(result.activeWidth).toBe(6);
+  expect(result.activeWidth).toBeGreaterThan(result.selectedWidth);
   expect(result.activeColor).toBe(0xfff2db);
   expect(result.baseEdgeColor).toBe(0x454b54);
+  expect(result.baseEdgeOpacity).toBeLessThan(0.5);
 });
 
 test('full Edge marquee selects every component edge and renders every selected segment', async ({ page }) => {
@@ -208,15 +211,23 @@ test('full Edge marquee selects every component edge and renders every selected 
     const selected = [...e.componentSelection].sort((a:number,b:number)=>a-b);
     const edgeCount = e.meshTopology.polygonEdges.length;
     const overlayCount = e.selectedEdgeOverlay?.geometry?.getAttribute('instanceStart')?.count ?? 0;
+    const activeCount = e.activeEdgeOverlay?.geometry?.getAttribute('instanceStart')?.count ?? 0;
+    const selectedWidth = e.selectedEdgeOverlay?.material.linewidth ?? 0;
+    const activeWidth = e.activeEdgeOverlay?.material.linewidth ?? 0;
+    const baseOpacity = e.componentEdges?.material.opacity ?? 1;
     const baseCount = (e.componentEdges?.geometry?.getAttribute('position')?.count ?? 0) / 2;
     const missing = Array.from({length: edgeCount}, (_,i)=>i).filter(i=>!selected.includes(i));
-    return { edgeCount, selectedCount: selected.length, overlayCount, baseCount, missing };
+    return { edgeCount, selectedCount: selected.length, overlayCount, activeCount, selectedWidth, activeWidth, baseOpacity, baseCount, missing };
   });
 
   expect(result, JSON.stringify(result)).toEqual({
     edgeCount: result.edgeCount,
     selectedCount: result.edgeCount,
     overlayCount: result.edgeCount,
+    activeCount: 1,
+    selectedWidth: 4,
+    activeWidth: 6,
+    baseOpacity: 0.42,
     baseCount: result.edgeCount,
     missing: [],
   });
