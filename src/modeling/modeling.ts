@@ -2,8 +2,14 @@ import * as THREE from 'three';
 import { buildTopology } from './topology';
 
 type Corner = Record<string, number[]>;
-type Polygon = { corners: Corner[]; material: number; referenceNormals?: THREE.Vector3[] };
+type Polygon = {
+  corners: Corner[];
+  material: number;
+  referenceNormals?: THREE.Vector3[];
+  forbiddenDiagonals?: Set<string>;
+};
 const key = (v: number[]) => v.join(',');
+const positionEdgeKey = (a: Corner, b: Corner) => [key(a.position), key(b.position)].sort().join('|');
 const edgeKey = (a: number, b: number) => `${Math.min(a, b)}:${Math.max(a, b)}`;
 const vector = (c: Corner) => new THREE.Vector3().fromArray(c.position);
 
@@ -113,7 +119,11 @@ function clip(corners: Corner[], normal: THREE.Vector3, constant: number): { cor
   return { corners: result.filter((c, i) => key(c.position) !== key(result[(i + result.length - 1) % result.length].position)), cuts };
 }
 
-function triangulateBoundary(corners: Corner[], referenceNormals?: THREE.Vector3[]): Corner[][] {
+function triangulateBoundary(
+  corners: Corner[],
+  referenceNormals?: THREE.Vector3[],
+  forbiddenDiagonals?: Set<string>,
+): Corner[][] {
   if (corners.length === 3) return [corners];
 
   // Project the 3D boundary onto a plane perpendicular to the Newell normal.
@@ -184,6 +194,11 @@ function triangulateBoundary(corners: Corner[], referenceNormals?: THREE.Vector3
         }
       }
       if (containsVertex) continue;
+      if (forbiddenDiagonals && [
+        positionEdgeKey(corners[previous], corners[current]),
+        positionEdgeKey(corners[current], corners[next]),
+        positionEdgeKey(corners[next], corners[previous]),
+      ].some(edge => forbiddenDiagonals.has(edge))) continue;
 
       let score = 0;
       if (referenceNormals?.length === corners.length) {
@@ -202,6 +217,12 @@ function triangulateBoundary(corners: Corner[], referenceNormals?: THREE.Vector3
           points[next].distanceTo(points[previous]);
         score += area / Math.max(perimeter * perimeter, 1e-12);
       }
+      if (forbiddenDiagonals) {
+        const currentPosition = key(corners[current].position);
+        if ([...forbiddenDiagonals].some(edge => edge.startsWith(`${currentPosition}|`) || edge.endsWith(`|${currentPosition}`))) {
+          score += 10_000;
+        }
+      }
       ears.push({ position: i, previous, current, next, score });
       if (!referenceNormals) break;
     }
@@ -215,6 +236,13 @@ function triangulateBoundary(corners: Corner[], referenceNormals?: THREE.Vector3
 
   const [a, b, d] = remaining;
   if (winding * cross(a, b, d) <= epsilon) throw new Error('Result polygon collapses at mesh coordinate precision.');
+  if (forbiddenDiagonals && [
+    positionEdgeKey(corners[a], corners[b]),
+    positionEdgeKey(corners[b], corners[d]),
+    positionEdgeKey(corners[d], corners[a]),
+  ].some(edge => forbiddenDiagonals.has(edge))) {
+    throw new Error('Result polygon cannot be retessellated without recreating a deleted edge.');
+  }
   triangles.push([corners[a], corners[b], corners[d]]);
   return triangles;
 }
@@ -227,7 +255,7 @@ function finishDetailed(polygons: Polygon[]) {
     if (corners.length < 3) continue;
     // Rendering tessellation is not modeling topology. Triangulate only with
     // existing polygon corners: never create centroid/interior vertices.
-    const triangles = triangulateBoundary(corners, referenceNormals);
+    const triangles = triangulateBoundary(corners, referenceNormals, forbiddenDiagonals);
     const triangleIds: number[] = [];
     for (const triangle of triangles) {
       const [a, b, c] = triangle.map(vector);
@@ -557,7 +585,11 @@ function finishEditedSurface(
         appendTriangle(raw.map(rawCorner), materials[triangle], triangleIds);
       }
     } else {
-      const triangles = triangulateBoundary(entry.polygon.corners, entry.polygon.referenceNormals);
+      const triangles = triangulateBoundary(
+        entry.polygon.corners,
+        entry.polygon.referenceNormals,
+        entry.polygon.forbiddenDiagonals,
+      );
       for (const triangle of triangles) appendTriangle(triangle, entry.polygon.material, triangleIds);
     }
     polygonTriangles.push(triangleIds);
@@ -689,11 +721,24 @@ export function deleteLogicalComponents(
     const regions = mergedPolygonGroups(topology, selected);
     const groups = regions.map(region => region.flatMap(face => topology.polygonTriangles[face]));
     const mergedInspection = inspectGeometry(source, groups);
-    const entries: EditedPolygon[] = regions.map((region, polygonId) =>
-      region.length === 1
-        ? { polygon: surface.polygons[region[0]], sourceFace: region[0] }
-        : { polygon: polygonFromTriangleGroup(source, mergedInspection, polygonId) },
-    );
+    const selectedPositionEdges = new Set(selected.map(edge => {
+      const [a, b] = topology.polygonEdges[edge];
+      const position = source.getAttribute('position');
+      const corner = (vertex: number): Corner => ({
+        position: [
+          position.getX(topology.vertices[vertex][0]),
+          position.getY(topology.vertices[vertex][0]),
+          position.getZ(topology.vertices[vertex][0]),
+        ],
+      });
+      return positionEdgeKey(corner(a), corner(b));
+    }));
+    const entries: EditedPolygon[] = regions.map((region, polygonId) => {
+      if (region.length === 1) return { polygon: surface.polygons[region[0]], sourceFace: region[0] };
+      const polygon = polygonFromTriangleGroup(source, mergedInspection, polygonId);
+      polygon.forbiddenDiagonals = selectedPositionEdges;
+      return { polygon };
+    });
     return finishEditedSurface(source, inspection, entries);
   }
 
