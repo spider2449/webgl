@@ -30,6 +30,14 @@ The mesh is not modified while bends are being added.
 
 Escape cancels the entire pending interior path without changing mesh topology.
 
+Backspace removes only the most recent pending interior bend:
+
+- with multiple bends, the path shortens by one point;
+- when the last bend is removed, the pending overlay clears and the live preview anchor returns to the original boundary start;
+- the mesh remains unchanged;
+- Knife stays active so a replacement bend can be chosen;
+- Backspace is consumed by Knife while Knife is active, so it cannot accidentally fall through to component deletion.
+
 ## Topology representation
 
 A completed path divides one logical polygon into two polygons.
@@ -115,4 +123,6 @@ Manual validation:
 7. Try a self-crossing interior polyline; preview/click must reject it without destroying the existing pending path.
 8. Repeat with edge -> bend1 -> bend2 -> edge.
 9. Repeat on a safe concave N-gon.
-10. Press Escape with multiple bends pending; confirm no topology change and no pending overlay remains.
+10. With multiple bends pending, press Backspace twice; confirm bends disappear one at a time and the mesh remains unchanged.
+11. After the last Backspace, confirm the preview anchor returns to the original boundary start and Knife remains active.
+12. Re-add bends, then press Escape; confirm no topology change and no pending overlay remains.
