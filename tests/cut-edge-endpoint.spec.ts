@@ -637,3 +637,174 @@ test('Knife preview marks invalid endpoints before click and uses the same valid
 
   await page.keyboard.press('Escape');
 });
+
+
+test('Knife vertex snap stays locked until the cursor leaves the larger release radius', async ({ page }) => {
+  await page.goto('/');
+  await page.waitForFunction(() => (window as any).__forge?.selected);
+  await page.evaluate(() => (window as any).__forge.view('front'));
+  await page.locator('#mode').selectOption('edit');
+  await page.getByLabel('Mesh component').selectOption('vertex');
+
+  const target = await page.evaluate(() => {
+    const e = (window as any).__forge;
+    const topology = e.meshTopology;
+    const mesh = e.selected;
+    const position = mesh.geometry.getAttribute('position');
+    const face = topology.polygons.findIndex((polygon: number[]) =>
+      polygon.every((vertex: number) => position.getZ(topology.vertices[vertex][0]) === 1)
+    );
+    if (face < 0) throw new Error('Expected a front logical quad.');
+
+    const boundary = topology.polygons[face];
+    const aVertex = boundary[0];
+    const bVertex = boundary[1];
+    const a = mesh.position.clone().fromBufferAttribute(position, topology.vertices[aVertex][0]);
+    const b = mesh.position.clone().fromBufferAttribute(position, topology.vertices[bVertex][0]);
+    mesh.updateWorldMatrix(true, true);
+    e.camera.updateMatrixWorld(true);
+    const worldA = mesh.localToWorld(a.clone());
+    const worldB = mesh.localToWorld(b.clone());
+    const edgeLength = worldA.distanceTo(worldB);
+    const threshold = e.camera.position.distanceTo(e.orbit.target) * 0.012;
+
+    const nearT = Math.min(0.35, Math.max(0.02, threshold * 1.4 / edgeLength));
+    const farT = Math.min(0.45, Math.max(nearT + 0.06, threshold * 2.6 / edgeLength));
+    if (!(nearT < farT && farT < 0.5)) throw new Error('Expected usable hysteresis test points.');
+
+    const rect = e.host.getBoundingClientRect();
+    const screenLocal = (local: any) => {
+      const projected = mesh.localToWorld(local.clone()).project(e.camera);
+      return {
+        local: local.toArray(),
+        x: rect.left + (projected.x + 1) * rect.width / 2,
+        y: rect.top + (1 - projected.y) * rect.height / 2,
+      };
+    };
+
+    return {
+      vertex: screenLocal(a),
+      near: screenLocal(a.clone().lerp(b, nearT)),
+      far: screenLocal(a.clone().lerp(b, farT)),
+    };
+  });
+
+  await page.keyboard.press('k');
+
+  await page.mouse.move(target.vertex.x, target.vertex.y);
+  let preview = await page.evaluate(() => (window as any).__forge.knifePreviewState);
+  expect(preview.target.kind).toBe('vertex');
+  expect(preview.lockedVertex).not.toBeNull();
+
+  // This point is outside the normal acquire radius but inside the 2x release
+  // radius, so the Knife preview should stay pinned to the same logical vertex.
+  await page.mouse.move(target.near.x, target.near.y);
+  preview = await page.evaluate(() => (window as any).__forge.knifePreviewState);
+  expect(preview.target.kind).toBe('vertex');
+  expect(preview.lockedVertex).not.toBeNull();
+  preview.point.forEach((value: number, index: number) => expect(value).toBeCloseTo(target.vertex.local[index], 5));
+
+  // Moving clearly beyond the release radius unlocks and resumes edge tracking.
+  await page.mouse.move(target.far.x, target.far.y);
+  preview = await page.evaluate(() => (window as any).__forge.knifePreviewState);
+  expect(preview.target.kind).toBe('edge');
+  expect(preview.lockedVertex).toBeNull();
+  preview.point.forEach((value: number, index: number) => expect(value).toBeCloseTo(target.far.local[index], 4));
+
+  await page.keyboard.press('Escape');
+});
+
+
+test('Edge-only Knife does not proximity-snap near vertices but accepts an intentional vertex click', async ({ page }) => {
+  await page.goto('/');
+  await page.waitForFunction(() => (window as any).__forge?.selected);
+  await page.evaluate(() => (window as any).__forge.view('front'));
+  await page.locator('#mode').selectOption('edit');
+  await page.getByLabel('Mesh component').selectOption('vertex');
+
+  const target = await page.evaluate(() => {
+    const e = (window as any).__forge;
+    (window as any).__forgeModelingSettings.knifeSnap = 'edge-only';
+    const topology = e.meshTopology;
+    const mesh = e.selected;
+    const position = mesh.geometry.getAttribute('position');
+    const face = topology.polygons.findIndex((polygon: number[]) =>
+      polygon.every((vertex: number) => position.getZ(topology.vertices[vertex][0]) === 1)
+    );
+    if (face < 0) throw new Error('Expected a front logical quad.');
+    const boundary = topology.polygons[face];
+    const edge = topology.polygonEdges.findIndex((candidate: number[]) =>
+      candidate.length === 2 &&
+      ((candidate[0] === boundary[0] && candidate[1] === boundary[1]) ||
+       (candidate[0] === boundary[1] && candidate[1] === boundary[0]))
+    );
+    if (edge < 0) throw new Error('Expected a logical edge.');
+
+    const rect = e.host.getBoundingClientRect();
+    const local = (vertex: number) =>
+      mesh.position.clone().fromBufferAttribute(position, topology.vertices[vertex][0]);
+    const screen = (point: any) => {
+      mesh.updateWorldMatrix(true, true);
+      e.camera.updateMatrixWorld(true);
+      const projected = mesh.localToWorld(point.clone()).project(e.camera);
+      return {
+        local: point.toArray(),
+        x: rect.left + (projected.x + 1) * rect.width / 2,
+        y: rect.top + (1 - projected.y) * rect.height / 2,
+      };
+    };
+    const [aVertex, bVertex] = topology.polygonEdges[edge];
+    const a = local(aVertex), b = local(bVertex);
+    const worldA = mesh.localToWorld(a.clone());
+    const worldB = mesh.localToWorld(b.clone());
+    const threshold = e.camera.position.distanceTo(e.orbit.target) * 0.012;
+    const edgeLength = worldA.distanceTo(worldB);
+    const nearT = Math.min(0.08, Math.max(0.015, threshold * 0.45 / edgeLength));
+
+    return {
+      before: e.snapshot(),
+      endpoint: screen(a),
+      near: screen(a.clone().lerp(b, nearT)),
+      interior: screen(a.clone().lerp(b, 0.25)),
+    };
+  });
+
+  await page.keyboard.press('k');
+
+  // Even inside the normal Vertex + Edge acquire radius, Edge only must keep
+  // following the edge instead of snapping/sticking to the logical vertex.
+  await page.mouse.move(target.near.x, target.near.y);
+  let preview = await page.evaluate(() => (window as any).__forge.knifePreviewState);
+  expect(preview.pointVisible).toBe(true);
+  expect(preview.target.kind).toBe('edge');
+  expect(preview.target.t).toBeGreaterThan(0);
+  expect(preview.lockedVertex).toBeNull();
+  preview.point.forEach((value: number, index: number) => expect(value).toBeCloseTo(target.near.local[index], 4));
+
+  // An intentional click directly on the visible logical point is still
+  // accepted as a vertex start; this is a click hit, not proximity snapping.
+  await page.mouse.click(target.endpoint.x, target.endpoint.y);
+  await expect(page.locator('#toast')).toContainText('Knife start set');
+  expect(await page.evaluate(() => ({
+    snapshot: (window as any).__forge.snapshot(),
+    pending: (window as any).__forge.snapTargetPending,
+    anchor: (window as any).__forge.knifePreviewState.anchor,
+  }))).toEqual({
+    snapshot: target.before,
+    pending: true,
+    anchor: target.endpoint.local,
+  });
+
+  // Edge-only hover continues tracking interior edge positions after that click.
+  await page.mouse.move(target.interior.x, target.interior.y);
+  preview = await page.evaluate(() => (window as any).__forge.knifePreviewState);
+  expect(preview.pointVisible).toBe(true);
+  expect(preview.target.kind).toBe('edge');
+  expect(preview.target.t).toBeGreaterThan(0);
+  expect(preview.target.t).toBeLessThan(1);
+  expect(preview.lockedVertex).toBeNull();
+  preview.point.forEach((value: number, index: number) => expect(value).toBeCloseTo(target.interior.local[index], 4));
+
+  await page.keyboard.press('Escape');
+  await page.evaluate(() => { (window as any).__forgeModelingSettings.knifeSnap = 'vertex-edge'; });
+});

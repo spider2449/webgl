@@ -40,7 +40,7 @@ const MAX_ANIMATION_FRAME = 100_000;
 type KnifePickTarget =
   | { kind: 'vertex'; vertex: number }
   | { kind: 'edge'; edge: number; t: number };
-type KnifePick = { detail: KnifePickTarget; point: THREE.Vector3 };
+type KnifePick = { detail: KnifePickTarget; point: THREE.Vector3; commit?: boolean };
 const cloneScalarKey = (key: ScalarKey): ScalarKey => ({
   frame: key.frame,
   value: key.value,
@@ -103,6 +103,7 @@ export class Editor extends EventTarget {
   private knifePreviewHover: THREE.Vector3 | null = null;
   private knifePreviewTarget: KnifePickTarget | null = null;
   private knifePreviewValidity: 'neutral' | 'valid' | 'invalid' = 'neutral';
+  private knifeLockedVertex: number | null = null;
   private componentCenter = new THREE.Vector3();
   private proportionalEnabled = false;
   private proportionalRadius = 2;
@@ -263,7 +264,7 @@ export class Editor extends EventTarget {
         this.camera,
       );
       const threshold = this.camera.position.distanceTo(this.orbit.target) * 0.012;
-      this.setKnifePreview(this.pickKnifeTarget(threshold));
+      this.setKnifePreview(this.pickKnifeTarget(threshold, 'hover'));
     });
     this.renderer.domElement.addEventListener('pointerleave', () => {
       if (this.snapTargetPending && this.snapTargetKind === 'knife') this.setKnifePreview(null);
@@ -299,11 +300,13 @@ export class Editor extends EventTarget {
                 this.snapSelectionToSurface(hit.faceIndex, weights.toArray());
               }
             } else if (this.snapTargetKind === 'knife') {
-              const pick = this.pickKnifeTarget(threshold);
+              const pick = this.pickKnifeTarget(threshold, 'click');
               if (pick) {
                 this.setKnifePreview(pick);
-                this.cancelVertexSnap();
-                this.dispatchEvent(new CustomEvent('knife-target', { detail: pick.detail }));
+                if (pick.commit !== false) {
+                  this.cancelVertexSnap();
+                  this.dispatchEvent(new CustomEvent('knife-target', { detail: pick.detail }));
+                }
               }
             } else if (this.snapTargetKind === 'edge' && this.componentEdges) {
               this.raycaster.params.Line.threshold = threshold;
@@ -1170,6 +1173,7 @@ export class Editor extends EventTarget {
       this.knifePreviewHover = null;
       this.knifePreviewTarget = null;
       this.knifePreviewValidity = 'neutral';
+      this.knifeLockedVertex = null;
       this.topology = null;
       this.vertexPoints.geometry.dispose();
       (this.vertexPoints.material as THREE.Material).dispose();
@@ -1537,6 +1541,7 @@ export class Editor extends EventTarget {
   cancelVertexSnap() {
     if (!this.snapTargetPending) return;
     this.snapTargetPending = false;
+    this.knifeLockedVertex = null;
     this.setKnifePreview(null);
     this.refreshComponents();
     this.invalidate();
@@ -1555,6 +1560,7 @@ export class Editor extends EventTarget {
       throw new Error('Knife requires Vertex mode with zero or one selected logical vertex.');
     }
     this.knifeSnapToVertex = snapToVertex;
+    if (!snapToVertex) this.knifeLockedVertex = null;
     this.snapTargetKind = 'knife';
     this.snapTargetPending = true;
     this.setKnifePreview(null);
@@ -1562,21 +1568,44 @@ export class Editor extends EventTarget {
     this.invalidate();
     this.emit('snap-target');
   }
-  private pickKnifeTarget(threshold: number): KnifePick | null {
+  private pickKnifeTarget(threshold: number, interaction: 'hover' | 'click' = 'hover'): KnifePick | null {
     if (!this.componentEdges || !this.selected || !(this.selected instanceof THREE.Mesh) || !this.topology) return null;
     const position = this.selected.geometry.getAttribute('position');
+    const vertexPick = (vertex: number): KnifePick => {
+      const raw = this.topology!.vertices[vertex][0];
+      return {
+        detail: { kind: 'vertex', vertex },
+        point: new THREE.Vector3().fromBufferAttribute(position, raw),
+      };
+    };
 
     if (this.knifeSnapToVertex && this.vertexPoints) {
+      if (this.knifeLockedVertex !== null && this.topology.logicalVertices.includes(this.knifeLockedVertex)) {
+        const locked = vertexPick(this.knifeLockedVertex);
+        const world = this.selected.localToWorld(locked.point.clone());
+        if (this.raycaster.ray.distanceToPoint(world) <= threshold * 2) return locked;
+        this.knifeLockedVertex = null;
+      }
+
       this.raycaster.params.Points.threshold = threshold;
       const vertexHit = this.raycaster.intersectObject(this.vertexPoints, false)[0];
       if (vertexHit?.index !== undefined) {
         const vertex = this.topology.bufferToVertex[vertexHit.index];
         if (this.topology.logicalVertices.includes(vertex)) {
-          const raw = this.topology.vertices[vertex][0];
-          return {
-            detail: { kind: 'vertex', vertex },
-            point: new THREE.Vector3().fromBufferAttribute(position, raw),
-          };
+          this.knifeLockedVertex = vertex;
+          return vertexPick(vertex);
+        }
+      }
+    } else {
+      this.knifeLockedVertex = null;
+      if (interaction === 'click' && this.vertexPoints) {
+        // Edge-only does not proximity-snap while hovering, but an intentional
+        // click directly on the visible logical vertex is still a vertex target.
+        this.raycaster.params.Points.threshold = threshold * 0.25;
+        const vertexHit = this.raycaster.intersectObject(this.vertexPoints, false)[0];
+        if (vertexHit?.index !== undefined) {
+          const vertex = this.topology.bufferToVertex[vertexHit.index];
+          if (this.topology.logicalVertices.includes(vertex)) return vertexPick(vertex);
         }
       }
     }
@@ -1592,9 +1621,47 @@ export class Editor extends EventTarget {
     const direction = b.clone().sub(a);
     const lengthSq = direction.lengthSq();
     if (lengthSq < 1e-16) return null;
-    const localPoint = this.selected.worldToLocal(hit.point.clone());
-    const t = localPoint.sub(a).dot(direction) / lengthSq;
-    if (!Number.isFinite(t) || t <= 1e-5 || t >= 1 - 1e-5) return null;
+    // Recompute the edge parameter against the infinite world-space edge
+    // rather than using LineSegments' clamped hit.point. This prevents
+    // Edge-only preview from sticking to an endpoint merely because the cursor
+    // entered the line pick radius around that endpoint.
+    const worldA = this.selected.localToWorld(a.clone());
+    const worldB = this.selected.localToWorld(b.clone());
+    const worldDirection = worldB.clone().sub(worldA);
+    const c = worldDirection.lengthSq();
+    if (c < 1e-16) return null;
+    const rayDirection = this.raycaster.ray.direction;
+    const w0 = this.raycaster.ray.origin.clone().sub(worldA);
+    const bDot = rayDirection.dot(worldDirection);
+    const d = rayDirection.dot(w0);
+    const e = worldDirection.dot(w0);
+    const denominator = c - bDot * bDot;
+    let t = Math.abs(denominator) > 1e-16 ? (e - bDot * d) / denominator : e / c;
+    if (!Number.isFinite(t)) return null;
+
+    if (t < 0 || t > 1) {
+      // Preserve an endpoint candidate only when the cursor is essentially
+      // exactly there; otherwise Edge-only has no target beyond the segment.
+      const epsilon = 1e-5;
+      if (t >= -epsilon && t < 0) t = 0;
+      else if (t <= 1 + epsilon && t > 1) t = 1;
+      else return null;
+    }
+
+    if (t <= 1e-5) {
+      return {
+        detail: { kind: 'edge', edge, t: 0 },
+        point: a.clone(),
+        commit: false,
+      };
+    }
+    if (t >= 1 - 1e-5) {
+      return {
+        detail: { kind: 'edge', edge, t: 1 },
+        point: b.clone(),
+        commit: false,
+      };
+    }
     return {
       detail: { kind: 'edge', edge, t },
       point: a.clone().lerp(b, t),
@@ -1662,6 +1729,7 @@ export class Editor extends EventTarget {
       anchor: this.knifePreviewAnchor?.toArray() ?? null,
       target: this.knifePreviewTarget ? { ...this.knifePreviewTarget } : null,
       validity: this.knifePreviewValidity,
+      lockedVertex: this.knifeLockedVertex,
     };
   }
 

@@ -26,6 +26,32 @@ This is the default.
 
 The control is exposed as `Knife Snap` in the Vertex context menu next to the Knife operator.
 
+## Edge-only hover vs explicit vertex clicks
+
+`Knife Snap = Edge only` never proximity-snaps or sticks to a logical vertex while the mouse is merely moving.
+
+- hover near a vertex continues to track the actual edge position
+- the sticky vertex hysteresis state is never entered in Edge only
+- an exact endpoint hover can still be displayed without converting the hover target into a vertex snap
+- if the user deliberately clicks directly on the visible logical vertex marker, that click is accepted as a vertex target
+- the click-only vertex hit area is intentionally much smaller than the normal Vertex + Edge acquire radius
+- after an explicit vertex click, subsequent Edge-only hover still follows edge positions without vertex locking
+
+This separates passive snapping from an intentional point selection: Edge only does not pull the cursor toward a vertex, but it does not forbid the user from explicitly clicking one.
+
+## Sticky vertex snapping
+
+Knife vertex snapping now uses hysteresis so the cursor does not flicker between a logical vertex and its incident edge.
+
+- acquire radius: the normal Knife vertex snap threshold
+- release radius: 2x the acquire radius
+- once a logical vertex is acquired, Knife stays pinned to that exact vertex while the cursor remains inside the larger release radius
+- after the cursor leaves the release radius, Knife unlocks and resumes normal edge tracking
+- `Edge only` never enters the sticky vertex state
+- ending Knife, changing topology, or leaving Edit Mode clears the lock
+
+This makes the visual preview behave like a stable modeling snap rather than a frame-by-frame nearest-target test.
+
 ## Preview validity
 
 Once a Knife anchor exists, the hover preview also shows whether the candidate can actually be committed.
@@ -118,6 +144,25 @@ npm test -- --workers=2
 ```
 
 Manual checks:
+
+### Edge-only does not proximity-snap
+
+1. Set `Knife Snap = Edge only`.
+2. Start Knife.
+3. Move along an edge close to one of its logical vertices.
+4. Confirm the preview continues following the edge and does not jump or stick to the vertex.
+5. Click directly on the visible vertex marker.
+6. Confirm that deliberate click is accepted as a vertex Knife target.
+7. Move along an edge again and confirm Edge-only hover still does not lock to nearby vertices.
+
+### Sticky vertex lock
+
+1. Start Knife with `Knife Snap = Vertex + Edge`.
+2. Move onto a logical vertex and confirm the preview snaps exactly onto it.
+3. Move the mouse a small distance along an incident edge.
+4. Confirm the preview remains pinned to the vertex instead of immediately sliding onto the edge.
+5. Move clearly farther away.
+6. Confirm the lock releases and the preview resumes tracking the edge.
 
 ### Valid / invalid preview
 
