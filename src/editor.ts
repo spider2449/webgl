@@ -1127,7 +1127,7 @@ export class Editor extends EventTarget {
       this.componentEdges?.geometry.dispose();
       if (this.componentEdges) (this.componentEdges.material as THREE.Material).dispose();
       this.componentEdges = null;
-      for (const overlay of [this.selectedVertexOverlay, this.selectedEdgeOverlay, this.activeEdgeOverlay, this.selectedFaceOverlay]) {
+      for (const overlay of [this.selectedVertexOverlay, this.selectedEdgeOverlay, this.activeEdgeOverlay, this.selectedFaceOverlay, this.knifePointOverlay]) {
         overlay?.geometry.dispose();
         if (overlay) (overlay.material as THREE.Material).dispose();
       }
@@ -1135,6 +1135,7 @@ export class Editor extends EventTarget {
       this.selectedEdgeOverlay = null;
       this.activeEdgeOverlay = null;
       this.selectedFaceOverlay = null;
+      this.knifePointOverlay = null;
       this.topology = null;
       this.vertexPoints.geometry.dispose();
       (this.vertexPoints.material as THREE.Material).dispose();
@@ -1177,7 +1178,16 @@ export class Editor extends EventTarget {
       this.selectedFaceOverlay = new THREE.Mesh(new THREE.BufferGeometry(), new THREE.MeshBasicMaterial({ color: 0xffb95f, transparent: true, opacity: 0.32, depthTest: false, depthWrite: false, side: THREE.DoubleSide }));
       this.selectedFaceOverlay.userData.forgeEditorHelper = true;
       this.selectedFaceOverlay.renderOrder = 11;
-      this.vertexPoints.add(this.componentEdges, this.selectedVertexOverlay, this.selectedEdgeOverlay, this.activeEdgeOverlay, this.selectedFaceOverlay);
+
+      this.knifePointOverlay = new THREE.Points(
+        new THREE.BufferGeometry(),
+        new THREE.PointsMaterial({ color: 0x7fdcff, size: 11, sizeAttenuation: false, depthTest: false }),
+      );
+      this.knifePointOverlay.userData.forgeEditorHelper = true;
+      this.knifePointOverlay.renderOrder = 15;
+      this.knifePointOverlay.visible = false;
+
+      this.vertexPoints.add(this.componentEdges, this.selectedVertexOverlay, this.selectedEdgeOverlay, this.activeEdgeOverlay, this.selectedFaceOverlay, this.knifePointOverlay);
       this.refreshComponents();
     } else {
       this.syncTransformControls();
