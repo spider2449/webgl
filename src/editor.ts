@@ -125,8 +125,10 @@ export class Editor extends EventTarget {
   transformOrientation: TransformOrientation = 'world';
   private transformTool: 'select' | 'translate' | 'rotate' | 'scale' = 'translate';
   private viewStyle = 'material';
-  private solid = new THREE.MeshStandardMaterial({ color: 0x666a70, roughness: 0.9, metalness: 0 });
-  private wire = new THREE.MeshBasicMaterial({ color: 0x555a62, wireframe: true });
+  private faceDisplay: 'front' | 'double' = 'double';
+  private originalMaterialSides = new WeakMap<THREE.Material, THREE.Side>();
+  private solid = new THREE.MeshStandardMaterial({ color: 0x666a70, roughness: 0.9, metalness: 0, side: THREE.DoubleSide });
+  private wire = new THREE.MeshBasicMaterial({ color: 0x555a62, wireframe: true, side: THREE.DoubleSide });
   private resizeObserver: ResizeObserver;
 
   constructor(readonly host: HTMLElement) {
@@ -371,7 +373,7 @@ export class Editor extends EventTarget {
       const vertexPoint = (vertex: number) => this.selected!.localToWorld(new THREE.Vector3().fromBufferAttribute(positions, this.topology!.vertices[vertex][0]));
       const hits: number[] = [];
       if (this.componentMode === 'vertex') {
-        this.topology.vertices.forEach((_, vertex) => { if (inside(vertexPoint(vertex))) hits.push(vertex); });
+        this.topology.logicalVertices.forEach(vertex => { if (inside(vertexPoint(vertex))) hits.push(vertex); });
       } else if (this.componentMode === 'edge') {
         this.topology.polygonEdges.forEach((edge, id) => {
           const a = vertexPoint(edge[0]), b = vertexPoint(edge[1]);
@@ -514,9 +516,45 @@ export class Editor extends EventTarget {
       if (this.playing) this.invalidate();
     });
   }
+  private syncFaceDisplay() {
+    const side = this.faceDisplay === 'double' ? THREE.DoubleSide : THREE.FrontSide;
+    if (this.solid.side !== side) { this.solid.side = side; this.solid.needsUpdate = true; }
+    if (this.wire.side !== side) { this.wire.side = side; this.wire.needsUpdate = true; }
+    this.content.traverse(object => {
+      if (!(object instanceof THREE.Mesh) || object.userData.forgeEditorHelper === true) return;
+      for (const material of Array.isArray(object.material) ? object.material : [object.material]) {
+        if (!this.originalMaterialSides.has(material)) this.originalMaterialSides.set(material, material.side);
+        if (material.side !== side) {
+          material.side = side;
+          material.needsUpdate = true;
+        }
+      }
+    });
+  }
+  private restoreAuthoredMaterialSides() {
+    this.content.traverse(object => {
+      if (!(object instanceof THREE.Mesh) || object.userData.forgeEditorHelper === true) return;
+      for (const material of Array.isArray(object.material) ? object.material : [object.material]) {
+        const side = this.originalMaterialSides.get(material);
+        if (side !== undefined && material.side !== side) {
+          material.side = side;
+          material.needsUpdate = true;
+        }
+      }
+    });
+  }
+  get faceDisplayMode() { return this.faceDisplay; }
+  setFaceDisplayMode(value: 'front' | 'double') {
+    if (value !== 'front' && value !== 'double') throw new Error('Invalid face display mode.');
+    this.faceDisplay = value;
+    this.syncFaceDisplay();
+    this.invalidate();
+    this.emit('view');
+  }
   render() {
     this.beforeRender?.();
     this.gimbal.update();
+    this.syncFaceDisplay();
     const originals = new Map<THREE.Mesh, THREE.Material | THREE.Material[]>();
     if (this.viewStyle !== 'material') this.content.traverse(o => {
       if (o instanceof THREE.Mesh && o.userData.forgeEditorHelper !== true) {
@@ -1096,6 +1134,7 @@ export class Editor extends EventTarget {
       const storedPolygons = this.storedPolygonTriangles(this.selected);
       const pairTriangles = storedPolygons === undefined && (this.selected.userData.forgeLogicalQuads === true || primitiveKind === 'cube' || primitiveKind === 'plane');
       this.topology = preparedTopology ?? buildTopology(position.array, this.selected.geometry.index?.array, storedPolygons ?? pairTriangles);
+      geometry.setIndex(this.topology.logicalVertices.map(vertex => this.topology!.vertices[vertex][0]));
       geometry.setAttribute('color', new THREE.Float32BufferAttribute(new Float32Array(position.count * 3).fill(1), 3));
       (this.vertexPoints.material as THREE.PointsMaterial).vertexColors = true;
       this.componentEdges = new THREE.LineSegments(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({ color: 0x454b54, transparent: true, opacity: 0.9, depthTest: false }));
@@ -1286,7 +1325,8 @@ export class Editor extends EventTarget {
   private restoreSubdivisionSelection(mode: ComponentMode, oldEdges: [[number, number, number], [number, number, number]][], midpointIndex: number) {
     if (!this.topology || !(this.selected instanceof THREE.Mesh)) return;
     this.setComponentMode(mode);
-    const midpointVertices = new Set(this.topology.bufferToVertex.slice(midpointIndex));
+    const logical = new Set(this.topology.logicalVertices);
+    const midpointVertices = new Set(this.topology.bufferToVertex.slice(midpointIndex).filter(vertex => logical.has(vertex)));
     if (mode === 'vertex') {
       const vertices = [...midpointVertices];
       this.selectedComponents = new Set(vertices);
@@ -1427,7 +1467,7 @@ export class Editor extends EventTarget {
   }
   snapSelectionToVertex(vertex: number) {
     if (!this.editMode || !this.topology || !(this.selected instanceof THREE.Mesh) || !this.vertexIndices.length || this.playing || this.transform.dragging) throw new Error('Select mesh components in Edit Mode and finish the current drag first.');
-    if (!Number.isInteger(vertex) || !this.topology.vertices[vertex]) throw new Error('Invalid snap target vertex.');
+    if (!Number.isInteger(vertex) || !this.topology.vertices[vertex] || !this.topology.logicalVertices.includes(vertex)) throw new Error('Invalid logical snap target vertex.');
     const targetIndex = this.topology.vertices[vertex][0];
     if (this.vertexIndices.includes(targetIndex)) throw new Error('Choose an unselected target vertex.');
     const attribute = this.selected.geometry.getAttribute('position');
@@ -1516,7 +1556,7 @@ export class Editor extends EventTarget {
       meshes.forEach((mesh, i) => {
         if (operation.kind === 'uv') {
           this.markPrimitiveApplied(mesh);
-        } else if ((operation.kind === 'bevel' || operation.kind === 'extrude' || operation.kind === 'inset' || operation.kind === 'loop') && topologies[i]) {
+        } else if ((operation.kind === 'bevel' || operation.kind === 'extrude' || operation.kind === 'inset' || operation.kind === 'loop' || operation.kind === 'delete-components') && topologies[i]) {
           this.markPrimitiveApplied(mesh);
           if (mesh.userData.forgeLogicalQuads !== undefined) delete mesh.userData.forgeLogicalQuads;
           mesh.userData.forgePolygonTriangles = topologies[i]!.polygonTriangles.map(group => [...group]);
@@ -1531,13 +1571,13 @@ export class Editor extends EventTarget {
         // main thread. This keeps raycast faceIndex -> logical polygon mapping
         // aligned with the parsed BufferGeometry rather than trusting a
         // transient worker-side triangle numbering.
-        const rebuildFromStoredPolygons = operation.kind === 'bevel' || operation.kind === 'extrude' || operation.kind === 'inset' || operation.kind === 'loop';
+        const rebuildFromStoredPolygons = operation.kind === 'bevel' || operation.kind === 'extrude' || operation.kind === 'inset' || operation.kind === 'loop' || operation.kind === 'delete-components';
         this.setEditMode(true, operation.kind === 'uv' || rebuildFromStoredPolygons ? undefined : topologies[0]);
         if (operation.kind === 'subdivide') {
           this.restoreSubdivisionSelection(oldMode, oldEdges, midpoint);
         } else if (operation.kind === 'subdivide-all') {
           this.setComponentMode(oldMode);
-        } else if (operation.kind === 'loop') {
+        } else if (operation.kind === 'loop' || operation.kind === 'delete-components') {
           this.setComponentMode(oldMode);
         } else if (['uv', 'inset', 'extrude', 'region'].includes(operation.kind)) {
           const restoredFaces =
@@ -1690,6 +1730,7 @@ export class Editor extends EventTarget {
     this.content.traverse(o => { if (o instanceof THREE.Mesh && !o.geometry.boundingSphere) o.geometry.computeBoundingSphere(); });
     const points = this.vertexPoints;
     points?.removeFromParent();
+    this.restoreAuthoredMaterialSides();
     try { return JSON.stringify({
       format: 'forge-studio',
       version: 1,
@@ -1698,7 +1739,10 @@ export class Editor extends EventTarget {
       ...(this.previewRange ? { previewRange: this.previewRange } : {}),
       scene: this.content.toJSON(),
     } satisfies Project); }
-    finally { if (points && this.selected) this.selected.add(points); }
+    finally {
+      this.syncFaceDisplay();
+      if (points && this.selected) this.selected.add(points);
+    }
   }
   commit() {
     const snapshot = this.snapshot();

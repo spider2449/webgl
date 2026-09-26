@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import * as THREE from 'three';
-import { bevelEdges, bevelLogicalEdges, extrudeLogicalFace, insetLogicalFace, loopCut, loopCutLogicalEdge, editUV } from '../src/modeling/modeling';
+import { bevelEdges, bevelLogicalEdges, deleteLogicalComponents, extrudeLogicalFace, insetLogicalFace, loopCut, loopCutLogicalEdge, editUV } from '../src/modeling/modeling';
 import { buildTopology } from '../src/modeling/topology';
 import { evaluateModifiers } from '../src/modeling/modifiers';
 
@@ -182,6 +182,87 @@ test('logical Cube loop cut follows opposite quad edges without renderer-triangl
   expect(new Set(output.polygons.flat()).size).toBe(output.vertices.length);
   expect(cut.geometry.boundingBox!.min.toArray()).toEqual([-1, -1, -1]);
   expect(cut.geometry.boundingBox!.max.toArray()).toEqual([1, 1, 1]);
+});
+
+test('Delete Vertex removes the point from affected face boundaries and retessellates those faces', () => {
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute([
+    -1,  1, 0, // A
+     1,  1, 0, // B
+     1,  0, 0, // C - selected boundary point
+     1, -1, 0, // D
+    -1, -1, 0, // E
+  ], 3));
+  geometry.setIndex([0,1,2, 0,2,4, 2,3,4]);
+  const input = buildTopology(geometry.getAttribute('position').array, geometry.index!.array, [[0,1,2]]);
+  expect(input.polygons).toEqual([[0,1,2,3,4]]);
+
+  const result = deleteLogicalComponents(geometry, 'vertex', [2], input.polygonTriangles);
+  const output = buildTopology(result.geometry.getAttribute('position').array, result.geometry.index?.array, result.polygonTriangles);
+  expect(output.polygons).toHaveLength(1);
+  expect(output.polygons[0]).toHaveLength(4);
+  expect(output.logicalVertices).toHaveLength(4);
+  expect(output.faces).toHaveLength(2);
+
+  const positions = result.geometry.getAttribute('position');
+  const hasDeletedPoint = output.vertices.some(copies => {
+    const index = copies[0];
+    return positions.getX(index) === 1 && positions.getY(index) === 0 && positions.getZ(index) === 0;
+  });
+  expect(hasDeletedPoint).toBe(false);
+});
+
+test('logical component deletion rebuilds only the affected Cube surface topology', () => {
+  const box = new THREE.BoxGeometry(2, 2, 2);
+  const input = buildTopology(box.getAttribute('position').array, box.index?.array, true);
+
+  const faceDelete = deleteLogicalComponents(box, 'face', [0], input.polygonTriangles);
+  const faceTopology = buildTopology(faceDelete.geometry.getAttribute('position').array, faceDelete.geometry.index?.array, faceDelete.polygonTriangles);
+  expect(faceTopology.polygons).toHaveLength(5);
+  expect(faceTopology.polygons.every(polygon => polygon.length === 4)).toBe(true);
+  expect(faceTopology.faces).toHaveLength(10);
+  expect(faceTopology.logicalVertices).toHaveLength(8);
+
+  const dissolvedEdge = input.polygonEdges[0];
+  const boxPosition = box.getAttribute('position');
+  const dissolvedPoints = dissolvedEdge.map(vertex =>
+    new THREE.Vector3().fromBufferAttribute(boxPosition, input.vertices[vertex][0])
+  );
+  const edgeDelete = deleteLogicalComponents(box, 'edge', [0], input.polygonTriangles);
+  closed(edgeDelete.geometry);
+  const edgeTopology = buildTopology(edgeDelete.geometry.getAttribute('position').array, edgeDelete.geometry.index?.array, edgeDelete.polygonTriangles);
+  expect(edgeTopology.polygons).toHaveLength(5);
+  expect(edgeTopology.polygons.map(polygon => polygon.length).sort((a,b) => a-b)).toEqual([4,4,4,4,6]);
+  expect(edgeTopology.faces).toHaveLength(12);
+  expect(edgeTopology.logicalVertices).toHaveLength(8);
+  expect(edgeTopology.polygonEdges).toHaveLength(11);
+  const edgePositions = edgeDelete.geometry.getAttribute('position');
+  const matchesPoint = (vertex: number, point: THREE.Vector3) => {
+    const index = edgeTopology.vertices[vertex][0];
+    return new THREE.Vector3().fromBufferAttribute(edgePositions, index).distanceToSquared(point) < 1e-12;
+  };
+  expect(edgeTopology.edges.some(([a,b]) =>
+    (matchesPoint(a, dissolvedPoints[0]) && matchesPoint(b, dissolvedPoints[1])) ||
+    (matchesPoint(a, dissolvedPoints[1]) && matchesPoint(b, dissolvedPoints[0]))
+  )).toBe(false);
+
+  const removedVertex = input.logicalVertices[0];
+  const position = box.getAttribute('position');
+  const removedPoint = new THREE.Vector3().fromBufferAttribute(position, input.vertices[removedVertex][0]);
+  const vertexDelete = deleteLogicalComponents(box, 'vertex', [removedVertex], input.polygonTriangles);
+  const vertexTopology = buildTopology(vertexDelete.geometry.getAttribute('position').array, vertexDelete.geometry.index?.array, vertexDelete.polygonTriangles);
+  expect(vertexTopology.polygons).toHaveLength(6);
+  expect(vertexTopology.polygons.map(polygon => polygon.length).sort((a,b) => a-b)).toEqual([3,3,3,4,4,4]);
+  expect(vertexTopology.faces).toHaveLength(9);
+  expect(vertexTopology.logicalVertices).toHaveLength(7);
+  expect(vertexTopology.polygonEdges).toHaveLength(12);
+  const resultPositions = vertexDelete.geometry.getAttribute('position');
+  expect(vertexTopology.vertices.some(copies => {
+    const index = copies[0];
+    return new THREE.Vector3().fromBufferAttribute(resultPositions, index).distanceToSquared(removedPoint) < 1e-12;
+  })).toBe(false);
+
+  expect(() => deleteLogicalComponents(box, 'face', [0,1,2,3,4,5], input.polygonTriangles)).toThrow(/entire mesh/);
 });
 
 test('adjacent and all-edge bevels remain closed; planar grid cuts reach both boundaries', () => {

@@ -2,8 +2,14 @@ import * as THREE from 'three';
 import { buildTopology } from './topology';
 
 type Corner = Record<string, number[]>;
-type Polygon = { corners: Corner[]; material: number };
+type Polygon = {
+  corners: Corner[];
+  material: number;
+  referenceNormals?: THREE.Vector3[];
+  forbiddenDiagonals?: Set<string>;
+};
 const key = (v: number[]) => v.join(',');
+const positionEdgeKey = (a: Corner, b: Corner) => [key(a.position), key(b.position)].sort().join('|');
 const edgeKey = (a: number, b: number) => `${Math.min(a, b)}:${Math.max(a, b)}`;
 const vector = (c: Corner) => new THREE.Vector3().fromArray(c.position);
 
@@ -63,7 +69,14 @@ function logicalSurface(source: THREE.BufferGeometry, inspection: ReturnType<typ
       }
       throw new Error('Logical polygon corner is missing from its renderer triangles.');
     });
-    polygons.push({ corners, material });
+    const referenceNormals = vertices.map(vertex => {
+      const normal = new THREE.Vector3();
+      for (const triangle of triangles) {
+        if (topology.faces[triangle]?.includes(vertex)) normal.add(inspection.normals[triangle]);
+      }
+      return normal.lengthSq() > 1e-16 ? normal.normalize() : new THREE.Vector3();
+    });
+    polygons.push({ corners, material, referenceNormals });
 
     const normal = new THREE.Vector3();
     for (let i = 0; i < vertices.length; i++) {
@@ -106,13 +119,16 @@ function clip(corners: Corner[], normal: THREE.Vector3, constant: number): { cor
   return { corners: result.filter((c, i) => key(c.position) !== key(result[(i + result.length - 1) % result.length].position)), cuts };
 }
 
-function triangulateBoundary(corners: Corner[]): Corner[][] {
+function triangulateBoundary(
+  corners: Corner[],
+  referenceNormals?: THREE.Vector3[],
+  forbiddenDiagonals?: Set<string>,
+): Corner[][] {
   if (corners.length === 3) return [corners];
 
-  // Ear clipping uses only existing boundary corners. Collinear boundary
-  // vertices are never discarded: they become valid ears after neighboring
-  // corners are clipped, so renderer tessellation cannot erase modeling
-  // vertices or introduce T-junctions.
+  // Project the 3D boundary onto a plane perpendicular to the Newell normal.
+  // Unlike dropping one world axis, this also works for folded polygons such
+  // as two Cube sides merged by deleting their shared modeling edge.
   const points = corners.map(vector);
   const normal = new THREE.Vector3();
   for (let i = 0; i < points.length; i++) {
@@ -121,19 +137,35 @@ function triangulateBoundary(corners: Corner[]): Corner[][] {
     normal.y += (a.z - b.z) * (a.x + b.x);
     normal.z += (a.x - b.x) * (a.y + b.y);
   }
-  if (normal.lengthSq() < 1e-16 || !Number.isFinite(normal.lengthSq())) throw new Error('Result polygon collapses at mesh coordinate precision.');
+  if (normal.lengthSq() < 1e-16 || !Number.isFinite(normal.lengthSq())) {
+    throw new Error('Result polygon collapses at mesh coordinate precision.');
+  }
+  normal.normalize();
 
-  const axis = Math.abs(normal.x) >= Math.abs(normal.y) && Math.abs(normal.x) >= Math.abs(normal.z)
-    ? 0 : Math.abs(normal.y) >= Math.abs(normal.z) ? 1 : 2;
-  const projected = points.map(point => axis === 0 ? [point.y, point.z] : axis === 1 ? [point.x, point.z] : [point.x, point.y]);
-  const cross = (a: number, b: number, c: number) =>
-    (projected[b][0] - projected[a][0]) * (projected[c][1] - projected[a][1]) -
-    (projected[b][1] - projected[a][1]) * (projected[c][0] - projected[a][0]);
+  const absolute = [Math.abs(normal.x), Math.abs(normal.y), Math.abs(normal.z)];
+  const helper = absolute[0] <= absolute[1] && absolute[0] <= absolute[2]
+    ? new THREE.Vector3(1, 0, 0)
+    : absolute[1] <= absolute[2]
+      ? new THREE.Vector3(0, 1, 0)
+      : new THREE.Vector3(0, 0, 1);
+  const axisU = new THREE.Vector3().crossVectors(helper, normal).normalize();
+  const axisV = new THREE.Vector3().crossVectors(normal, axisU).normalize();
+  const origin = points.reduce((sum, point) => sum.add(point), new THREE.Vector3()).multiplyScalar(1 / points.length);
+  const projected = points.map(point => {
+    const relative = point.clone().sub(origin);
+    return [relative.dot(axisU), relative.dot(axisV)] as [number, number];
+  });
+
+  const cross = (a: number, b: number, d: number) =>
+    (projected[b][0] - projected[a][0]) * (projected[d][1] - projected[a][1]) -
+    (projected[b][1] - projected[a][1]) * (projected[d][0] - projected[a][0]);
   const signedArea = projected.reduce((sum, point, i) => {
     const next = projected[(i + 1) % projected.length];
     return sum + point[0] * next[1] - next[0] * point[1];
   }, 0);
-  if (!Number.isFinite(signedArea) || Math.abs(signedArea) < 1e-16) throw new Error('Result polygon collapses at mesh coordinate precision.');
+  if (!Number.isFinite(signedArea) || Math.abs(signedArea) < 1e-16) {
+    throw new Error('Result polygon collapses at mesh coordinate precision.');
+  }
   const winding = Math.sign(signedArea);
   const minX = Math.min(...projected.map(point => point[0])), maxX = Math.max(...projected.map(point => point[0]));
   const minY = Math.min(...projected.map(point => point[1])), maxY = Math.max(...projected.map(point => point[1]));
@@ -143,7 +175,7 @@ function triangulateBoundary(corners: Corner[]): Corner[][] {
   const remaining = corners.map((_, index) => index);
   const triangles: Corner[][] = [];
   while (remaining.length > 3) {
-    let clipped = false;
+    const ears: { position: number; previous: number; current: number; next: number; score: number }[] = [];
     for (let i = 0; i < remaining.length; i++) {
       const previous = remaining[(i + remaining.length - 1) % remaining.length];
       const current = remaining[i];
@@ -155,25 +187,63 @@ function triangulateBoundary(corners: Corner[]): Corner[][] {
         if (candidate === previous || candidate === current || candidate === next) continue;
         const a = winding * cross(previous, current, candidate);
         const b = winding * cross(current, next, candidate);
-        const c = winding * cross(next, previous, candidate);
-        if (a >= -epsilon && b >= -epsilon && c >= -epsilon) {
+        const d = winding * cross(next, previous, candidate);
+        if (a >= -epsilon && b >= -epsilon && d >= -epsilon) {
           containsVertex = true;
           break;
         }
       }
       if (containsVertex) continue;
+      if (forbiddenDiagonals && [
+        positionEdgeKey(corners[previous], corners[current]),
+        positionEdgeKey(corners[current], corners[next]),
+        positionEdgeKey(corners[next], corners[previous]),
+      ].some(edge => forbiddenDiagonals.has(edge))) continue;
 
-      triangles.push([corners[previous], corners[current], corners[next]]);
-      remaining.splice(i, 1);
-      clipped = true;
-      break;
+      let score = 0;
+      if (referenceNormals?.length === corners.length) {
+        const triangleNormal = points[current].clone().sub(points[previous])
+          .cross(points[next].clone().sub(points[previous]));
+        const area = triangleNormal.length();
+        if (area <= 1e-12) continue;
+        triangleNormal.normalize();
+        const expected = referenceNormals[previous].clone()
+          .add(referenceNormals[current])
+          .add(referenceNormals[next]);
+        if (expected.lengthSq() > 1e-16) score += triangleNormal.dot(expected.normalize()) * 1000;
+        const perimeter =
+          points[previous].distanceTo(points[current]) +
+          points[current].distanceTo(points[next]) +
+          points[next].distanceTo(points[previous]);
+        score += area / Math.max(perimeter * perimeter, 1e-12);
+      }
+      if (forbiddenDiagonals) {
+        const currentPosition = key(corners[current].position);
+        if ([...forbiddenDiagonals].some(edge => edge.startsWith(`${currentPosition}|`) || edge.endsWith(`|${currentPosition}`))) {
+          score += 10_000;
+        }
+      }
+      ears.push({ position: i, previous, current, next, score });
+      if (!referenceNormals) break;
     }
-    if (!clipped) throw new Error('Result polygon cannot be tessellated without changing its boundary.');
+    if (!ears.length) throw new Error('Result polygon cannot be tessellated without changing its boundary.');
+    const ear = referenceNormals
+      ? ears.reduce((best, candidate) => candidate.score > best.score ? candidate : best)
+      : ears[0];
+    triangles.push([corners[ear.previous], corners[ear.current], corners[ear.next]]);
+    remaining.splice(ear.position, 1);
   }
 
-  const [a, b, c] = remaining;
-  if (winding * cross(a, b, c) <= epsilon) throw new Error('Result polygon collapses at mesh coordinate precision.');
-  triangles.push([corners[a], corners[b], corners[c]]);
+  const [a, b, d] = remaining;
+  if (winding * cross(a, b, d) <= epsilon) throw new Error('Result polygon collapses at mesh coordinate precision.');
+  if (forbiddenDiagonals && [
+    positionEdgeKey(corners[a], corners[b]),
+    positionEdgeKey(corners[b], corners[d]),
+    positionEdgeKey(corners[d], corners[a]),
+  ].some(edge => forbiddenDiagonals.has(edge))) {
+    throw new Error('Result polygon cannot be retessellated without recreating a deleted edge.');
+  }
+  triangles.push([corners[a], corners[b], corners[d]]);
   return triangles;
 }
 
@@ -181,11 +251,11 @@ function finishDetailed(polygons: Polygon[]) {
   const values: Record<string, number[]> = {}, sizes: Record<string, number> = {}, groups: { start: number; count: number; material: number }[] = [];
   const polygonTriangles: number[][] = [];
   let count = 0;
-  for (const { corners, material } of polygons) {
+  for (const { corners, material, referenceNormals, forbiddenDiagonals } of polygons) {
     if (corners.length < 3) continue;
     // Rendering tessellation is not modeling topology. Triangulate only with
     // existing polygon corners: never create centroid/interior vertices.
-    const triangles = triangulateBoundary(corners);
+    const triangles = triangulateBoundary(corners, referenceNormals, forbiddenDiagonals);
     const triangleIds: number[] = [];
     for (const triangle of triangles) {
       const [a, b, c] = triangle.map(vector);
@@ -468,6 +538,221 @@ export function loopCutLogicalEdge(
     return { material: polygon.material, corners: [a, entry, opposite, d] };
   });
   return finishDetailed([...output, ...extras]);
+}
+
+type EditedPolygon = { polygon: Polygon; sourceFace?: number };
+
+function finishEditedSurface(
+  source: THREE.BufferGeometry,
+  inspection: ReturnType<typeof inspectGeometry>,
+  entries: EditedPolygon[],
+) {
+  const { topology, indices, materials } = inspection;
+  const values: Record<string, number[]> = {};
+  const sizes: Record<string, number> = {};
+  const groups: { start: number; count: number; material: number }[] = [];
+  const polygonTriangles: number[][] = [];
+  let count = 0;
+
+  const rawCorner = (index: number): Corner => Object.fromEntries(
+    Object.entries(source.attributes)
+      .filter(([name]) => name !== 'normal')
+      .map(([name, attribute]) => [
+        name,
+        Array.from({ length: attribute.itemSize }, (_, component) => attribute.getComponent(index, component)),
+      ]),
+  );
+  const appendTriangle = (triangle: Corner[], material: number, ids: number[]) => {
+    const [a, b, d] = triangle.map(vector);
+    if (b.sub(a).cross(d.sub(a)).lengthSq() < 1e-16) throw new Error('Result collapses at mesh coordinate precision.');
+    if (count + 3 > 600_000) throw new Error('Result exceeds 600,000 rendering vertices.');
+    ids.push(count / 3);
+    const last = groups.at(-1);
+    if (last?.material === material) last.count += 3;
+    else groups.push({ start: count, count: 3, material });
+    for (const corner of triangle) for (const [name, data] of Object.entries(corner)) {
+      sizes[name] = data.length;
+      (values[name] ??= []).push(...data);
+    }
+    count += 3;
+  };
+
+  for (const entry of entries) {
+    const triangleIds: number[] = [];
+    if (entry.sourceFace !== undefined) {
+      for (const triangle of topology.polygonTriangles[entry.sourceFace]) {
+        const raw = indices.slice(triangle * 3, triangle * 3 + 3);
+        appendTriangle(raw.map(rawCorner), materials[triangle], triangleIds);
+      }
+    } else {
+      const triangles = triangulateBoundary(
+        entry.polygon.corners,
+        entry.polygon.referenceNormals,
+        entry.polygon.forbiddenDiagonals,
+      );
+      for (const triangle of triangles) appendTriangle(triangle, entry.polygon.material, triangleIds);
+    }
+    polygonTriangles.push(triangleIds);
+  }
+
+  if (!count) throw new Error('Operation would remove the mesh.');
+  const geometry = new THREE.BufferGeometry();
+  for (const [name, data] of Object.entries(values)) {
+    if (data.some(value => !Number.isFinite(Math.fround(value)))) throw new Error('Result exceeds coordinate precision.');
+    geometry.setAttribute(name, new THREE.Float32BufferAttribute(data, sizes[name]));
+  }
+  groups.forEach(group => geometry.addGroup(group.start, group.count, group.material));
+  geometry.computeVertexNormals();
+  geometry.computeBoundingBox();
+  geometry.computeBoundingSphere();
+  inspectGeometry(geometry, polygonTriangles);
+  return { geometry, polygonTriangles };
+}
+
+function polygonFromTriangleGroup(
+  source: THREE.BufferGeometry,
+  inspection: ReturnType<typeof inspectGeometry>,
+  polygonId: number,
+): Polygon {
+  const { topology, indices, materials, normals } = inspection;
+  const triangles = topology.polygonTriangles[polygonId];
+  const vertices = topology.polygons[polygonId];
+  const rawCorner = (index: number): Corner => Object.fromEntries(
+    Object.entries(source.attributes)
+      .filter(([name]) => name !== 'normal')
+      .map(([name, attribute]) => [
+        name,
+        Array.from({ length: attribute.itemSize }, (_, component) => attribute.getComponent(index, component)),
+      ]),
+  );
+  const corners = vertices.map(vertex => {
+    for (const triangle of triangles) {
+      for (let corner = 0; corner < 3; corner++) {
+        if (topology.faces[triangle][corner] === vertex) return rawCorner(indices[triangle * 3 + corner]);
+      }
+    }
+    throw new Error('Logical polygon corner is missing from its renderer triangles.');
+  });
+  const referenceNormals = vertices.map(vertex => {
+    const normal = new THREE.Vector3();
+    for (const triangle of triangles) {
+      if (topology.faces[triangle]?.includes(vertex)) normal.add(normals[triangle]);
+    }
+    return normal.lengthSq() > 1e-16 ? normal.normalize() : new THREE.Vector3();
+  });
+  return {
+    corners,
+    referenceNormals,
+    material: materials[triangles[0]] ?? 0,
+  };
+}
+
+function mergedPolygonGroups(
+  topology: ReturnType<typeof buildTopology>,
+  selectedEdges: number[],
+) {
+  const parent = topology.polygons.map((_, face) => face);
+  const find = (face: number): number => parent[face] === face ? face : (parent[face] = find(parent[face]));
+  const join = (a: number, b: number) => {
+    const rootA = find(a), rootB = find(b);
+    if (rootA !== rootB) parent[rootB] = rootA;
+  };
+
+  for (const edge of selectedEdges) {
+    if (!Number.isInteger(edge) || !topology.polygonEdges[edge]) throw new Error('Invalid logical edge selection.');
+    const [a, b] = topology.polygonEdges[edge];
+    const key = edgeKey(a, b);
+    const faces = topology.polygons.flatMap((polygon, face) =>
+      polygon.some((vertex, index) => edgeKey(vertex, polygon[(index + 1) % polygon.length]) === key) ? [face] : []
+    );
+    if (faces.length !== 2) throw new Error('Delete Edge requires a manifold edge shared by exactly two faces.');
+    join(faces[0], faces[1]);
+  }
+
+  const regions = new Map<number, number[]>();
+  for (let face = 0; face < topology.polygons.length; face++) {
+    const root = find(face);
+    const region = regions.get(root) ?? [];
+    region.push(face);
+    regions.set(root, region);
+  }
+  return [...regions.values()].sort((a, b) => Math.min(...a) - Math.min(...b));
+}
+
+export function deleteLogicalComponents(
+  source: THREE.BufferGeometry,
+  mode: 'vertex' | 'edge' | 'face',
+  components: number[],
+  polygonTriangles?: number[][],
+) {
+  const inspection = inspectGeometry(source, polygonTriangles ?? false);
+  const { topology } = inspection;
+  const surface = logicalSurface(source, inspection);
+  const selected = [...new Set(components)];
+  if (!selected.length) throw new Error('Select mesh components to delete.');
+
+  if (mode === 'vertex') {
+    if (selected.some(vertex => !Number.isInteger(vertex) || !topology.logicalVertices.includes(vertex))) {
+      throw new Error('Invalid logical vertex selection.');
+    }
+    const selectedVertices = new Set(selected);
+    const entries: EditedPolygon[] = [];
+    for (let face = 0; face < topology.polygons.length; face++) {
+      const boundary = topology.polygons[face];
+      const keep = boundary.map((vertex, index) => ({ vertex, index })).filter(item => !selectedVertices.has(item.vertex));
+      if (keep.length === boundary.length) {
+        entries.push({ polygon: surface.polygons[face], sourceFace: face });
+        continue;
+      }
+      if (keep.length < 3) continue;
+      entries.push({
+        polygon: {
+          material: surface.polygons[face].material,
+          corners: keep.map(item => surface.polygons[face].corners[item.index]),
+          referenceNormals: keep.map(item => surface.polygons[face].referenceNormals![item.index]),
+        },
+      });
+    }
+    if (!entries.length) throw new Error('Delete Vertex would remove the entire mesh.');
+    return finishEditedSurface(source, inspection, entries);
+  }
+
+  if (mode === 'edge') {
+    const regions = mergedPolygonGroups(topology, selected);
+    const groups = regions.map(region => region.flatMap(face => topology.polygonTriangles[face]));
+    const mergedInspection = inspectGeometry(source, groups);
+    const selectedPositionEdges = new Set(selected.map(edge => {
+      const [a, b] = topology.polygonEdges[edge];
+      const position = source.getAttribute('position');
+      const corner = (vertex: number): Corner => ({
+        position: [
+          position.getX(topology.vertices[vertex][0]),
+          position.getY(topology.vertices[vertex][0]),
+          position.getZ(topology.vertices[vertex][0]),
+        ],
+      });
+      return positionEdgeKey(corner(a), corner(b));
+    }));
+    const entries: EditedPolygon[] = regions.map((region, polygonId) => {
+      if (region.length === 1) return { polygon: surface.polygons[region[0]], sourceFace: region[0] };
+      const polygon = polygonFromTriangleGroup(source, mergedInspection, polygonId);
+      polygon.forbiddenDiagonals = selectedPositionEdges;
+      return { polygon };
+    });
+    return finishEditedSurface(source, inspection, entries);
+  }
+
+  if (selected.some(face => !Number.isInteger(face) || !topology.polygons[face])) {
+    throw new Error('Invalid logical face selection.');
+  }
+  const removed = new Set(selected);
+  if (removed.size === topology.polygons.length) {
+    throw new Error('Delete would remove the entire mesh; delete the object in Object Mode instead.');
+  }
+  const entries = topology.polygons.flatMap((_, face) =>
+    removed.has(face) ? [] : [{ polygon: surface.polygons[face], sourceFace: face }]
+  );
+  return finishEditedSurface(source, inspection, entries);
 }
 
 export function bevelLogicalEdges(source: THREE.BufferGeometry, edges: number[], width: number, polygonTriangles?: number[][]) {

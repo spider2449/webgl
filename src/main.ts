@@ -57,7 +57,7 @@ $('#app').innerHTML = `
   <div class="workspace-bar"><div class="workspace-tabs"><button class="workspace-tab active" data-workspace="layout">Layout</button><button class="workspace-tab" data-workspace="modeling">Modeling</button><button class="workspace-tab" data-workspace="material">Material</button><button class="workspace-tab" data-workspace="animation">Animation</button></div><span class="workspace-note"><span></span> All processing stays on your device</span>${button('toggle-sidebar', 'panel-right-close', 'Toggle properties panel')}</div>
   <main class="workspace">
     <section class="viewport-panel">
-      <div class="viewport-toolbar"><div class="mode-select">${icon('box')}<select id="mode" aria-label="Interaction mode"><option value="object">Object Mode</option><option value="edit">Edit Mode</option><option value="weight">Weight Mode</option></select></div><select id="component-mode" aria-label="Mesh component" class="hidden"><option value="vertex">Vertex</option><option value="edge">Edge</option><option value="face">Face</option></select><span class="divider"></span><div class="dropdown"><button class="add-button" data-menu="add-menu">${icon('plus')} Add ${icon('chevron-down')}</button><div class="menu hidden primitive-menu" id="add-menu"><span class="menu-label">MESH PRIMITIVES</span>${(['cube','sphere','cylinder','cone','torus','plane','icosphere'] as Primitive[]).map(kind => `<button data-primitive="${kind}">${icon(kind === 'sphere' ? 'globe' : kind === 'plane' ? 'grid-2x2' : 'box')}${kind[0].toUpperCase() + kind.slice(1)}</button>`).join('')}</div></div><button id="frame-all" class="text-button">View all</button><div class="toolbar-spacer"></div><select id="space" aria-label="Transform orientation"><option value="world">Global</option><option value="local">Local</option><option value="gimbal">Gimbal</option></select>${button('snap','magnet','Toggle grid snap (Shift Tab)')}${button('grid','grid-2x2','Toggle grid','active')}<span class="divider"></span><div class="shading-group">${button('shading-wire','hexagon','Wireframe shading')}${button('shading-solid','circle','Solid shading')}${button('shading-material','sun','Material shading','active')}</div></div>
+      <div class="viewport-toolbar"><div class="mode-select">${icon('box')}<select id="mode" aria-label="Interaction mode"><option value="object">Object Mode</option><option value="edit">Edit Mode</option><option value="weight">Weight Mode</option></select></div><select id="component-mode" aria-label="Mesh component" class="hidden"><option value="vertex">Vertex</option><option value="edge">Edge</option><option value="face">Face</option></select><span class="divider"></span><div class="dropdown"><button class="add-button" data-menu="add-menu">${icon('plus')} Add ${icon('chevron-down')}</button><div class="menu hidden primitive-menu" id="add-menu"><span class="menu-label">MESH PRIMITIVES</span>${(['cube','sphere','cylinder','cone','torus','plane','icosphere'] as Primitive[]).map(kind => `<button data-primitive="${kind}">${icon(kind === 'sphere' ? 'globe' : kind === 'plane' ? 'grid-2x2' : 'box')}${kind[0].toUpperCase() + kind.slice(1)}</button>`).join('')}</div></div><button id="frame-all" class="text-button">View all</button><div class="toolbar-spacer"></div><select id="space" aria-label="Transform orientation"><option value="world">Global</option><option value="local">Local</option><option value="gimbal">Gimbal</option></select>${button('snap','magnet','Toggle grid snap (Shift Tab)')}${button('grid','grid-2x2','Toggle grid','active')}<span class="divider"></span><div class="shading-group">${button('shading-wire','hexagon','Wireframe shading')}${button('shading-solid','circle','Solid shading')}${button('shading-material','sun','Material shading','active')}</div><select id="face-display" aria-label="Face display" title="Viewport face display"><option value="double">Double-sided</option><option value="front">Front only</option></select></div>
       <div id="viewport" class="viewport">
         <div class="view-label"><span id="view-label">User Perspective</span><small id="selection-label">Scene Collection / Cube</small></div>
         <div class="tool-rail" role="toolbar" aria-label="Transform tools">${button('tool-select','mouse-pointer-2','Select (Q)')}${button('tool-translate','move','Move (G)','active')}${button('tool-rotate','rotate-3d','Rotate (R)')}${button('tool-scale','scaling','Scale (S)')}<span></span>${button('focus','scan','Frame selected (F)')}${button('duplicate-rail','copy','Duplicate (Shift D)')}</div>
@@ -1015,7 +1015,10 @@ editor.addEventListener('mode', () => {
       ? `Select a ${editor.componentMode === 'face' ? 'face' : editor.componentMode}, drag-box to select more, Shift adds, Ctrl toggles; G/R/S transform; RMB opens ${editor.componentMode} operators.`
       : 'Click or drag-box to select objects; Shift adds; Ctrl-drag toggles; RMB opens object operators.';
 });
-editor.addEventListener('view', () => { $('#view-label').textContent = editor.camera instanceof THREE.OrthographicCamera ? 'User Orthographic' : 'User Perspective'; });
+editor.addEventListener('view', () => {
+  $('#view-label').textContent = editor.camera instanceof THREE.OrthographicCamera ? 'User Orthographic' : 'User Perspective';
+  $<HTMLSelectElement>('#face-display').value = editor.faceDisplayMode;
+});
 let cachedStats = '';
 editor.addEventListener('stats', () => {
   const stats = editor.stats();
@@ -1176,6 +1179,7 @@ function snap() { const enabled = !$('#snap').classList.contains('active'); $('#
 on('snap', snap);
 on('grid', () => { editor.grid.visible = !editor.grid.visible; $('#grid').classList.toggle('active', editor.grid.visible); editor.invalidate(); });
 for (const value of ['wire','solid','material']) on(`shading-${value}`, () => { editor.setShading(value); document.querySelectorAll('.shading-group button').forEach(b => b.classList.toggle('active', b.id === `shading-${value}`)); });
+$<HTMLSelectElement>('#face-display').onchange = event => editor.setFaceDisplayMode((event.target as HTMLSelectElement).value as 'front' | 'double');
 on('focus', () => editor.focus()); on('frame-all', () => editor.focus(true));
 for (const [id, axis] of [['axis-x','right'],['axis-y','top'],['axis-z','front'],['axis-home','perspective'],['home-view','perspective']] as const) on(id, () => {
   editor.view(axis);
@@ -1190,6 +1194,8 @@ function deleteSelection() {
   if (editor.weightMode) { toast('Finish Weight Mode before deleting scene objects.'); return; }
   if (editor.selected instanceof THREE.Bone && rigSystem.mode === 'edit') {
     rigAction(() => { rigSystem.deleteSelectedBone(); toast('Bone deleted; child bones kept in place.'); });
+  } else if (editor.editMode) {
+    void deleteSelectedComponents();
   } else editor.remove();
 }
 for (const id of ['delete','delete-outliner']) on(id, deleteSelection);
@@ -1226,6 +1232,25 @@ async function loopCutSelectedEdge() {
     toast('Loop cut complete.');
   } catch (error) { toast((error as Error).message); }
 }
+async function deleteSelectedComponents() {
+  try {
+    if (!editor.editMode || !editor.componentSelection.length || !editor.meshTopology) throw new Error('Select mesh components in Edit Mode first.');
+    const mode = editor.componentMode;
+    await editor.runModeling({
+      kind: 'delete-components',
+      mode,
+      components: editor.componentSelection,
+      polygonTriangles: editor.meshTopology.polygonTriangles.map(group => [...group]),
+    });
+    toast(
+      mode === 'vertex'
+        ? 'Vertices deleted; surrounding faces reconnected.'
+        : mode === 'edge'
+          ? 'Edges deleted; adjacent faces merged.'
+          : 'Faces deleted.'
+    );
+  } catch (error) { toast((error as Error).message); }
+}
 const modelingCommands = {
   extrudeFace: extrudeSelectedFace,
   extrudeRegion: extrudeSelectedRegion,
@@ -1234,6 +1259,7 @@ const modelingCommands = {
   vertexSnap: startVertexSnap,
   bevelEdges: bevelSelectedEdges,
   loopCut: loopCutSelectedEdge,
+  deleteComponents: deleteSelectedComponents,
 };
 
 type ViewportContextMode = 'object' | 'vertex' | 'edge' | 'face';
@@ -1293,6 +1319,7 @@ function viewportContextCommands(mode: ViewportContextMode): ViewportContextComm
     { label: 'Rotate', shortcut: 'R', action: () => tool('rotate'), enabled: hasComponents },
     { label: 'Scale', shortcut: 'S', action: () => tool('scale'), enabled: hasComponents },
     { label: 'Snap Selection…', action: modelingCommands.vertexSnap, enabled: hasComponents, separatorBefore: true },
+    { label: 'Delete Vertices', shortcut: 'Del', action: modelingCommands.deleteComponents, enabled: hasComponents, separatorBefore: true, danger: true },
   ];
   if (mode === 'edge') return [
     { label: 'Move', shortcut: 'G', action: () => tool('translate'), enabled: hasComponents },
@@ -1301,6 +1328,7 @@ function viewportContextCommands(mode: ViewportContextMode): ViewportContextComm
     { label: 'Bevel Edges', action: modelingCommands.bevelEdges, enabled: hasComponents, separatorBefore: true },
     { label: 'Subdivide Edges', action: modelingCommands.subdivideEdges, enabled: hasComponents },
     { label: 'Loop Cut', action: modelingCommands.loopCut, enabled: oneComponent },
+    { label: 'Delete Edges', shortcut: 'Del', action: modelingCommands.deleteComponents, enabled: hasComponents, separatorBefore: true, danger: true },
   ];
   if (mode === 'face') return [
     { label: 'Move', shortcut: 'G', action: () => tool('translate'), enabled: hasComponents },
@@ -1309,6 +1337,7 @@ function viewportContextCommands(mode: ViewportContextMode): ViewportContextComm
     { label: 'Extrude Face', action: modelingCommands.extrudeFace, enabled: oneComponent, separatorBefore: true },
     { label: 'Extrude Region', action: modelingCommands.extrudeRegion, enabled: hasComponents },
     { label: 'Inset Face', action: modelingCommands.insetFace, enabled: oneComponent },
+    { label: 'Delete Faces', shortcut: 'Del', action: modelingCommands.deleteComponents, enabled: hasComponents, separatorBefore: true, danger: true },
   ];
   return [
     { label: 'Move', shortcut: 'G', action: () => tool('translate'), enabled: hasObject },

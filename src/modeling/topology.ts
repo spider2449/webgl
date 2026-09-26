@@ -1,7 +1,11 @@
 export type ComponentMode = 'vertex' | 'edge' | 'face';
 export type MeshTopology = {
+  // Renderer-welded vertices used by triangle data and attribute updates.
   vertices: number[][];
   bufferToVertex: number[];
+  // Modeling vertices: only welded vertices that occur on a logical polygon boundary.
+  // Renderer-only interior tessellation vertices are deliberately excluded.
+  logicalVertices: number[];
   // Renderer substrate: individual triangles and every renderer triangle edge.
   edges: [number, number][];
   faces: [number, number, number][];
@@ -141,6 +145,7 @@ export function buildTopology(
     });
   }
 
+  const logicalVertices = [...new Set(polygons.flat())].sort((a, b) => a - b);
   const polygonEdges: [number, number][] = [], polygonEdgeToEdge: number[] = [];
   const seenPolygonEdges = new Set<string>();
   for (const polygon of polygons) for (let i = 0; i < polygon.length; i++) {
@@ -156,6 +161,7 @@ export function buildTopology(
   return {
     vertices,
     bufferToVertex,
+    logicalVertices,
     edges,
     faces,
     polygons,
