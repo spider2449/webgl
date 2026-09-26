@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import * as THREE from 'three';
-import { cutLogicalFaceBetweenEdges, cutLogicalFaceToEdge } from '../src/modeling/cut-edge-endpoint';
+import { cutLogicalFaceBetweenEdges, cutLogicalFaceToEdge, cutLogicalFaceViaPoint } from '../src/modeling/cut-edge-endpoint';
 import { buildTopology } from '../src/modeling/topology';
 
 function point(geometry: THREE.BufferGeometry, topology: ReturnType<typeof buildTopology>, vertex: number) {
@@ -8,6 +8,65 @@ function point(geometry: THREE.BufferGeometry, topology: ReturnType<typeof build
   const raw = topology.vertices[vertex][0];
   return new THREE.Vector3(position.getX(raw), position.getY(raw), position.getZ(raw));
 }
+
+test('interior Knife bend creates one true logical interior vertex and two cut edges', () => {
+  const plane = new THREE.PlaneGeometry(2, 2, 1, 1);
+  const before = JSON.stringify(plane.toJSON());
+  const input = buildTopology(plane.getAttribute('position').array, plane.index?.array, true);
+  const face = 0;
+  const boundary = input.polygons[face];
+  const start = boundary[0];
+  const end = boundary[2];
+  const center = boundary
+    .map(vertex => point(plane, input, vertex))
+    .reduce((sum, value) => sum.add(value), new THREE.Vector3())
+    .multiplyScalar(1 / boundary.length);
+  const interior = center.clone().lerp(point(plane, input, boundary[1]), 0.2);
+
+  const result = cutLogicalFaceViaPoint(plane, {
+    face,
+    start: { kind: 'vertex', vertex: start },
+    interior: interior.toArray() as [number, number, number],
+    end: { kind: 'vertex', vertex: end },
+  }, input.polygonTriangles);
+
+  expect(JSON.stringify(plane.toJSON())).toBe(before);
+  const output = buildTopology(
+    result.geometry.getAttribute('position').array,
+    result.geometry.index?.array,
+    result.polygonTriangles,
+  );
+
+  expect(output.polygons).toHaveLength(2);
+  expect(output.logicalVertices).toHaveLength(5);
+  expect(output.polygonEdges).toHaveLength(6);
+
+  const interiorVertex = output.logicalVertices.find(vertex =>
+    point(result.geometry, output, vertex).distanceToSquared(interior) < 1e-12
+  );
+  expect(interiorVertex).toBeDefined();
+  expect(output.polygons.filter(polygon => polygon.includes(interiorVertex!))).toHaveLength(2);
+
+  const startPosition = point(plane, input, start);
+  const endPosition = point(plane, input, end);
+  const remappedStart = output.logicalVertices.find(vertex =>
+    point(result.geometry, output, vertex).distanceToSquared(startPosition) < 1e-12
+  );
+  const remappedEnd = output.logicalVertices.find(vertex =>
+    point(result.geometry, output, vertex).distanceToSquared(endPosition) < 1e-12
+  );
+  expect(remappedStart).toBeDefined();
+  expect(remappedEnd).toBeDefined();
+  expect(output.polygonEdges.some(([a, b]) =>
+    (a === remappedStart && b === interiorVertex) || (a === interiorVertex && b === remappedStart)
+  )).toBe(true);
+  expect(output.polygonEdges.some(([a, b]) =>
+    (a === remappedEnd && b === interiorVertex) || (a === interiorVertex && b === remappedEnd)
+  )).toBe(true);
+
+  result.geometry.dispose();
+  plane.dispose();
+});
 
 test('edge endpoint cut inserts one logical midpoint and splits only the selected face', () => {
   const box = new THREE.BoxGeometry(2, 2, 2);
