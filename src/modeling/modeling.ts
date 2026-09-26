@@ -787,11 +787,11 @@ export function validateLogicalFaceInteriorKnifeLeg(
   validateLogicalFaceInteriorKnifePath(source, topology, face, boundaryPoint, [interior]);
 }
 
-export function cutLogicalFaceViaInteriorPoint(
+export function cutLogicalFaceViaInteriorPath(
   source: THREE.BufferGeometry,
   face: number,
   vertices: [number, number],
-  interior: [number, number, number],
+  interiors: KnifePoint3[],
   polygonTriangles?: number[][],
 ) {
   const inspection = inspectGeometry(source, polygonTriangles ?? false);
@@ -806,10 +806,12 @@ export function cutLogicalFaceViaInteriorPoint(
     vertices.length !== 2 ||
     vertices[0] === vertices[1] ||
     vertices.some(vertex => !Number.isInteger(vertex))
-  ) throw new Error('Interior Knife cut requires two distinct logical boundary vertices.');
-  if (interior.length !== 3 || interior.some(value => !Number.isFinite(value))) {
-    throw new Error('Interior Knife point must contain finite local coordinates.');
-  }
+  ) throw new Error('Interior Knife path requires two distinct logical boundary vertices.');
+  if (
+    !Array.isArray(interiors) ||
+    !interiors.length ||
+    interiors.some(point => point.length !== 3 || point.some(value => !Number.isFinite(value)))
+  ) throw new Error('Interior Knife path requires one or more finite interior points.');
 
   const boundary = topology.polygons[face];
   const start = boundary.indexOf(vertices[0]);
@@ -817,13 +819,18 @@ export function cutLogicalFaceViaInteriorPoint(
   if (start < 0 || end < 0) throw new Error('Interior Knife endpoints must lie on the selected logical face boundary.');
 
   const triangleIds = topology.polygonTriangles[face];
-  const expected = new THREE.Vector3(...interior);
   const position = source.getAttribute('position');
   const boundaryPoints = boundary.map(vertex =>
     new THREE.Vector3().fromBufferAttribute(position, topology.vertices[vertex][0])
   );
-  validateInteriorKnifeLegWithTopology(source, topology, face, boundaryPoints[start], expected);
-  validateInteriorKnifeLegWithTopology(source, topology, face, boundaryPoints[end], expected);
+  validateLogicalFaceInteriorKnifePath(
+    source,
+    topology,
+    face,
+    boundaryPoints[start].toArray() as KnifePoint3,
+    interiors,
+    boundaryPoints[end].toArray() as KnifePoint3,
+  );
 
   const readCorner = (raw: number): Corner => Object.fromEntries(
     Object.entries(source.attributes)
@@ -834,40 +841,39 @@ export function cutLogicalFaceViaInteriorPoint(
       ]),
   );
 
-  let interiorCorner: Corner | null = null;
-  let interiorNormal: THREE.Vector3 | null = null;
-  for (const triangle of triangleIds) {
-    const raw = indices.slice(triangle * 3, triangle * 3 + 3);
-    const points = raw.map(index => new THREE.Vector3().fromBufferAttribute(position, index));
-    const closest = new THREE.Triangle(points[0], points[1], points[2])
-      .closestPointToPoint(expected, new THREE.Vector3());
-    if (closest.distanceToSquared(expected) > 1e-10) continue;
-    const barycentric = THREE.Triangle.getBarycoord(
-      expected,
-      points[0],
-      points[1],
-      points[2],
-      new THREE.Vector3(),
-    );
-    if (!barycentric || Math.min(barycentric.x, barycentric.y, barycentric.z) < -1e-7) continue;
+  const interpolateInterior = (expected: THREE.Vector3) => {
+    for (const triangle of triangleIds) {
+      const raw = indices.slice(triangle * 3, triangle * 3 + 3);
+      const points = raw.map(index => new THREE.Vector3().fromBufferAttribute(position, index));
+      const closest = new THREE.Triangle(points[0], points[1], points[2])
+        .closestPointToPoint(expected, new THREE.Vector3());
+      if (closest.distanceToSquared(expected) > 1e-10) continue;
+      const barycentric = THREE.Triangle.getBarycoord(
+        expected,
+        points[0],
+        points[1],
+        points[2],
+        new THREE.Vector3(),
+      );
+      if (!barycentric || Math.min(barycentric.x, barycentric.y, barycentric.z) < -1e-7) continue;
 
-    const rawCorners = raw.map(readCorner);
-    const weights = [barycentric.x, barycentric.y, barycentric.z];
-    interiorCorner = Object.fromEntries(
-      Object.keys(rawCorners[0]).map(name => [
-        name,
-        rawCorners[0][name].map((_, component) => Math.fround(
-          rawCorners.reduce((sum, corner, cornerIndex) =>
-            sum + corner[name][component] * weights[cornerIndex], 0),
-        )),
-      ]),
-    );
-    interiorNormal = inspection.normals[triangle].clone();
-    break;
-  }
-  if (!interiorCorner || !interiorNormal) {
-    throw new Error('Interior Knife point must lie inside the selected logical face.');
-  }
+      const rawCorners = raw.map(readCorner);
+      const weights = [barycentric.x, barycentric.y, barycentric.z];
+      const corner = Object.fromEntries(
+        Object.keys(rawCorners[0]).map(name => [
+          name,
+          rawCorners[0][name].map((_, component) => Math.fround(
+            rawCorners.reduce((sum, sourceCorner, cornerIndex) =>
+              sum + sourceCorner[name][component] * weights[cornerIndex], 0),
+          )),
+        ]),
+      ) as Corner;
+      return { corner, normal: inspection.normals[triangle].clone() };
+    }
+    throw new Error('Knife bend point must lie inside the selected logical face.');
+  };
+
+  const interiorData = interiors.map(point => interpolateInterior(new THREE.Vector3(...point)));
 
   const size = boundary.length;
   const walk = (from: number, to: number) => {
@@ -880,18 +886,30 @@ export function cutLogicalFaceViaInteriorPoint(
     return result;
   };
 
-  const makePolygon = (indices: number[]): Polygon => ({
+  const makePolygon = (
+    indices: number[],
+    cut: { corner: Corner; normal: THREE.Vector3 }[],
+  ): Polygon => ({
     material: sourcePolygon.material,
-    corners: [...indices.map(index => sourcePolygon.corners[index]), interiorCorner!],
+    corners: [
+      ...indices.map(index => sourcePolygon.corners[index]),
+      ...cut.map(entry => entry.corner),
+    ],
     referenceNormals: sourcePolygon.referenceNormals
-      ? [...indices.map(index => sourcePolygon.referenceNormals![index]), interiorNormal!.clone()]
+      ? [
+          ...indices.map(index => sourcePolygon.referenceNormals![index]),
+          ...cut.map(entry => entry.normal.clone()),
+        ]
       : undefined,
   });
 
-  const first = makePolygon(walk(start, end));
-  const second = makePolygon(walk(end, start));
+  // The first polygon walks the source boundary start -> end, then returns
+  // along the Knife path end -> ... -> start. The second walks the opposite
+  // source boundary and follows the Knife path start -> ... -> end.
+  const first = makePolygon(walk(start, end), [...interiorData].reverse());
+  const second = makePolygon(walk(end, start), interiorData);
   if (first.corners.length < 3 || second.corners.length < 3) {
-    throw new Error('Interior Knife cut would create an invalid polygon.');
+    throw new Error('Interior Knife path would create an invalid polygon.');
   }
 
   const entries: EditedPolygon[] = [];
@@ -900,6 +918,16 @@ export function cutLogicalFaceViaInteriorPoint(
     else entries.push({ polygon: surface.polygons[polygon], sourceFace: polygon });
   }
   return finishEditedSurface(source, inspection, entries);
+}
+
+export function cutLogicalFaceViaInteriorPoint(
+  source: THREE.BufferGeometry,
+  face: number,
+  vertices: [number, number],
+  interior: KnifePoint3,
+  polygonTriangles?: number[][],
+) {
+  return cutLogicalFaceViaInteriorPath(source, face, vertices, [interior], polygonTriangles);
 }
 
 export function loopCutLogicalEdge(
