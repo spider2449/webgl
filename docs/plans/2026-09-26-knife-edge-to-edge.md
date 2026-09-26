@@ -26,6 +26,27 @@ This is the default.
 
 The control is exposed as `Knife Snap` in the Vertex context menu next to the Knife operator.
 
+## Preview validity
+
+Once a Knife anchor exists, the hover preview also shows whether the candidate can actually be committed.
+
+- neutral: choosing the initial start point
+- valid: the anchor and candidate resolve to exactly one supported logical-face cut
+- invalid: the candidate is visible but cannot form a legal segment from the current anchor
+
+The valid/invalid state is computed by the same segment resolver used by click commit. This prevents a mismatch where a preview appears acceptable but the click is rejected for different topology rules.
+
+Examples of invalid candidates include:
+
+- the same endpoint
+- an edge incident to the current vertex anchor
+- a vertex that is an endpoint of the current edge anchor
+- two edge targets that do not share exactly one logical face
+- adjacent vertices that already form a logical boundary edge
+- any ambiguous target that resolves to zero or multiple logical faces
+
+Invalid clicks do not mutate topology and Knife remains active so the user can move to another target.
+
 ## Live hover preview
 
 Knife now previews the exact candidate before a click commits anything.
@@ -97,6 +118,16 @@ npm test -- --workers=2
 ```
 
 Manual checks:
+
+### Valid / invalid preview
+
+1. Start Knife from a logical vertex.
+2. Hover an incident edge that cannot form a new face cut.
+3. Confirm the preview changes to the invalid state before clicking.
+4. Click it and confirm the mesh is unchanged and Knife remains active.
+5. Hover a non-incident edge on the same logical face.
+6. Confirm the preview changes to valid.
+7. Click it and confirm the segment commits.
 
 ### Hover preview
 

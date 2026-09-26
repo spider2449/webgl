@@ -1370,67 +1370,94 @@ function knifeNonAdjacentVertexFaces(a: number, b: number) {
   });
 }
 
-async function finishKnifeSegment(target: KnifeTarget, targetPosition: [number, number, number]) {
-  const anchor = knifeAnchor;
-  if (!anchor || !editor.meshTopology) return;
-  try {
-    const topology = editor.meshTopology;
-    if (anchor.kind === 'vertex') {
-      const startVertex = knifeVertexAtPosition(anchor.position);
-      if (startVertex === undefined) throw new Error('Knife start point is no longer on the logical topology.');
+type KnifeSegmentPlan =
+  | { kind: 'vertex-vertex'; face: number; first: number; second: number }
+  | { kind: 'vertex-edge'; face: number; vertex: number; edge: number; t: number }
+  | { kind: 'edge-vertex'; face: number; vertex: number; edge: number; t: number }
+  | { kind: 'edge-edge'; face: number; firstEdge: number; firstT: number; secondEdge: number; secondT: number };
 
-      if (target.kind === 'vertex') {
-        const candidates = knifeNonAdjacentVertexFaces(startVertex, target.vertex);
-        if (candidates.length !== 1) throw new Error('Knife points must define one unambiguous non-adjacent face cut.');
-        await editor.runModeling({
-          kind: 'cut-face',
-          face: candidates[0],
-          vertices: [startVertex, target.vertex],
-          polygonTriangles: topology.polygonTriangles.map(group => [...group]),
-        });
-      } else {
-        const edgeVertices = topology.polygonEdges[target.edge];
-        if (!edgeVertices) throw new Error('Knife target must be a logical edge.');
-        const candidates = knifeEdgeFaces(target.edge).filter(face =>
-          topology.polygons[face].includes(startVertex) && !edgeVertices.includes(startVertex)
-        );
-        if (candidates.length !== 1) throw new Error('Knife start and edge target must define one unambiguous logical face.');
-        await editor.runModeling({
-          kind: 'cut-face-edge',
-          face: candidates[0],
-          vertex: startVertex,
-          edge: target.edge,
-          t: target.t,
-          polygonTriangles: topology.polygonTriangles.map(group => [...group]),
-        });
-      }
-    } else if (target.kind === 'vertex') {
-      const edgeVertices = topology.polygonEdges[anchor.edge];
-      if (!edgeVertices) throw new Error('Knife start edge is no longer available.');
-      const candidates = knifeEdgeFaces(anchor.edge).filter(face =>
-        topology.polygons[face].includes(target.vertex) && !edgeVertices.includes(target.vertex)
-      );
-      if (candidates.length !== 1) throw new Error('Knife edge start and vertex target must define one unambiguous logical face.');
+function planKnifeSegment(target: KnifeTarget): { plan: KnifeSegmentPlan | null; reason: string | null } {
+  const anchor = knifeAnchor;
+  const topology = editor.meshTopology;
+  if (!anchor || !topology) return { plan: null, reason: 'Knife needs a start point first.' };
+
+  if (anchor.kind === 'vertex') {
+    const startVertex = knifeVertexAtPosition(anchor.position);
+    if (startVertex === undefined) return { plan: null, reason: 'Knife start point is no longer on the logical topology.' };
+
+    if (target.kind === 'vertex') {
+      if (target.vertex === startVertex) return { plan: null, reason: 'Choose a different endpoint.' };
+      const candidates = knifeNonAdjacentVertexFaces(startVertex, target.vertex);
+      if (candidates.length !== 1) return { plan: null, reason: 'These vertices do not define one unambiguous non-adjacent face cut.' };
+      return { plan: { kind: 'vertex-vertex', face: candidates[0], first: startVertex, second: target.vertex }, reason: null };
+    }
+
+    const edgeVertices = topology.polygonEdges[target.edge];
+    if (!edgeVertices) return { plan: null, reason: 'Knife target must be a logical edge.' };
+    if (edgeVertices.includes(startVertex)) return { plan: null, reason: 'Choose a non-incident edge or a different vertex.' };
+    const candidates = knifeEdgeFaces(target.edge).filter(face => topology.polygons[face].includes(startVertex));
+    if (candidates.length !== 1) return { plan: null, reason: 'Knife start and edge target do not define one unambiguous logical face.' };
+    return { plan: { kind: 'vertex-edge', face: candidates[0], vertex: startVertex, edge: target.edge, t: target.t }, reason: null };
+  }
+
+  const startEdge = topology.polygonEdges[anchor.edge];
+  if (!startEdge) return { plan: null, reason: 'Knife start edge is no longer available.' };
+
+  if (target.kind === 'vertex') {
+    if (startEdge.includes(target.vertex)) return { plan: null, reason: 'Choose a vertex away from the start edge endpoints.' };
+    const candidates = knifeEdgeFaces(anchor.edge).filter(face => topology.polygons[face].includes(target.vertex));
+    if (candidates.length !== 1) return { plan: null, reason: 'Knife edge start and vertex target do not define one unambiguous logical face.' };
+    return { plan: { kind: 'edge-vertex', face: candidates[0], vertex: target.vertex, edge: anchor.edge, t: anchor.t }, reason: null };
+  }
+
+  if (anchor.edge === target.edge) return { plan: null, reason: 'Choose a different second logical edge.' };
+  const targetFaces = new Set(knifeEdgeFaces(target.edge));
+  const candidates = knifeEdgeFaces(anchor.edge).filter(face => targetFaces.has(face));
+  if (candidates.length !== 1) return { plan: null, reason: 'The two Knife edges do not define one unambiguous logical face.' };
+  return {
+    plan: {
+      kind: 'edge-edge',
+      face: candidates[0],
+      firstEdge: anchor.edge,
+      firstT: anchor.t,
+      secondEdge: target.edge,
+      secondT: target.t,
+    },
+    reason: null,
+  };
+}
+
+async function finishKnifeSegment(target: KnifeTarget, targetPosition: [number, number, number]) {
+  const topology = editor.meshTopology;
+  if (!knifeAnchor || !topology) return;
+  try {
+    const { plan, reason } = planKnifeSegment(target);
+    if (!plan) throw new Error(reason ?? 'Invalid Knife segment.');
+
+    if (plan.kind === 'vertex-vertex') {
+      await editor.runModeling({
+        kind: 'cut-face',
+        face: plan.face,
+        vertices: [plan.first, plan.second],
+        polygonTriangles: topology.polygonTriangles.map(group => [...group]),
+      });
+    } else if (plan.kind === 'vertex-edge' || plan.kind === 'edge-vertex') {
       await editor.runModeling({
         kind: 'cut-face-edge',
-        face: candidates[0],
-        vertex: target.vertex,
-        edge: anchor.edge,
-        t: anchor.t,
+        face: plan.face,
+        vertex: plan.vertex,
+        edge: plan.edge,
+        t: plan.t,
         polygonTriangles: topology.polygonTriangles.map(group => [...group]),
       });
     } else {
-      if (anchor.edge === target.edge) throw new Error('Choose a different second logical edge.');
-      const targetFaces = new Set(knifeEdgeFaces(target.edge));
-      const candidates = knifeEdgeFaces(anchor.edge).filter(face => targetFaces.has(face));
-      if (candidates.length !== 1) throw new Error('The two Knife edges must define one unambiguous logical face.');
       await editor.runModeling({
         kind: 'cut-face-edges',
-        face: candidates[0],
-        firstEdge: anchor.edge,
-        firstT: anchor.t,
-        secondEdge: target.edge,
-        secondT: target.t,
+        face: plan.face,
+        firstEdge: plan.firstEdge,
+        firstT: plan.firstT,
+        secondEdge: plan.secondEdge,
+        secondT: plan.secondT,
         polygonTriangles: topology.polygonTriangles.map(group => [...group]),
       });
     }
@@ -1442,6 +1469,15 @@ async function finishKnifeSegment(target: KnifeTarget, targetPosition: [number, 
     armKnife(`${(error as Error).message} Choose another vertex or edge point, or press Escape to end.`);
   }
 }
+
+editor.addEventListener('knife-preview', event => {
+  const target = (event as CustomEvent<KnifeTarget | null>).detail;
+  if (!knifeActive || !target || !knifeAnchor) {
+    editor.setKnifePreviewValidity(null);
+    return;
+  }
+  editor.setKnifePreviewValidity(!!planKnifeSegment(target).plan);
+});
 
 editor.addEventListener('knife-target', event => {
   if (!knifeActive) return;
