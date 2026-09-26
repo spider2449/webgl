@@ -1237,7 +1237,8 @@ async function cutFaceBetweenSelectedVertices() {
     if (!editor.editMode || editor.componentMode !== 'vertex' || editor.componentSelection.length !== 2 || !editor.meshTopology) {
       throw new Error('Select exactly two non-adjacent vertices on one face.');
     }
-    const vertices = editor.componentSelection as [number, number];
+    const selection = editor.componentSelection;
+    const vertices: [number, number] = [selection[0], selection[1]];
     const candidates = editor.meshTopology.polygons.flatMap((polygon, face) => {
       const first = polygon.indexOf(vertices[0]);
       const second = polygon.indexOf(vertices[1]);
