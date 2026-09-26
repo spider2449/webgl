@@ -18,6 +18,13 @@ boundary vertex/edge point on the same logical face
 
 The first interior click is pending only. It does not mutate the mesh.
 
+While that bend is pending, the viewport keeps both pieces of feedback visible:
+
+- a persistent point marker at the clicked interior bend;
+- the already chosen boundary-to-interior first leg.
+
+Mouse movement then shows the normal live preview from the interior bend to the next hover target, so the user can see the complete intended polyline before commit.
+
 The cut is committed only after the next boundary endpoint is chosen. At that point the operation creates both modeling edges through the interior point and splits the logical face into two valid polygons.
 
 After the commit, the final boundary endpoint becomes the next Knife anchor, preserving the existing continuous Knife workflow.
@@ -89,8 +96,9 @@ Manual checks:
 2. Press `K`.
 3. Click a logical vertex or an interior point on a logical edge.
 4. Move to the middle of the same logical face; preview should show a valid face target.
-5. Click it; the mesh must remain unchanged and the preview anchor moves to the bend point.
-6. Hover a vertex or edge point on the same face boundary; preview should become valid.
+5. Click it; the mesh must remain unchanged, the interior marker must stay visible, and the first boundary-to-interior line must stay visible.
+6. Move the mouse; the persistent first leg remains while the live second-leg preview follows the cursor.
+7. Hover a vertex or edge point on the same face boundary; preview should become valid.
 7. Click it; the face should split through the interior bend.
 8. Verify the interior bend is a selectable logical vertex and both cut segments are selectable logical edges.
 9. Continue Knife without pressing `K` again.
