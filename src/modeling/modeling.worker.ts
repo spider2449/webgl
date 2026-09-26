@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { bevelLogicalEdges, cutLogicalFace, deleteLogicalComponents, extrudeLogicalFace, insetLogicalFace, loopCutLogicalEdge, editUV, inspectGeometry } from './modeling';
-import { cutLogicalFaceBetweenEdges, cutLogicalFaceToEdge } from './cut-edge-endpoint';
+import { cutLogicalFaceBetweenEdges, cutLogicalFaceToEdge, cutLogicalSegmentByPositions } from './cut-edge-endpoint';
 import { evaluateModifiers } from './modifiers';
 import { extrudeRegion } from './extrude-region';
 import { subdivideEdges } from './subdivide';
@@ -15,15 +15,11 @@ self.onmessage = (event: MessageEvent<{ source: ReturnType<THREE.BufferGeometry[
     const op = event.data.operation;
     switch (op.kind) {
       case 'knife-session': {
+        if (!op.segments.length) throw new Error('Knife session requires at least one segment.');
         let current = source;
-        let groups: number[][] | undefined;
+        let groups = op.polygonTriangles;
         for (const segment of op.segments) {
-          const withGroups = { ...segment, polygonTriangles: groups ?? segment.polygonTriangles };
-          const cut = withGroups.kind === 'cut-face'
-            ? cutLogicalFace(current, withGroups.face, withGroups.vertices, withGroups.polygonTriangles)
-            : withGroups.kind === 'cut-face-edge'
-              ? cutLogicalFaceToEdge(current, withGroups, withGroups.polygonTriangles)
-              : cutLogicalFaceBetweenEdges(current, withGroups, withGroups.polygonTriangles);
+          const cut = cutLogicalSegmentByPositions(current, segment, groups);
           if (current !== source) current.dispose();
           current = cut.geometry;
           groups = cut.polygonTriangles;
