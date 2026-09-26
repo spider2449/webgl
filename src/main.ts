@@ -1485,7 +1485,7 @@ async function finishKnifeSegment(target: KnifeTarget, targetPosition: [number, 
     knifePath.push([...targetPosition]);
     editor.setKnifePreviewPath(knifePath);
     editor.setKnifePreviewAnchor(targetPosition);
-    armKnife('Knife segment added. Choose the next point; Enter or double-click confirms, Escape cancels.');
+    armKnife('Knife segment added. Choose the next point; Enter confirms, Escape cancels.');
   } catch (error) {
     armKnife(`${(error as Error).message} Choose another vertex or edge point, or press Escape to end.`);
   }
@@ -1529,11 +1529,6 @@ editor.addEventListener('mode', () => {
   if (knifeActive && !editor.modelingBusy && (!editor.editMode || editor.componentMode !== 'vertex')) cancelKnife();
 });
 editor.addEventListener('selection', () => { if (knifeActive && !editor.modelingBusy) cancelKnife(); });
-document.addEventListener('dblclick', event => {
-  if (!knifeActive || !knifeSegments.length) return;
-  event.preventDefault();
-  void confirmKnife();
-});
 
 async function deleteSelectedComponents() {
   try {
