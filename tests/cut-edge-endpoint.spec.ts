@@ -1390,6 +1390,15 @@ test('viewport Knife keeps multiple interior bends pending and commits the full 
     expect(value).toBeCloseTo(target.start.local[index], 4)
   );
 
+  await page.keyboard.press('Control+z');
+  await expect(page.locator('#toast')).toContainText('Knife has no earlier pending bend to undo');
+  expect(await page.evaluate(() => (window as any).__forge.snapshot())).toBe(target.before);
+  pending = await page.evaluate(() => (window as any).__forge.knifePreviewState);
+  expect(pending.pendingPath).toEqual([]);
+  pending.anchor.forEach((value: number, index: number) =>
+    expect(value).toBeCloseTo(target.start.local[index], 4)
+  );
+
   await page.keyboard.press('Control+y');
   await expect(page.locator('#toast')).toContainText('Knife bend restored');
   expect(await page.evaluate(() => (window as any).__forge.snapshot())).toBe(target.before);
