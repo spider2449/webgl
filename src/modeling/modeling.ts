@@ -474,6 +474,72 @@ export function insetLogicalFace(
   return finishDetailed(output);
 }
 
+export function cutLogicalFace(
+  source: THREE.BufferGeometry,
+  face: number,
+  vertices: [number, number],
+  polygonTriangles?: number[][],
+) {
+  const inspection = inspectGeometry(source, polygonTriangles ?? false);
+  const { topology } = inspection;
+  const { polygons } = logicalSurface(source, inspection);
+  if (!Number.isInteger(face) || face < 0 || face >= topology.polygons.length || !polygons[face]) {
+    throw new Error('Select one valid logical face to cut.');
+  }
+  if (
+    !Array.isArray(vertices) ||
+    vertices.length !== 2 ||
+    vertices[0] === vertices[1] ||
+    vertices.some(vertex => !Number.isInteger(vertex))
+  ) throw new Error('Cut Face requires exactly two distinct logical vertices.');
+
+  const boundary = topology.polygons[face];
+  const start = boundary.indexOf(vertices[0]);
+  const end = boundary.indexOf(vertices[1]);
+  if (start < 0 || end < 0) throw new Error('Both cut vertices must lie on the same logical face boundary.');
+
+  const size = boundary.length;
+  const forward = (end - start + size) % size;
+  if (forward === 1 || forward === size - 1) {
+    throw new Error('The selected vertices already share a logical boundary edge.');
+  }
+
+  const walk = (from: number, to: number) => {
+    const indices: number[] = [];
+    for (let index = from; ; index = (index + 1) % size) {
+      indices.push(index);
+      if (index === to) break;
+      if (indices.length > size) throw new Error('Cut Face boundary traversal failed.');
+    }
+    return indices;
+  };
+
+  const sourcePolygon = polygons[face];
+  const makePolygon = (indices: number[]): Polygon => {
+    if (indices.length < 3) throw new Error('Cut Face would create an invalid polygon.');
+    return {
+      material: sourcePolygon.material,
+      corners: indices.map(index => sourcePolygon.corners[index]),
+      referenceNormals: sourcePolygon.referenceNormals
+        ? indices.map(index => sourcePolygon.referenceNormals![index])
+        : undefined,
+    };
+  };
+
+  const first = makePolygon(walk(start, end));
+  const second = makePolygon(walk(end, start));
+  const entries: EditedPolygon[] = [];
+  for (let polygon = 0; polygon < topology.polygons.length; polygon++) {
+    if (polygon === face) {
+      entries.push({ polygon: first }, { polygon: second });
+    } else {
+      entries.push({ polygon: polygons[polygon], sourceFace: polygon });
+    }
+  }
+
+  return finishEditedSurface(source, inspection, entries);
+}
+
 export function loopCutLogicalEdge(
   source: THREE.BufferGeometry,
   edge: number,
