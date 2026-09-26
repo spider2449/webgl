@@ -713,3 +713,81 @@ test('Knife vertex snap stays locked until the cursor leaves the larger release 
 
   await page.keyboard.press('Escape');
 });
+
+
+test('Edge-only Knife keeps endpoint preview visible instead of dropping the candidate', async ({ page }) => {
+  await page.goto('/');
+  await page.waitForFunction(() => (window as any).__forge?.selected);
+  await page.evaluate(() => (window as any).__forge.view('front'));
+  await page.locator('#mode').selectOption('edit');
+  await page.getByLabel('Mesh component').selectOption('vertex');
+
+  const target = await page.evaluate(() => {
+    const e = (window as any).__forge;
+    (window as any).__forgeModelingSettings.knifeSnap = 'edge-only';
+    const topology = e.meshTopology;
+    const mesh = e.selected;
+    const position = mesh.geometry.getAttribute('position');
+    const face = topology.polygons.findIndex((polygon: number[]) =>
+      polygon.every((vertex: number) => position.getZ(topology.vertices[vertex][0]) === 1)
+    );
+    if (face < 0) throw new Error('Expected a front logical quad.');
+    const boundary = topology.polygons[face];
+    const edge = topology.polygonEdges.findIndex((candidate: number[]) =>
+      candidate.length === 2 &&
+      ((candidate[0] === boundary[0] && candidate[1] === boundary[1]) ||
+       (candidate[0] === boundary[1] && candidate[1] === boundary[0]))
+    );
+    if (edge < 0) throw new Error('Expected a logical edge.');
+
+    const rect = e.host.getBoundingClientRect();
+    const local = (vertex: number) =>
+      mesh.position.clone().fromBufferAttribute(position, topology.vertices[vertex][0]);
+    const screen = (point: any) => {
+      mesh.updateWorldMatrix(true, true);
+      e.camera.updateMatrixWorld(true);
+      const projected = mesh.localToWorld(point.clone()).project(e.camera);
+      return {
+        local: point.toArray(),
+        x: rect.left + (projected.x + 1) * rect.width / 2,
+        y: rect.top + (1 - projected.y) * rect.height / 2,
+      };
+    };
+    const [aVertex, bVertex] = topology.polygonEdges[edge];
+    const a = local(aVertex), b = local(bVertex);
+    return {
+      before: e.snapshot(),
+      endpoint: screen(a),
+      interior: screen(a.clone().lerp(b, 0.25)),
+    };
+  });
+
+  await page.keyboard.press('k');
+
+  await page.mouse.move(target.endpoint.x, target.endpoint.y);
+  let preview = await page.evaluate(() => (window as any).__forge.knifePreviewState);
+  expect(preview.pointVisible).toBe(true);
+  expect(preview.target.kind).toBe('edge');
+  expect([0, 1]).toContain(preview.target.t);
+  expect(preview.lockedVertex).toBeNull();
+  preview.point.forEach((value: number, index: number) => expect(value).toBeCloseTo(target.endpoint.local[index], 5));
+
+  // Clicking the endpoint must not create topology or end Knife.
+  await page.mouse.click(target.endpoint.x, target.endpoint.y);
+  expect(await page.evaluate(() => ({
+    snapshot: (window as any).__forge.snapshot(),
+    pending: (window as any).__forge.snapTargetPending,
+  }))).toEqual({ snapshot: target.before, pending: true });
+
+  // Moving back inside the edge restores a commit-capable edge candidate.
+  await page.mouse.move(target.interior.x, target.interior.y);
+  preview = await page.evaluate(() => (window as any).__forge.knifePreviewState);
+  expect(preview.pointVisible).toBe(true);
+  expect(preview.target.kind).toBe('edge');
+  expect(preview.target.t).toBeGreaterThan(0);
+  expect(preview.target.t).toBeLessThan(1);
+  preview.point.forEach((value: number, index: number) => expect(value).toBeCloseTo(target.interior.local[index], 5));
+
+  await page.keyboard.press('Escape');
+  await page.evaluate(() => { (window as any).__forgeModelingSettings.knifeSnap = 'vertex-edge'; });
+});
