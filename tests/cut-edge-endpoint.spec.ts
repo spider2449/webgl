@@ -1022,6 +1022,14 @@ test('viewport Knife keeps a face bend pending until a same-face boundary endpoi
   preview.anchor.forEach((value: number, index: number) =>
     expect(value).toBeCloseTo(target.interior.local[index], 4)
   );
+  expect(preview.pendingPointVisible).toBe(true);
+  expect(preview.pendingLineVisible).toBe(true);
+  preview.pendingStart.forEach((value: number, index: number) =>
+    expect(value).toBeCloseTo(target.start.local[index], 4)
+  );
+  preview.pendingBend.forEach((value: number, index: number) =>
+    expect(value).toBeCloseTo(target.interior.local[index], 4)
+  );
 
   await page.mouse.move(target.end.x, target.end.y);
   preview = await page.evaluate(() => (window as any).__forge.knifePreviewState);
@@ -1058,6 +1066,8 @@ test('viewport Knife keeps a face bend pending until a same-face boundary endpoi
       endFound: endVertex !== undefined,
       pending: e.snapTargetPending,
       anchor: e.knifePreviewState.anchor,
+      pendingPointVisible: e.knifePreviewState.pendingPointVisible,
+      pendingLineVisible: e.knifePreviewState.pendingLineVisible,
     };
   }, { interior: target.interior.local, end: target.end.local });
 
@@ -1069,6 +1079,8 @@ test('viewport Knife keeps a face bend pending until a same-face boundary endpoi
   expect(result.interiorUses).toBe(2);
   expect(result.endFound).toBe(true);
   expect(result.pending).toBe(true);
+  expect(result.pendingPointVisible).toBe(false);
+  expect(result.pendingLineVisible).toBe(false);
   result.anchor.forEach((value: number, index: number) =>
     expect(value).toBeCloseTo(target.end.local[index], 4)
   );
