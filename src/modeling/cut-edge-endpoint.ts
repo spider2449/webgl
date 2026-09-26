@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { cutLogicalFace, cutLogicalFaceViaInteriorPoint } from './modeling';
+import { cutLogicalFace, cutLogicalFaceViaInteriorPath, cutLogicalFaceViaInteriorPoint } from './modeling';
 import { buildTopology } from './topology';
 
 const edgeKey = (a: number, b: number) => `${Math.min(a, b)}:${Math.max(a, b)}`;
@@ -274,6 +274,13 @@ export type KnifeBoundaryEndpoint =
   | { kind: 'vertex'; vertex: number }
   | { kind: 'edge'; edge: number; t: number };
 
+export type CutViaInteriorPath = {
+  face: number;
+  start: KnifeBoundaryEndpoint;
+  interiors: [number, number, number][];
+  end: KnifeBoundaryEndpoint;
+};
+
 export type CutViaInteriorPoint = {
   face: number;
   start: KnifeBoundaryEndpoint;
@@ -336,21 +343,22 @@ function resolveBoundaryEdgeAtPosition(
  * dangling endpoint: they only become topology when both boundary endpoints
  * are known.
  */
-export function cutLogicalFaceViaPoint(
+export function cutLogicalFaceViaPath(
   source: THREE.BufferGeometry,
-  cut: CutViaInteriorPoint,
+  cut: CutViaInteriorPath,
   polygonTriangles?: number[][],
 ) {
   const position = source.getAttribute('position');
-  if (!position || position.itemSize !== 3) throw new Error('Interior Knife bend requires position data.');
+  if (!position || position.itemSize !== 3) throw new Error('Interior Knife path requires position data.');
   const topology = buildTopology(position.array, source.index?.array, polygonTriangles ?? false);
   if (!Number.isInteger(cut.face) || !topology.polygons[cut.face]) {
-    throw new Error('Select one valid logical face for the Knife bend.');
+    throw new Error('Select one valid logical face for the Knife path.');
   }
+  if (!cut.interiors.length) throw new Error('Interior Knife path requires at least one bend point.');
 
   const startExpected = endpointPosition(topology, position, cut.start);
   const endExpected = endpointPosition(topology, position, cut.end);
-  if (samePosition(startExpected, endExpected)) throw new Error('Knife bend endpoints must be distinct.');
+  if (samePosition(startExpected, endExpected)) throw new Error('Knife path endpoints must be distinct.');
 
   let current = source;
   let groups = polygonTriangles;
@@ -381,17 +389,33 @@ export function cutLogicalFaceViaPoint(
     const startVertex = resolveBoundaryVertex(currentTopology, currentPosition, cut.face, startExpected);
     const endVertex = resolveBoundaryVertex(currentTopology, currentPosition, cut.face, endExpected);
     if (startVertex === undefined || endVertex === undefined) {
-      throw new Error('Knife bend endpoints were not preserved on the logical face boundary.');
+      throw new Error('Knife path endpoints were not preserved on the logical face boundary.');
     }
 
-    return cutLogicalFaceViaInteriorPoint(
+    return cutLogicalFaceViaInteriorPath(
       current,
       cut.face,
       [startVertex, endVertex],
-      cut.interior,
+      cut.interiors,
       groups,
     );
   } finally {
     if (ownsCurrent) current.dispose();
   }
+}
+
+/**
+ * Backwards-compatible single-bend wrapper.
+ */
+export function cutLogicalFaceViaPoint(
+  source: THREE.BufferGeometry,
+  cut: CutViaInteriorPoint,
+  polygonTriangles?: number[][],
+) {
+  return cutLogicalFaceViaPath(source, {
+    face: cut.face,
+    start: cut.start,
+    interiors: [cut.interior],
+    end: cut.end,
+  }, polygonTriangles);
 }
