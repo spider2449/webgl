@@ -26,6 +26,19 @@ This is the default.
 
 The control is exposed as `Knife Snap` in the Vertex context menu next to the Knife operator.
 
+## Sticky vertex snapping
+
+Knife vertex snapping now uses hysteresis so the cursor does not flicker between a logical vertex and its incident edge.
+
+- acquire radius: the normal Knife vertex snap threshold
+- release radius: 2x the acquire radius
+- once a logical vertex is acquired, Knife stays pinned to that exact vertex while the cursor remains inside the larger release radius
+- after the cursor leaves the release radius, Knife unlocks and resumes normal edge tracking
+- `Edge only` never enters the sticky vertex state
+- ending Knife, changing topology, or leaving Edit Mode clears the lock
+
+This makes the visual preview behave like a stable modeling snap rather than a frame-by-frame nearest-target test.
+
 ## Preview validity
 
 Once a Knife anchor exists, the hover preview also shows whether the candidate can actually be committed.
@@ -118,6 +131,15 @@ npm test -- --workers=2
 ```
 
 Manual checks:
+
+### Sticky vertex lock
+
+1. Start Knife with `Knife Snap = Vertex + Edge`.
+2. Move onto a logical vertex and confirm the preview snaps exactly onto it.
+3. Move the mouse a small distance along an incident edge.
+4. Confirm the preview remains pinned to the vertex instead of immediately sliding onto the edge.
+5. Move clearly farther away.
+6. Confirm the lock releases and the preview resumes tracking the edge.
 
 ### Valid / invalid preview
 
