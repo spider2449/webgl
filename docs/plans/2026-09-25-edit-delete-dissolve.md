@@ -2,9 +2,9 @@
 
 ## Goal
 
-Make Forge component deletion operate on the user-visible modeling topology rather than treating renderer triangles as the mesh structure.
+Make Forge component deletion rebuild the affected user face topology instead of merely hiding modeling components while old renderer triangles keep using them.
 
-Triangle, Quad and N-gon are all valid logical faces. There is no rule that user topology must remain Quad-only.
+Triangle, Quad and N-gon are all first-class user faces. There is no rule that user topology must remain Quad-only.
 
 ## Two topology layers
 
@@ -21,93 +21,79 @@ User-editable:
 
 Implementation-only:
 
-- renderer welded vertices
+- welded renderer vertices
 - triangles
-- internal triangulation edges
-- internal vertices that may be required to preserve a folded surface
+- triangulation diagonals
 
-Renderer-only points and edges must not become selectable modeling components.
+Three.js / WebGL ultimately consumes triangles, so Forge generates a triangle representation before rendering. That representation must be regenerated when a point or edge deletion changes a logical face boundary.
 
-Three.js / WebGL ultimately renders triangles, so Forge must provide a triangle representation before rendering. This renderer representation does not define the user's face structure.
+## Surface-aware retessellation
 
-## Delete semantics
+Affected logical faces are rebuilt from their remaining 3D boundary vertices.
 
-### Delete Vertex
+The renderer triangulation algorithm:
 
-Delete means reduce modeling topology, not delete every incident face.
+1. Computes a Newell normal from the new polygon boundary.
+2. Builds an orthonormal projection plane perpendicular to that normal.
+3. Ear-clips the projected polygon using only existing boundary vertices.
+4. Uses the original renderer-triangle normals around each boundary vertex as local reference normals.
+5. Prefers candidate triangles whose 3D normals continue the previous surface orientation.
+6. Uses triangle quality as a secondary tie-breaker.
+7. Never creates a centroid or other hidden modeling point.
+8. When an Edge is deleted, the old edge is marked as a forbidden diagonal so triangulation cannot silently recreate it.
 
-For an interior manifold logical vertex:
+Unaffected logical faces retain their existing renderer triangle connectivity.
 
-1. Find all logical polygons incident to the vertex.
-2. Merge those polygon triangle-ownership groups into one logical region.
-3. Preserve the renderer geometry exactly.
-4. The deleted vertex may remain internally in renderer triangles when required to preserve the surface.
-5. It must disappear from `logicalVertices` and from Vertex Mode picking/display.
+## Delete Vertex
 
-If the vertex lies on a boundary and cannot disappear from the logical boundary without changing the surface, the operation is rejected for now.
+For every logical face that uses the selected vertex:
 
-### Delete Edge
+1. Remove that point from the face boundary.
+2. If at least three boundary points remain, retessellate that face.
+3. If fewer than three remain, that face disappears.
+4. The deleted coordinate must no longer exist in the rebuilt affected renderer faces.
 
-For a manifold edge shared by two logical faces:
+Example: a five-point face with an extra point along one side becomes a four-point face and is freshly triangulated from those four remaining boundary points.
 
-1. Merge the two logical polygon ownership groups.
-2. Preserve renderer positions, indices, triangles and material groups.
-3. Remove the edge from `polygonEdges`.
-4. The two faces become one larger logical polygon, including folded/non-planar N-gons.
+A Cube corner currently turns the three incident Quads into three Triangles. The opposite three Quads are untouched.
 
-This is the normal Forge Delete Edge behavior; there is no separate RMB Dissolve Edge command.
+## Delete Edge
 
-### Delete Face
+For a manifold logical edge:
 
-Delete only the selected logical face and its owned renderer triangles.
+1. Merge the two adjacent logical face boundaries.
+2. Remove the selected edge from the merged boundary.
+3. Retessellate that merged 3D polygon.
+4. Forbid the deleted edge from being selected again as a renderer diagonal.
 
-Unrelated logical faces are not retessellated.
+Multiple selected manifold edges merge their connected logical face regions before retessellation.
 
-## Examples on a default Cube
+## Delete Face
 
-Delete one Edge:
+Delete only the selected logical face and its renderer triangles.
 
-- renderer triangles: 12 -> 12
-- renderer welded vertices: 8 -> 8
-- logical faces: 6 -> 5
-- logical edges: 12 -> 11
-- result includes one six-boundary-vertex logical N-gon
-
-Delete one corner Vertex:
-
-- renderer triangles: 12 -> 12
-- renderer welded vertices: 8 -> 8
-- logical vertices: 8 -> 7
-- logical faces: 6 -> 4
-- logical edges: 12 -> 9
-- the old corner may remain renderer-internal but is no longer user-editable
-
-Delete one Face:
-
-- renderer triangles: 12 -> 10
-- logical faces: 6 -> 5
-- object remains in Edit Mode with an open side
+Unrelated logical faces retain their existing renderer triangles.
 
 ## Editor requirements
 
-- Vertex Mode must display and pick only `logicalVertices`.
-- Box selection must ignore renderer-only vertices.
-- Vertex snap targets must be logical vertices.
-- Transform selection continues to update all renderer buffer copies belonging to one logical vertex.
+- Vertex Mode exposes only true logical boundary vertices.
+- Renderer-only triangulation vertices are not selectable.
+- Box selection ignores renderer-only points.
+- Vertex snap targets are logical vertices.
 - Delete / Backspace uses these logical semantics in Edit Mode.
 - Object Mode Delete continues to remove objects.
 
 ## Future topology increase: Cut Face / Knife
 
-Delete reduces logical topology. A later Cut Face / Knife operator will increase it.
+Delete reduces topology. Cut Face / Knife will increase it.
 
-That tool should allow users to intentionally split a logical face into:
+Users must be able to intentionally split a logical face into:
 
 - Triangles
 - Quads
 - N-gons
 
-Forge should not automatically force user topology back to Quads. Renderer triangulation remains a separate implementation layer.
+Forge must not automatically force user topology into Quads. Renderer triangulation remains a separate implementation layer.
 
 ## Validation
 
@@ -120,8 +106,8 @@ npm test -- --workers=2
 
 Manual checks:
 
-1. Edge Mode -> select one Cube edge -> Delete. The surface must look unchanged; one modeling edge disappears.
-2. Vertex Mode -> select one Cube corner -> Delete. The surface must look unchanged; that point disappears from Vertex Mode.
-3. Face Mode -> select one face -> Delete. Only that face opens.
-4. Re-enter Edit Mode after all operations and verify Triangle / Quad / N-gon logical faces remain intact.
-5. Renderer-only internal vertices or diagonals must not be selectable.
+1. On a face with an intermediate boundary point, Delete Vertex removes the point and visibly redistributes renderer diagonals across the remaining face.
+2. Cube Edge Mode -> Delete one edge. The two logical faces merge and the old line must not survive as a renderer diagonal.
+3. Cube Face Mode -> Delete one face. Only that face opens.
+4. Unaffected faces must not have their renderer diagonals rearranged.
+5. Re-enter Edit Mode and verify Triangle / Quad / N-gon faces remain user-editable as polygons.
