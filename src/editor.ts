@@ -99,6 +99,10 @@ export class Editor extends EventTarget {
   private proportionalConnected = false;
   snapTargetPending = false;
   snapTargetKind: 'vertex' | 'edge' | 'surface' = 'vertex';
+  knifePending = false;
+  private knifeFace: number | null = null;
+  private knifeFirst: { edge: number; t: number } | null = null;
+  private knifePointOverlay: THREE.Points | null = null;
   private componentDrag: {
     positions: number[];
     weights: Float32Array;
@@ -205,7 +209,7 @@ export class Editor extends EventTarget {
     // Shift selection must also work where a selected component meets the gizmo.
     let selectionPointer: number | null = null;
     this.renderer.domElement.addEventListener('pointerdown', e => {
-      if ((e.shiftKey || e.ctrlKey || (this.editMode && !this.weightMode && this.snapTargetPending)) && e.button === 0 && !this.transform.dragging) {
+      if ((e.shiftKey || e.ctrlKey || (this.editMode && !this.weightMode && (this.snapTargetPending || this.knifePending))) && e.button === 0 && !this.transform.dragging) {
         selectionPointer = e.pointerId;
         this.transform.enabled = false;
         this.renderer.domElement.setPointerCapture(e.pointerId);
@@ -217,7 +221,7 @@ export class Editor extends EventTarget {
     this.renderer.domElement.addEventListener('pointerdown', e => {
       this.mouseDown.set(e.clientX, e.clientY);
       this.suppressClick = this.transform.dragging;
-      if (e.button === 0 && !e.altKey && !this.transform.dragging && !this.playing && !this.modelingBusy && !this.snapTargetPending) {
+      if (e.button === 0 && !e.altKey && !this.transform.dragging && !this.playing && !this.modelingBusy && !this.snapTargetPending && !this.knifePending) {
         const rect = host.getBoundingClientRect();
         const start = new THREE.Vector2(e.clientX - rect.left, e.clientY - rect.top);
         this.boxSelectDrag = { pointerId: e.pointerId, start, current: start.clone(), mode: e.ctrlKey ? 'toggle' : e.shiftKey ? 'add' : 'replace', active: false };
@@ -226,7 +230,7 @@ export class Editor extends EventTarget {
     this.renderer.domElement.addEventListener('pointermove', e => {
       const drag = this.boxSelectDrag;
       if (!drag || drag.pointerId !== e.pointerId) return;
-      if (this.transform.dragging || this.suppressClick || this.snapTargetPending) {
+      if (this.transform.dragging || this.suppressClick || this.snapTargetPending || this.knifePending) {
         this.cancelBoxSelection();
         return;
       }
@@ -258,6 +262,8 @@ export class Editor extends EventTarget {
       if (this.editMode) {
         if (this.weightMode) {
           this.pickVertex(e.shiftKey);
+        } else if (this.knifePending) {
+          this.pickKnifePoint();
         } else if (this.snapTargetPending) {
           const threshold = this.camera.position.distanceTo(this.orbit.target) * 0.012;
           try {
