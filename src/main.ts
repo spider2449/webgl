@@ -1435,8 +1435,7 @@ async function finishKnifeSegment(target: KnifeTarget, targetPosition: [number, 
     knifeAnchor = { kind: 'vertex', position: targetPosition };
     armKnife('Knife segment complete. Choose the next vertex or edge point; Escape ends Knife.');
   } catch (error) {
-    toast((error as Error).message);
-    armKnife('Knife: choose another vertex or edge point, or press Escape to end.');
+    armKnife(`${(error as Error).message} Choose another vertex or edge point, or press Escape to end.`);
   }
 }
 
@@ -1447,8 +1446,7 @@ editor.addEventListener('knife-target', event => {
   try {
     position = knifePositionForTarget(target);
   } catch (error) {
-    toast((error as Error).message);
-    armKnife('Knife: choose another vertex or edge point, or press Escape to end.');
+    armKnife(`${(error as Error).message} Choose another vertex or edge point, or press Escape to end.`);
     return;
   }
 
