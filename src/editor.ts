@@ -1560,7 +1560,7 @@ export class Editor extends EventTarget {
       meshes.forEach((mesh, i) => {
         if (operation.kind === 'uv') {
           this.markPrimitiveApplied(mesh);
-        } else if ((operation.kind === 'bevel' || operation.kind === 'extrude' || operation.kind === 'inset' || operation.kind === 'loop' || operation.kind === 'delete-components') && topologies[i]) {
+        } else if ((operation.kind === 'bevel' || operation.kind === 'extrude' || operation.kind === 'inset' || operation.kind === 'loop' || operation.kind === 'delete-components' || operation.kind === 'cut-face' || operation.kind === 'cut-face' || operation.kind === 'cut-face') && topologies[i]) {
           this.markPrimitiveApplied(mesh);
           if (mesh.userData.forgeLogicalQuads !== undefined) delete mesh.userData.forgeLogicalQuads;
           mesh.userData.forgePolygonTriangles = topologies[i]!.polygonTriangles.map(group => [...group]);
