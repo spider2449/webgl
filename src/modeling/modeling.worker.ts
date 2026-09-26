@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { bevelLogicalEdges, cutLogicalFace, deleteLogicalComponents, extrudeLogicalFace, insetLogicalFace, loopCutLogicalEdge, editUV, inspectGeometry } from './modeling';
-import { cutLogicalFaceBetweenEdges, cutLogicalFaceToEdge, cutLogicalFaceViaPoint } from './cut-edge-endpoint';
+import { cutLogicalFaceBetweenEdges, cutLogicalFaceToEdge, cutLogicalFaceViaPath, cutLogicalFaceViaPoint } from './cut-edge-endpoint';
 import { evaluateModifiers } from './modifiers';
 import { extrudeRegion } from './extrude-region';
 import { subdivideEdges } from './subdivide';
@@ -76,6 +76,17 @@ self.onmessage = (event: MessageEvent<{ source: ReturnType<THREE.BufferGeometry[
           face: op.face,
           start: op.start,
           interior: op.interior,
+          end: op.end,
+        }, op.polygonTriangles);
+        result = cut.geometry;
+        logicalGroups = cut.polygonTriangles;
+        break;
+      }
+      case 'cut-face-via-path': {
+        const cut = cutLogicalFaceViaPath(source, {
+          face: op.face,
+          start: op.start,
+          interiors: op.interiors,
           end: op.end,
         }, op.polygonTriangles);
         result = cut.geometry;
