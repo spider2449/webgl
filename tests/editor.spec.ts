@@ -118,8 +118,9 @@ test('Edit Mode wireframe uses logical polygon edges instead of renderer triangl
     const t = e.meshTopology;
     const edgePositions = e.componentEdges.geometry.getAttribute('position');
     return {
-      materialWireframe: e.wire.wireframe,
-      materialOpacity: e.wire.opacity,
+      objectWireframe: e.wire.wireframe,
+      editWireframe: e.wireEditSurface.wireframe,
+      editWireOpacity: e.wireEditSurface.opacity,
       edgeVisible: e.componentEdges.visible,
       logicalEdges: t.polygonEdges.length,
       rendererEdges: t.edges.length,
@@ -128,8 +129,9 @@ test('Edit Mode wireframe uses logical polygon edges instead of renderer triangl
     };
   });
 
-  expect(result.materialWireframe).toBe(false);
-  expect(result.materialOpacity).toBeLessThan(0.2);
+  expect(result.objectWireframe).toBe(true);
+  expect(result.editWireframe).toBe(false);
+  expect(result.editWireOpacity).toBeLessThan(0.2);
   expect(result.edgeVisible).toBe(true);
   expect(result.mode).toBe('vertex');
   expect(result.rendererEdges).toBeGreaterThan(result.logicalEdges);
