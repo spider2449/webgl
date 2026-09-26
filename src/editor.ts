@@ -1503,8 +1503,8 @@ export class Editor extends EventTarget {
     this.emit('snap-target');
   }
   beginKnifeEdgeTarget() {
-    if (!this.editMode || this.componentMode !== 'vertex' || this.selectedComponents.size !== 1 || !this.topology || !(this.selected instanceof THREE.Mesh) || this.playing || this.transform.dragging || this.modelingBusy) {
-      throw new Error('Select exactly one logical vertex in Edit Mode before starting Knife.');
+    if (!this.editMode || this.componentMode !== 'vertex' || this.selectedComponents.size > 1 || !this.topology || !(this.selected instanceof THREE.Mesh) || this.playing || this.transform.dragging || this.modelingBusy) {
+      throw new Error('Knife requires zero or one selected logical vertex in Edit Mode.');
     }
     this.snapTargetKind = 'knife-edge';
     this.snapTargetPending = true;
@@ -1603,7 +1603,7 @@ export class Editor extends EventTarget {
       meshes.forEach((mesh, i) => {
         if (operation.kind === 'uv') {
           this.markPrimitiveApplied(mesh);
-        } else if ((operation.kind === 'bevel' || operation.kind === 'extrude' || operation.kind === 'inset' || operation.kind === 'loop' || operation.kind === 'delete-components' || operation.kind === 'cut-face' || operation.kind === 'cut-face-edge') && topologies[i]) {
+        } else if ((operation.kind === 'bevel' || operation.kind === 'extrude' || operation.kind === 'inset' || operation.kind === 'loop' || operation.kind === 'delete-components' || operation.kind === 'cut-face' || operation.kind === 'cut-face-edge' || operation.kind === 'cut-face-edges') && topologies[i]) {
           this.markPrimitiveApplied(mesh);
           if (mesh.userData.forgeLogicalQuads !== undefined) delete mesh.userData.forgeLogicalQuads;
           mesh.userData.forgePolygonTriangles = topologies[i]!.polygonTriangles.map(group => [...group]);
@@ -1618,13 +1618,13 @@ export class Editor extends EventTarget {
         // main thread. This keeps raycast faceIndex -> logical polygon mapping
         // aligned with the parsed BufferGeometry rather than trusting a
         // transient worker-side triangle numbering.
-        const rebuildFromStoredPolygons = operation.kind === 'bevel' || operation.kind === 'extrude' || operation.kind === 'inset' || operation.kind === 'loop' || operation.kind === 'delete-components' || operation.kind === 'cut-face' || operation.kind === 'cut-face-edge';
+        const rebuildFromStoredPolygons = operation.kind === 'bevel' || operation.kind === 'extrude' || operation.kind === 'inset' || operation.kind === 'loop' || operation.kind === 'delete-components' || operation.kind === 'cut-face' || operation.kind === 'cut-face-edge' || operation.kind === 'cut-face-edges';
         this.setEditMode(true, operation.kind === 'uv' || rebuildFromStoredPolygons ? undefined : topologies[0]);
         if (operation.kind === 'subdivide') {
           this.restoreSubdivisionSelection(oldMode, oldEdges, midpoint);
         } else if (operation.kind === 'subdivide-all') {
           this.setComponentMode(oldMode);
-        } else if (operation.kind === 'loop' || operation.kind === 'delete-components' || operation.kind === 'cut-face' || operation.kind === 'cut-face-edge') {
+        } else if (operation.kind === 'loop' || operation.kind === 'delete-components' || operation.kind === 'cut-face' || operation.kind === 'cut-face-edge' || operation.kind === 'cut-face-edges') {
           this.setComponentMode(oldMode);
         } else if (['uv', 'inset', 'extrude', 'region'].includes(operation.kind)) {
           const restoredFaces =
