@@ -1335,7 +1335,7 @@ test('viewport Knife keeps multiple interior bends pending and commits the full 
   await expect(page.locator('#toast')).toContainText('Knife bend point added');
   expect(await page.evaluate(() => (window as any).__forge.snapshot())).toBe(target.before);
 
-  const pending = await page.evaluate(() => (window as any).__forge.knifePreviewState);
+  let pending = await page.evaluate(() => (window as any).__forge.knifePreviewState);
   expect(pending.pendingPointVisible).toBe(true);
   expect(pending.pendingLineVisible).toBe(true);
   expect(pending.pendingPath).toHaveLength(3);
@@ -1349,6 +1349,35 @@ test('viewport Knife keeps multiple interior bends pending and commits the full 
   pending.anchor.forEach((value: number, index: number) =>
     expect(value).toBeCloseTo(target.bend2.local[index], 4)
   );
+
+  await page.getByLabel('Mesh component').focus();
+  await expect(page.getByLabel('Mesh component')).toBeFocused();
+  await page.keyboard.press('Backspace');
+  await expect(page.locator('#toast')).toContainText('Last Knife bend removed');
+  expect(await page.evaluate(() => (window as any).__forge.snapshot())).toBe(target.before);
+  pending = await page.evaluate(() => (window as any).__forge.knifePreviewState);
+  expect(pending.pendingPath).toHaveLength(2);
+  expect(pending.pendingPointVisible).toBe(true);
+  expect(pending.pendingLineVisible).toBe(true);
+  pending.anchor.forEach((value: number, index: number) =>
+    expect(value).toBeCloseTo(target.bend1.local[index], 4)
+  );
+
+  await page.keyboard.press('Backspace');
+  await expect(page.locator('#toast')).toContainText('Last Knife bend removed');
+  expect(await page.evaluate(() => (window as any).__forge.snapshot())).toBe(target.before);
+  pending = await page.evaluate(() => (window as any).__forge.knifePreviewState);
+  expect(pending.pendingPath).toEqual([]);
+  expect(pending.pendingPointVisible).toBe(false);
+  expect(pending.pendingLineVisible).toBe(false);
+  pending.anchor.forEach((value: number, index: number) =>
+    expect(value).toBeCloseTo(target.start.local[index], 4)
+  );
+
+  await page.mouse.click(target.bend1.x, target.bend1.y);
+  await expect(page.locator('#toast')).toContainText('Knife bend point added');
+  await page.mouse.click(target.bend2.x, target.bend2.y);
+  await expect(page.locator('#toast')).toContainText('Knife bend point added');
 
   await page.mouse.move(target.end.x, target.end.y);
   expect((await page.evaluate(() => (window as any).__forge.knifePreviewState)).validity).toBe('valid');
