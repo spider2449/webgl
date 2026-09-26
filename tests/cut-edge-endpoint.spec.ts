@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import * as THREE from 'three';
-import { cutLogicalFaceBetweenEdges, cutLogicalFaceToEdge, cutLogicalSegmentByPositions } from '../src/modeling/cut-edge-endpoint';
+import { cutLogicalFaceBetweenEdges, cutLogicalFaceToEdge } from '../src/modeling/cut-edge-endpoint';
 import { buildTopology } from '../src/modeling/topology';
 
 function point(geometry: THREE.BufferGeometry, topology: ReturnType<typeof buildTopology>, vertex: number) {
@@ -218,17 +218,9 @@ test('viewport Knife cuts from one selected logical vertex to a clicked point on
   }))).toEqual({ pending: true, kind: 'knife', guides: true });
 
   await page.mouse.click(target.x, target.y);
-  await expect(page.locator('#toast')).toContainText('Knife segment added');
-  expect(await page.evaluate(() => ({
-    snapshot: (window as any).__forge.snapshot(),
-    pending: (window as any).__forge.snapTargetPending,
-    pathVisible: (window as any).__forge.knifePreviewState.pathVisible,
-    pathLength: (window as any).__forge.knifePreviewState.path.length,
-  }))).toEqual({ snapshot: target.before, pending: true, pathVisible: true, pathLength: 2 });
-
-  await page.keyboard.press('Enter');
   await page.waitForFunction(() => !(window as any).__forge.modelingBusy && (window as any).__forge.snapTargetPending);
-  await expect(page.locator('#toast')).toContainText('Knife committed');
+  await expect(page.locator('#toast')).toContainText('Knife segment complete');
+  expect(await page.evaluate(() => (window as any).__forge.snapTargetPending)).toBe(true);
   await page.keyboard.press('Escape');
   expect(await page.evaluate(() => (window as any).__forge.snapTargetPending)).toBe(false);
 
@@ -323,17 +315,9 @@ test('viewport Knife cuts edge-to-edge with two clicks when no start vertex is s
   expect(await page.evaluate(() => (window as any).__forge.snapTargetPending)).toBe(true);
 
   await page.mouse.click(target.second.x, target.second.y);
-  await expect(page.locator('#toast')).toContainText('Knife segment added');
-  expect(await page.evaluate(() => ({
-    snapshot: (window as any).__forge.snapshot(),
-    pending: (window as any).__forge.snapTargetPending,
-    pathVisible: (window as any).__forge.knifePreviewState.pathVisible,
-    pathLength: (window as any).__forge.knifePreviewState.path.length,
-  }))).toEqual({ snapshot: target.before, pending: true, pathVisible: true, pathLength: 2 });
-
-  await page.keyboard.press('Enter');
   await page.waitForFunction(() => !(window as any).__forge.modelingBusy && (window as any).__forge.snapTargetPending);
-  await expect(page.locator('#toast')).toContainText('Knife committed');
+  await expect(page.locator('#toast')).toContainText('Knife segment complete');
+  expect(await page.evaluate(() => (window as any).__forge.snapTargetPending)).toBe(true);
   await page.keyboard.press('Escape');
   expect(await page.evaluate(() => (window as any).__forge.snapTargetPending)).toBe(false);
 
@@ -428,25 +412,24 @@ test('Knife snaps directly to a logical vertex and continues cutting without pre
   expect(await page.evaluate(() => (window as any).__forge.snapshot())).toBe(target.before);
 
   await page.mouse.click(target.first.x, target.first.y);
-  await expect(page.locator('#toast')).toContainText('Knife segment added');
-  expect(await page.evaluate(() => ({
-    snapshot: (window as any).__forge.snapshot(),
-    pathLength: (window as any).__forge.knifePreviewState.path.length,
-    pathVisible: (window as any).__forge.knifePreviewState.pathVisible,
-  }))).toEqual({ snapshot: target.before, pathLength: 2, pathVisible: true });
-
-  // No second K: the queued endpoint is automatically the next start point.
-  await page.mouse.click(target.second.x, target.second.y);
-  await expect(page.locator('#toast')).toContainText('Knife segment added');
-  expect(await page.evaluate(() => ({
-    snapshot: (window as any).__forge.snapshot(),
-    pathLength: (window as any).__forge.knifePreviewState.path.length,
-    pathVisible: (window as any).__forge.knifePreviewState.pathVisible,
-  }))).toEqual({ snapshot: target.before, pathLength: 3, pathVisible: true });
-
-  await page.keyboard.press('Enter');
   await page.waitForFunction(() => !(window as any).__forge.modelingBusy && (window as any).__forge.snapTargetPending);
-  await expect(page.locator('#toast')).toContainText('Knife committed');
+  await expect(page.locator('#toast')).toContainText('Knife segment complete');
+
+  const afterFirst = await page.evaluate(() => {
+    const e = (window as any).__forge;
+    return {
+      snapshot: e.snapshot(),
+      polygons: e.meshTopology.polygons.length,
+      logicalVertices: e.meshTopology.logicalVertices.length,
+    };
+  });
+  expect(afterFirst.polygons).toBe(7);
+  expect(afterFirst.logicalVertices).toBe(9);
+
+  // No second K: the first cut endpoint is automatically the next start point.
+  await page.mouse.click(target.second.x, target.second.y);
+  await page.waitForFunction(() => !(window as any).__forge.modelingBusy && (window as any).__forge.snapTargetPending);
+  await expect(page.locator('#toast')).toContainText('Knife segment complete');
 
   const result = await page.evaluate(expected => {
     const e = (window as any).__forge;
@@ -479,12 +462,15 @@ test('Knife snaps directly to a logical vertex and continues cutting without pre
   await page.keyboard.press('Escape');
   expect(await page.evaluate(() => (window as any).__forge.snapTargetPending)).toBe(false);
 
-  const undone = await page.evaluate(() => {
+  const undo = await page.evaluate(() => {
     const e = (window as any).__forge;
     e.undo();
-    return e.snapshot();
+    const afterOneUndo = e.snapshot();
+    e.undo();
+    return { afterOneUndo, afterTwoUndo: e.snapshot() };
   });
-  expect(undone).toBe(target.before);
+  expect(undo.afterOneUndo).toBe(afterFirst.snapshot);
+  expect(undo.afterTwoUndo).toBe(target.before);
 });
 
 
@@ -645,12 +631,8 @@ test('Knife preview marks invalid endpoints before click and uses the same valid
   expect(preview.validity).toBe('valid');
 
   await page.mouse.click(target.valid.x, target.valid.y);
-  await expect(page.locator('#toast')).toContainText('Knife segment added');
-  expect(await page.evaluate(() => (window as any).__forge.snapshot())).toBe(target.before);
-
-  await page.keyboard.press('Enter');
   await page.waitForFunction(() => !(window as any).__forge.modelingBusy && (window as any).__forge.snapTargetPending);
-  await expect(page.locator('#toast')).toContainText('Knife committed');
+  await expect(page.locator('#toast')).toContainText('Knife segment complete');
   expect(await page.evaluate(() => (window as any).__forge.snapshot())).not.toBe(target.before);
 
   await page.keyboard.press('Escape');
@@ -825,69 +807,4 @@ test('Edge-only Knife does not proximity-snap near vertices but accepts an inten
 
   await page.keyboard.press('Escape');
   await page.evaluate(() => { (window as any).__forgeModelingSettings.knifeSnap = 'vertex-edge'; });
-});
-
-
-test('deferred Knife segments re-resolve endpoint positions after earlier topology changes', () => {
-  const box = new THREE.BoxGeometry(2, 2, 2);
-  const before = JSON.stringify(box.toJSON());
-  const input = buildTopology(box.getAttribute('position').array, box.index?.array, true);
-  const face = 0;
-  const boundary = input.polygons[face];
-  const findEdge = (a: number, b: number) => input.polygonEdges.findIndex(([x, y]) =>
-    (x === a && y === b) || (x === b && y === a)
-  );
-
-  const firstEdge = findEdge(boundary[1], boundary[2]);
-  expect(firstEdge).toBeGreaterThanOrEqual(0);
-  const start = point(box, input, boundary[0]);
-  const [firstA, firstB] = input.polygonEdges[firstEdge];
-  const firstEnd = point(box, input, firstA).lerp(point(box, input, firstB), 0.35);
-
-  const sharedFaces = input.polygons.flatMap((polygon, candidateFace) =>
-    polygon.some((vertex, index) => {
-      const next = polygon[(index + 1) % polygon.length];
-      return (vertex === firstA && next === firstB) || (vertex === firstB && next === firstA);
-    }) ? [candidateFace] : []
-  );
-  expect(sharedFaces).toHaveLength(2);
-  const adjacentFace = sharedFaces.find(candidate => candidate !== face);
-  expect(adjacentFace).toBeDefined();
-
-  const adjacentBoundary = input.polygons[adjacentFace!];
-  const targetEdge = input.polygonEdges.findIndex(([a, b]) => {
-    if ((a === firstA && b === firstB) || (a === firstB && b === firstA)) return false;
-    return adjacentBoundary.some((vertex, index) => {
-      const next = adjacentBoundary[(index + 1) % adjacentBoundary.length];
-      return (vertex === a && next === b) || (vertex === b && next === a);
-    });
-  });
-  expect(targetEdge).toBeGreaterThanOrEqual(0);
-  const [targetA, targetB] = input.polygonEdges[targetEdge];
-  const secondEnd = point(box, input, targetA).lerp(point(box, input, targetB), 0.6);
-
-  const first = cutLogicalSegmentByPositions(box, {
-    start: start.toArray() as [number, number, number],
-    end: firstEnd.toArray() as [number, number, number],
-  }, input.polygonTriangles);
-
-  const second = cutLogicalSegmentByPositions(first.geometry, {
-    start: firstEnd.toArray() as [number, number, number],
-    end: secondEnd.toArray() as [number, number, number],
-  }, first.polygonTriangles);
-
-  expect(JSON.stringify(box.toJSON())).toBe(before);
-  const output = buildTopology(
-    second.geometry.getAttribute('position').array,
-    second.geometry.index?.array,
-    second.polygonTriangles,
-  );
-  expect(output.polygons).toHaveLength(8);
-  expect(output.logicalVertices).toHaveLength(10);
-  expect(output.logicalVertices.some(vertex => point(second.geometry, output, vertex).distanceToSquared(firstEnd) < 1e-12)).toBe(true);
-  expect(output.logicalVertices.some(vertex => point(second.geometry, output, vertex).distanceToSquared(secondEnd) < 1e-12)).toBe(true);
-
-  first.geometry.dispose();
-  second.geometry.dispose();
-  box.dispose();
 });
