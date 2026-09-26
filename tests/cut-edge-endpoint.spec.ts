@@ -1350,6 +1350,8 @@ test('viewport Knife keeps multiple interior bends pending and commits the full 
     expect(value).toBeCloseTo(target.bend2.local[index], 4)
   );
 
+  await page.getByLabel('Mesh component').focus();
+  await expect(page.getByLabel('Mesh component')).toBeFocused();
   await page.keyboard.press('Backspace');
   await expect(page.locator('#toast')).toContainText('Last Knife bend removed');
   expect(await page.evaluate(() => (window as any).__forge.snapshot())).toBe(target.before);
