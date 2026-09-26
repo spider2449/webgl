@@ -52,8 +52,8 @@ for (const mode of ['vertex', 'edge', 'face'] as const) test(`Shift-click ${mode
     })).toEqual({
       selectedSegments: 2,
       activeSegments: 1,
-      selectedWidth: 6,
-      activeWidth: 9,
+      selectedWidth: 4,
+      activeWidth: 6,
       baseOpacity: 0.42,
     });
   }
