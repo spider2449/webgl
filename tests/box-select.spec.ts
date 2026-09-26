@@ -172,11 +172,11 @@ test('Select Tool does not attach Move gizmo after Edit Mode component selection
   expect(result.gizmoObject).toBeNull();
   expect(result.edgeOverlay).toBe(true);
   expect(result.edgeSegments).toBe(1);
-  expect(result.selectedWidth).toBe(6);
+  expect(result.selectedWidth).toBe(4);
   expect(result.selectedColor).toBe(0xffa94d);
   expect(result.activeOverlay).toBe(true);
   expect(result.activeSegments).toBe(1);
-  expect(result.activeWidth).toBe(9);
+  expect(result.activeWidth).toBe(6);
   expect(result.activeWidth).toBeGreaterThan(result.selectedWidth);
   expect(result.activeColor).toBe(0xfff2db);
   expect(result.baseEdgeColor).toBe(0x454b54);
@@ -225,8 +225,8 @@ test('full Edge marquee selects every component edge and renders every selected 
     selectedCount: result.edgeCount,
     overlayCount: result.edgeCount,
     activeCount: 1,
-    selectedWidth: 6,
-    activeWidth: 9,
+    selectedWidth: 4,
+    activeWidth: 6,
     baseOpacity: 0.42,
     baseCount: result.edgeCount,
     missing: [],
