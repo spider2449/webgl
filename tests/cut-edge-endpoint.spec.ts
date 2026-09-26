@@ -1204,7 +1204,7 @@ test('viewport Knife keeps a face bend pending until a same-face boundary endpoi
   expect(preview.validity).toBe('valid');
 
   await page.mouse.click(target.interior.x, target.interior.y);
-  await expect(page.locator('#toast')).toContainText('Knife bend point set');
+  await expect(page.locator('#toast')).toContainText('Knife bend point added');
   expect(await page.evaluate(() => (window as any).__forge.snapshot())).toBe(target.before);
 
   preview = await page.evaluate(() => (window as any).__forge.knifePreviewState);
