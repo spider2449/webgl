@@ -7,7 +7,6 @@
     "dev": "vite --host 127.0.0.1",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview --host 127.0.0.1",
-    "test:setup": "playwright install chromium",
     "test": "playwright test",
     "benchmark": "playwright test --config playwright.benchmark.config.ts"
   },
@@ -19,6 +18,6 @@
     "@types/three": "^0.185.0",
     "typescript": "~5.9.3",
     "vite": "^8.2.2",
-    "@playwright/test": "1.63.0"
+    "@playwright/test": "^1.58.2"
   }
 }
