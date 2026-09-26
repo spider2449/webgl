@@ -1269,10 +1269,18 @@ type KnifeAnchor =
   | { kind: 'vertex'; position: [number, number, number] }
   | { kind: 'edge'; edge: number; t: number; position: [number, number, number] };
 
+type KnifeInteriorPathState = { face: number; points: [number, number, number][] };
+type KnifePendingSnapshot = {
+  path: KnifeInteriorPathState | null;
+  activeIndex: number | null;
+};
+
 let knifeActive = false;
 let knifeAnchor: KnifeAnchor | null = null;
-let knifeInteriorPath: { face: number; points: [number, number, number][] } | null = null;
-let knifeInteriorRedo: { face: number; point: [number, number, number] }[] = [];
+let knifeInteriorPath: KnifeInteriorPathState | null = null;
+let knifeInteriorActiveIndex: number | null = null;
+let knifeInteriorUndo: KnifePendingSnapshot[] = [];
+let knifeInteriorRedo: KnifePendingSnapshot[] = [];
 
 function knifePositionForTarget(target: KnifeTarget): [number, number, number] {
   if (!(editor.selected instanceof THREE.Mesh) || !editor.meshTopology) throw new Error('Knife requires an active editable mesh.');
@@ -1356,6 +1364,81 @@ function knifeTargetBoundaryOnFace(target: KnifeTarget, face: number): KnifeBoun
     : null;
 }
 
+function cloneKnifePendingSnapshot(): KnifePendingSnapshot {
+  return {
+    path: knifeInteriorPath
+      ? {
+          face: knifeInteriorPath.face,
+          points: knifeInteriorPath.points.map(point => [...point] as [number, number, number]),
+        }
+      : null,
+    activeIndex: knifeInteriorActiveIndex,
+  };
+}
+
+function hasKnifePendingHistory() {
+  return knifeInteriorUndo.length > 0 || knifeInteriorRedo.length > 0 || !!knifeInteriorPath?.points.length;
+}
+
+function resetKnifePendingHistory() {
+  knifeInteriorUndo = [];
+  knifeInteriorRedo = [];
+  knifeInteriorActiveIndex = null;
+}
+
+function syncKnifePendingPresentation() {
+  if (!knifeAnchor) {
+    editor.setKnifePendingPath([]);
+    editor.setKnifePendingActive(null);
+    editor.setKnifePreviewAnchor(null);
+    return;
+  }
+  const points = knifeInteriorPath?.points ?? [];
+  editor.setKnifePendingPath([
+    ...(points.length ? [[...knifeAnchor.position] as [number, number, number]] : []),
+    ...points.map(point => [...point] as [number, number, number]),
+  ]);
+  editor.setKnifePendingActive(
+    points.length && knifeInteriorActiveIndex !== null
+      ? Math.min(Math.max(knifeInteriorActiveIndex, 0), points.length - 1)
+      : null
+  );
+  editor.setKnifePreviewAnchor(points.at(-1) ?? knifeAnchor.position);
+}
+
+function validateKnifePendingPoints(face: number, points: [number, number, number][]) {
+  if (!points.length) return;
+  if (!knifeAnchor || !(editor.selected instanceof THREE.Mesh) || !editor.meshTopology) {
+    throw new Error('Knife requires an active editable mesh.');
+  }
+  validateLogicalFaceInteriorKnifePath(
+    editor.selected.geometry,
+    editor.meshTopology,
+    face,
+    knifeAnchor.position,
+    points,
+  );
+}
+
+function restoreKnifePendingSnapshot(snapshot: KnifePendingSnapshot) {
+  if (snapshot.path?.points.length) validateKnifePendingPoints(snapshot.path.face, snapshot.path.points);
+  knifeInteriorPath = snapshot.path
+    ? {
+        face: snapshot.path.face,
+        points: snapshot.path.points.map(point => [...point] as [number, number, number]),
+      }
+    : null;
+  knifeInteriorActiveIndex = knifeInteriorPath?.points.length
+    ? Math.min(snapshot.activeIndex ?? knifeInteriorPath.points.length - 1, knifeInteriorPath.points.length - 1)
+    : null;
+  syncKnifePendingPresentation();
+}
+
+function pushKnifePendingEdit() {
+  knifeInteriorUndo.push(cloneKnifePendingSnapshot());
+  knifeInteriorRedo = [];
+}
+
 function armKnife(message: string) {
   if (!knifeActive) return;
   try {
@@ -1365,8 +1448,9 @@ function armKnife(message: string) {
     knifeActive = false;
     knifeAnchor = null;
     knifeInteriorPath = null;
-    knifeInteriorRedo = [];
+    resetKnifePendingHistory();
     editor.setKnifePendingPath([]);
+    editor.setKnifePendingActive(null);
     editor.setKnifePreviewAnchor(null);
     toast((error as Error).message);
   }
@@ -1376,8 +1460,9 @@ function cancelKnife() {
   knifeActive = false;
   knifeAnchor = null;
   knifeInteriorPath = null;
-  knifeInteriorRedo = [];
+  resetKnifePendingHistory();
   editor.setKnifePendingPath([]);
+  editor.setKnifePendingActive(null);
   editor.setKnifePreviewAnchor(null);
   if (editor.snapTargetPending && editor.snapTargetKind === 'knife') editor.cancelVertexSnap();
 }
@@ -1393,70 +1478,77 @@ function finishKnifeFromKeyboard() {
   return true;
 }
 
-function undoKnifePendingBend() {
+function undoKnifePendingEdit() {
   if (!knifeActive) return false;
-  if (!knifeAnchor || !knifeInteriorPath?.points.length) {
-    toast('Knife has no pending bend point to remove.');
-    return true;
+  if (!knifeInteriorUndo.length) {
+    if (knifeInteriorRedo.length || knifeInteriorPath?.points.length) {
+      toast('Knife has no earlier pending edit to undo. Use Redo to restore a later state.');
+      return true;
+    }
+    return false;
   }
 
-  const removed = knifeInteriorPath.points.pop()!;
-  knifeInteriorRedo.push({ face: knifeInteriorPath.face, point: [...removed] });
-  if (!knifeInteriorPath.points.length) {
-    knifeInteriorPath = null;
-    editor.setKnifePendingPath([]);
-    editor.setKnifePreviewAnchor(knifeAnchor.position);
-    armKnife('Last Knife bend removed. Choose a face point or boundary target.');
+  const current = cloneKnifePendingSnapshot();
+  const previous = knifeInteriorUndo.pop()!;
+  knifeInteriorRedo.push(current);
+  try {
+    restoreKnifePendingSnapshot(previous);
+  } catch (error) {
+    knifeInteriorUndo = [];
+    knifeInteriorRedo = [];
+    toast(`Pending Knife undo is no longer valid: ${(error as Error).message}`);
     return true;
   }
-
-  editor.setKnifePendingPath([
-    [...knifeAnchor.position],
-    ...knifeInteriorPath.points.map(point => [...point] as [number, number, number]),
-  ]);
-  editor.setKnifePreviewAnchor(knifeInteriorPath.points.at(-1)!);
-  armKnife('Last Knife bend removed. Continue the pending path or finish on the face boundary.');
+  armKnife('Pending Knife edit undone.');
   return true;
 }
 
-function redoKnifePendingBend() {
-  if (!knifeActive || !knifeAnchor || !knifeInteriorRedo.length) return false;
-  if (!(editor.selected instanceof THREE.Mesh) || !editor.meshTopology) return false;
-
-  const restored = knifeInteriorRedo.at(-1)!;
-  const points = [
-    ...(knifeInteriorPath?.points ?? []).map(point => [...point] as [number, number, number]),
-    [...restored.point] as [number, number, number],
-  ];
-
+function redoKnifePendingEdit() {
+  if (!knifeActive || !knifeInteriorRedo.length) return false;
+  const current = cloneKnifePendingSnapshot();
+  const next = knifeInteriorRedo.pop()!;
+  knifeInteriorUndo.push(current);
   try {
-    validateLogicalFaceInteriorKnifePath(
-      editor.selected.geometry,
-      editor.meshTopology,
-      restored.face,
-      knifeAnchor.position,
-      points,
-    );
+    restoreKnifePendingSnapshot(next);
   } catch (error) {
+    knifeInteriorUndo = [];
     knifeInteriorRedo = [];
     toast(`Pending Knife redo is no longer valid: ${(error as Error).message}`);
     return true;
   }
+  armKnife('Pending Knife edit redone.');
+  return true;
+}
 
-  knifeInteriorRedo.pop();
-  if (!knifeInteriorPath) knifeInteriorPath = { face: restored.face, points: [] };
-  if (knifeInteriorPath.face !== restored.face) {
-    knifeInteriorRedo = [];
-    toast('Pending Knife redo no longer matches the active logical face.');
+function deleteKnifePendingActiveBend() {
+  if (!knifeActive) return false;
+  if (!knifeInteriorPath?.points.length) {
+    toast('Knife has no pending bend point to delete.');
     return true;
   }
-  knifeInteriorPath.points.push([...restored.point]);
-  editor.setKnifePendingPath([
-    [...knifeAnchor.position],
-    ...knifeInteriorPath.points.map(point => [...point] as [number, number, number]),
-  ]);
-  editor.setKnifePreviewAnchor(restored.point);
-  armKnife('Knife bend restored. Continue the pending path or finish on the face boundary.');
+
+  const index = knifeInteriorActiveIndex ?? knifeInteriorPath.points.length - 1;
+  const points = knifeInteriorPath.points
+    .filter((_, pointIndex) => pointIndex !== index)
+    .map(point => [...point] as [number, number, number]);
+
+  try {
+    validateKnifePendingPoints(knifeInteriorPath.face, points);
+  } catch (error) {
+    toast(`Cannot delete that Knife bend: ${(error as Error).message}`);
+    return true;
+  }
+
+  pushKnifePendingEdit();
+  if (points.length) {
+    knifeInteriorPath = { face: knifeInteriorPath.face, points };
+    knifeInteriorActiveIndex = Math.min(index, points.length - 1);
+  } else {
+    knifeInteriorPath = null;
+    knifeInteriorActiveIndex = null;
+  }
+  syncKnifePendingPresentation();
+  armKnife('Pending Knife bend deleted.');
   return true;
 }
 
