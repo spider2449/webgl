@@ -98,7 +98,7 @@ export class Editor extends EventTarget {
   private proportionalRadius = 2;
   private proportionalConnected = false;
   snapTargetPending = false;
-  snapTargetKind: 'vertex' | 'edge' | 'surface' = 'vertex';
+  snapTargetKind: 'vertex' | 'edge' | 'surface' | 'knife-edge' = 'vertex';
   private componentDrag: {
     positions: number[];
     weights: Float32Array;
@@ -270,6 +270,25 @@ export class Editor extends EventTarget {
                 const weights = THREE.Triangle.getBarycoord(hit.point, points[0], points[1], points[2], new THREE.Vector3());
                 if (!weights) throw new Error('Cannot snap to a collapsed surface.');
                 this.snapSelectionToSurface(hit.faceIndex, weights.toArray());
+              }
+            } else if (this.snapTargetKind === 'knife-edge' && this.componentEdges && this.selected instanceof THREE.Mesh && this.topology) {
+              this.raycaster.params.Line.threshold = threshold;
+              const hit = this.raycaster.intersectObject(this.componentEdges, false)[0];
+              if (hit?.index !== undefined) {
+                const edge = Math.floor(hit.index / 2);
+                const logicalEdge = this.topology.polygonEdges[edge];
+                if (!logicalEdge) throw new Error('Click a logical edge.');
+                const attribute = this.selected.geometry.getAttribute('position');
+                const a = new THREE.Vector3().fromBufferAttribute(attribute, this.topology.vertices[logicalEdge[0]][0]);
+                const b = new THREE.Vector3().fromBufferAttribute(attribute, this.topology.vertices[logicalEdge[1]][0]);
+                const direction = b.clone().sub(a);
+                const lengthSq = direction.lengthSq();
+                if (lengthSq < 1e-16) throw new Error('Knife cannot target a collapsed edge.');
+                const localPoint = this.selected.worldToLocal(hit.point.clone());
+                const t = localPoint.sub(a).dot(direction) / lengthSq;
+                if (!Number.isFinite(t) || t <= 1e-5 || t >= 1 - 1e-5) throw new Error('Click inside the edge, away from its vertices.');
+                this.cancelVertexSnap();
+                this.dispatchEvent(new CustomEvent('knife-edge-target', { detail: { edge, t } }));
               }
             } else if (this.snapTargetKind === 'edge' && this.componentEdges) {
               this.raycaster.params.Line.threshold = threshold;
@@ -1223,7 +1242,7 @@ export class Editor extends EventTarget {
     this.componentEdges.visible =
       this.viewStyle === 'wire' ||
       this.componentMode !== 'vertex' ||
-      (this.snapTargetPending && this.snapTargetKind === 'edge');
+      (this.snapTargetPending && (this.snapTargetKind === 'edge' || this.snapTargetKind === 'knife-edge'));
     const colors = this.vertexPoints.geometry.getAttribute('color');
     const selected = new Set(this.vertexIndices);
     for (let i = 0; i < colors.count; i++) colors.setXYZ(i, 1, selected.has(i) ? 0.45 : 1, selected.has(i) ? 0.12 : 1);
@@ -1483,6 +1502,16 @@ export class Editor extends EventTarget {
     this.invalidate();
     this.emit('snap-target');
   }
+  beginKnifeEdgeTarget() {
+    if (!this.editMode || this.componentMode !== 'vertex' || this.selectedComponents.size !== 1 || !this.topology || !(this.selected instanceof THREE.Mesh) || this.playing || this.transform.dragging || this.modelingBusy) {
+      throw new Error('Select exactly one logical vertex in Edit Mode before starting Knife.');
+    }
+    this.snapTargetKind = 'knife-edge';
+    this.snapTargetPending = true;
+    this.refreshComponents();
+    this.invalidate();
+    this.emit('snap-target');
+  }
   snapSelectionToVertex(vertex: number) {
     if (!this.editMode || !this.topology || !(this.selected instanceof THREE.Mesh) || !this.vertexIndices.length || this.playing || this.transform.dragging) throw new Error('Select mesh components in Edit Mode and finish the current drag first.');
     if (!Number.isInteger(vertex) || !this.topology.vertices[vertex] || !this.topology.logicalVertices.includes(vertex)) throw new Error('Invalid logical snap target vertex.');
@@ -1574,7 +1603,7 @@ export class Editor extends EventTarget {
       meshes.forEach((mesh, i) => {
         if (operation.kind === 'uv') {
           this.markPrimitiveApplied(mesh);
-        } else if ((operation.kind === 'bevel' || operation.kind === 'extrude' || operation.kind === 'inset' || operation.kind === 'loop' || operation.kind === 'delete-components' || operation.kind === 'cut-face') && topologies[i]) {
+        } else if ((operation.kind === 'bevel' || operation.kind === 'extrude' || operation.kind === 'inset' || operation.kind === 'loop' || operation.kind === 'delete-components' || operation.kind === 'cut-face' || operation.kind === 'cut-face-edge') && topologies[i]) {
           this.markPrimitiveApplied(mesh);
           if (mesh.userData.forgeLogicalQuads !== undefined) delete mesh.userData.forgeLogicalQuads;
           mesh.userData.forgePolygonTriangles = topologies[i]!.polygonTriangles.map(group => [...group]);
@@ -1589,13 +1618,13 @@ export class Editor extends EventTarget {
         // main thread. This keeps raycast faceIndex -> logical polygon mapping
         // aligned with the parsed BufferGeometry rather than trusting a
         // transient worker-side triangle numbering.
-        const rebuildFromStoredPolygons = operation.kind === 'bevel' || operation.kind === 'extrude' || operation.kind === 'inset' || operation.kind === 'loop' || operation.kind === 'delete-components' || operation.kind === 'cut-face';
+        const rebuildFromStoredPolygons = operation.kind === 'bevel' || operation.kind === 'extrude' || operation.kind === 'inset' || operation.kind === 'loop' || operation.kind === 'delete-components' || operation.kind === 'cut-face' || operation.kind === 'cut-face-edge';
         this.setEditMode(true, operation.kind === 'uv' || rebuildFromStoredPolygons ? undefined : topologies[0]);
         if (operation.kind === 'subdivide') {
           this.restoreSubdivisionSelection(oldMode, oldEdges, midpoint);
         } else if (operation.kind === 'subdivide-all') {
           this.setComponentMode(oldMode);
-        } else if (operation.kind === 'loop' || operation.kind === 'delete-components' || operation.kind === 'cut-face') {
+        } else if (operation.kind === 'loop' || operation.kind === 'delete-components' || operation.kind === 'cut-face' || operation.kind === 'cut-face-edge') {
           this.setComponentMode(oldMode);
         } else if (['uv', 'inset', 'extrude', 'region'].includes(operation.kind)) {
           const restoredFaces =
