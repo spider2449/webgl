@@ -57,6 +57,23 @@ A Quad cut across opposite vertices becomes two logical Triangles.
 
 An N-gon can become any valid pair, such as Triangle + Quad. Forge does not attempt Quad-only reconstruction.
 
+## Edit Mode wireframe display
+
+Cut Face is easier to inspect when viewport wireframe shows modeling topology rather than renderer triangulation.
+
+In Edit Mode:
+
+- the mesh surface uses a faint non-wire material
+- visible wire comes from logical `polygonEdges`
+- Quad renderer diagonals are hidden
+- N-gon internal triangulation is hidden
+- a Cut Face diagonal appears because it is a real logical edge
+- logical edges remain visible in Vertex / Edge / Face component modes
+
+Object Mode wireframe remains unchanged in this PR.
+
+This display change is viewport-only. It does not alter geometry, polygon ownership, normals, snapshots or exports.
+
 ## Current limits
 
 - endpoints must already be logical boundary vertices
