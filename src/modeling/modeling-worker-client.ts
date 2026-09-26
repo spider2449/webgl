@@ -1,6 +1,11 @@
 import * as THREE from 'three';
 import type { Modifier } from './modifiers';
+export type KnifeSegmentOperation =
+  | { kind: 'cut-face'; face: number; vertices: [number, number]; polygonTriangles?: number[][] }
+  | { kind: 'cut-face-edge'; face: number; vertex: number; edge: number; t: number; polygonTriangles?: number[][] }
+  | { kind: 'cut-face-edges'; face: number; firstEdge: number; firstT: number; secondEdge: number; secondT: number; polygonTriangles?: number[][] };
 export type ModelingOperation =
+  | { kind: 'knife-session'; segments: KnifeSegmentOperation[] }
   | { kind: 'bevel'; edges: number[]; width: number; polygonTriangles?: number[][] }
   | { kind: 'loop'; edge: number; polygonTriangles?: number[][] }
   | { kind: 'uv'; faces: number[]; operation: 'project' | 'transform'; values: number[] }
@@ -8,9 +13,7 @@ export type ModelingOperation =
   | { kind: 'extrude'; face: number; distance: number; polygonTriangles?: number[][] }
   | { kind: 'inset'; face: number; distance: number; polygonTriangles?: number[][] }
   | { kind: 'delete-components'; mode: 'vertex' | 'edge' | 'face'; components: number[]; polygonTriangles?: number[][] }
-  | { kind: 'cut-face'; face: number; vertices: [number, number]; polygonTriangles?: number[][] }
-  | { kind: 'cut-face-edge'; face: number; vertex: number; edge: number; t: number; polygonTriangles?: number[][] }
-  | { kind: 'cut-face-edges'; face: number; firstEdge: number; firstT: number; secondEdge: number; secondT: number; polygonTriangles?: number[][] }
+  | KnifeSegmentOperation
   | { kind: 'region'; faces: number[]; distance: number }
   | { kind: 'subdivide'; edges: [number, number][] }
   | { kind: 'subdivide-all' }

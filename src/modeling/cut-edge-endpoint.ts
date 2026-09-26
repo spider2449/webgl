@@ -23,6 +23,74 @@ type CutBetweenEdges = {
   secondT: number;
 };
 
+export type LogicalFacePoint = {
+  face: number;
+  position: [number, number, number];
+  /** Barycentric coordinates are interpolation data, never a persistent triangle id. */
+  barycentric?: [number, number, number];
+};
+
+/**
+ * Adds an interior point to a logical polygon's rendering tessellation.  The
+ * containing renderer triangle is deliberately rediscovered from the local
+ * position; callers therefore never persist renderer triangle ids.
+ */
+export function insertLogicalFacePoint(source: THREE.BufferGeometry, point: LogicalFacePoint, polygonTriangles?: number[][]) {
+  const position = source.getAttribute('position');
+  if (!position || position.itemSize !== 3) throw new Error('Face insertion requires position data.');
+  const topology = buildTopology(position.array, source.index?.array, polygonTriangles ?? false);
+  const triangles = topology.polygonTriangles[point.face];
+  if (!triangles || point.position.some(value => !Number.isFinite(value))) throw new Error('Face insertion requires a valid logical face and local position.');
+  const expected = new THREE.Vector3(...point.position);
+  const indices = Array.from({ length: source.index?.count ?? position.count }, (_, index) => source.index?.getX(index) ?? index);
+  let containing: number | undefined;
+  let weights = new THREE.Vector3();
+  for (const triangle of triangles) {
+    const raw = indices.slice(triangle * 3, triangle * 3 + 3);
+    const corners = raw.map(index => new THREE.Vector3().fromBufferAttribute(position, index));
+    const candidate = THREE.Triangle.getBarycoord(expected, corners[0], corners[1], corners[2], new THREE.Vector3());
+    if (candidate && Math.min(candidate.x, candidate.y, candidate.z) > 1e-7 && Math.abs(candidate.x + candidate.y + candidate.z - 1) < 1e-5) {
+      containing = triangle; weights = candidate; break;
+    }
+  }
+  if (containing === undefined) throw new Error('Face point must lie strictly inside the logical polygon.');
+
+  const attributes = Object.entries(source.attributes);
+  for (const [name, attribute] of attributes) if (!(attribute instanceof THREE.BufferAttribute) || attribute.count !== position.count) throw new Error(`Unsupported attribute: ${name}.`);
+  const values: Record<string, number[]> = Object.fromEntries(attributes.map(([name]) => [name, []]));
+  const groups: { start: number; count: number; material: number }[] = [];
+  const materials = new Array(indices.length / 3).fill(0);
+  for (const group of source.groups) for (let triangle = group.start / 3; triangle < (group.start + group.count) / 3; triangle++) materials[triangle] = group.materialIndex ?? 0;
+  const outputMap = new Map<number, number[]>();
+  let outputTriangle = 0;
+  const append = (rawCorners: number[], inserted = false, material = materials[containing!]) => {
+    const last = groups.at(-1);
+    if (last && last.material === material) last.count += 3; else groups.push({ start: outputTriangle * 3, count: 3, material });
+    for (const [name, attribute] of attributes) for (const raw of rawCorners) {
+      if (inserted && raw === -1) {
+        for (let component = 0; component < attribute.itemSize; component++) values[name].push(Math.fround(
+          attribute.getComponent(indices[containing! * 3], component) * weights.x +
+          attribute.getComponent(indices[containing! * 3 + 1], component) * weights.y +
+          attribute.getComponent(indices[containing! * 3 + 2], component) * weights.z,
+        ));
+      } else for (let component = 0; component < attribute.itemSize; component++) values[name].push(attribute.getComponent(raw, component));
+    }
+    outputTriangle++;
+  };
+  for (let triangle = 0; triangle < indices.length / 3; triangle++) {
+    const raw = indices.slice(triangle * 3, triangle * 3 + 3);
+    if (triangle !== containing) { append(raw, false, materials[triangle]); outputMap.set(triangle, [outputTriangle - 1]); continue; }
+    const created: number[] = [];
+    for (let corner = 0; corner < 3; corner++) { append([raw[corner], raw[(corner + 1) % 3], -1], true); created.push(outputTriangle - 1); }
+    outputMap.set(triangle, created);
+  }
+  const geometry = new THREE.BufferGeometry();
+  for (const [name, attribute] of attributes) geometry.setAttribute(name, new THREE.Float32BufferAttribute(values[name], attribute.itemSize));
+  groups.forEach(group => geometry.addGroup(group.start, group.count, group.material));
+  geometry.computeVertexNormals(); geometry.computeBoundingBox(); geometry.computeBoundingSphere();
+  return { geometry, polygonTriangles: topology.polygonTriangles.map(group => group.flatMap(triangle => outputMap.get(triangle) ?? [])), position: expected };
+}
+
 function vertexPosition(
   topology: ReturnType<typeof buildTopology>,
   position: THREE.BufferAttribute | THREE.InterleavedBufferAttribute,

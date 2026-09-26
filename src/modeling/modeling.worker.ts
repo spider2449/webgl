@@ -14,6 +14,24 @@ self.onmessage = (event: MessageEvent<{ source: ReturnType<THREE.BufferGeometry[
     source = new THREE.BufferGeometryLoader().parse(event.data.source);
     const op = event.data.operation;
     switch (op.kind) {
+      case 'knife-session': {
+        let current = source;
+        let groups: number[][] | undefined;
+        for (const segment of op.segments) {
+          const withGroups = { ...segment, polygonTriangles: groups ?? segment.polygonTriangles };
+          const cut = withGroups.kind === 'cut-face'
+            ? cutLogicalFace(current, withGroups.face, withGroups.vertices, withGroups.polygonTriangles)
+            : withGroups.kind === 'cut-face-edge'
+              ? cutLogicalFaceToEdge(current, withGroups, withGroups.polygonTriangles)
+              : cutLogicalFaceBetweenEdges(current, withGroups, withGroups.polygonTriangles);
+          if (current !== source) current.dispose();
+          current = cut.geometry;
+          groups = cut.polygonTriangles;
+        }
+        result = current;
+        logicalGroups = groups;
+        break;
+      }
       case 'topology': self.postMessage({ topology: inspectGeometry(source, op.polygonTriangles ?? op.pairTriangles ?? false).topology, milliseconds: performance.now() - start }); return;
       case 'bevel': {
         const bevel = bevelLogicalEdges(source, op.edges, op.width, op.polygonTriangles);
