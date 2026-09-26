@@ -3164,13 +3164,19 @@ document.addEventListener('keydown', e => {
     key === 'z' &&
     !e.shiftKey &&
     knifeActive &&
-    knifeInteriorPath?.points.length &&
     !typingField &&
     !dialogOpen
   ) {
-    e.preventDefault();
-    undoKnifePendingBend();
-    return;
+    if (knifeInteriorPath?.points.length) {
+      e.preventDefault();
+      undoKnifePendingBend();
+      return;
+    }
+    if (knifeInteriorRedo.length) {
+      e.preventDefault();
+      toast('Knife has no earlier pending bend to undo. Use Redo to restore the removed bend.');
+      return;
+    }
   }
   const knifeRedoShortcut =
     (e.ctrlKey || e.metaKey) &&
