@@ -3111,6 +3111,19 @@ document.addEventListener('keydown', e => {
     finishKnifeFromKeyboard();
     return;
   }
+  if (
+    (e.ctrlKey || e.metaKey) &&
+    key === 'z' &&
+    !e.shiftKey &&
+    knifeActive &&
+    knifeInteriorPath?.points.length &&
+    !typingField &&
+    !dialogOpen
+  ) {
+    e.preventDefault();
+    undoKnifePendingBend();
+    return;
+  }
   if (typingField || e.target instanceof HTMLSelectElement || dialogOpen) return;
   if (e.ctrlKey || e.metaKey) {
     if (['s','o','z','y','n'].includes(key)) e.preventDefault();
