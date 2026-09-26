@@ -30,6 +30,8 @@ The mesh is not modified while bends are being added.
 
 Escape cancels the entire pending interior path without changing mesh topology.
 
+Enter finishes Knife when no interior path is pending. If interior bends are still pending, Enter does not create dangling topology; Knife remains active and asks the user to finish on the logical face boundary or cancel with Escape.
+
 Backspace removes only the most recent pending interior bend:
 
 - with multiple bends, the path shortens by one point;
