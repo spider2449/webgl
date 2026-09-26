@@ -100,6 +100,10 @@ export class Editor extends EventTarget {
   private selectedFaceOverlay: THREE.Mesh | null = null;
   private knifePreviewPoint: THREE.Points | null = null;
   private knifePreviewLine: LineSegments2 | null = null;
+  private knifePendingPoint: THREE.Points | null = null;
+  private knifePendingLine: LineSegments2 | null = null;
+  private knifePendingStart: THREE.Vector3 | null = null;
+  private knifePendingBend: THREE.Vector3 | null = null;
   private knifePreviewAnchor: THREE.Vector3 | null = null;
   private knifePreviewHover: THREE.Vector3 | null = null;
   private knifePreviewTarget: KnifePickTarget | null = null;
@@ -622,6 +626,7 @@ export class Editor extends EventTarget {
     if (this.selectedEdgeOverlay) (this.selectedEdgeOverlay.material as LineMaterial).resolution.set(width, height);
     if (this.activeEdgeOverlay) (this.activeEdgeOverlay.material as LineMaterial).resolution.set(width, height);
     if (this.knifePreviewLine) (this.knifePreviewLine.material as LineMaterial).resolution.set(width, height);
+    if (this.knifePendingLine) (this.knifePendingLine.material as LineMaterial).resolution.set(width, height);
     this.perspective.aspect = width / height;
     this.perspective.updateProjectionMatrix();
     const extent = 7;
@@ -1160,7 +1165,7 @@ export class Editor extends EventTarget {
       this.componentEdges?.geometry.dispose();
       if (this.componentEdges) (this.componentEdges.material as THREE.Material).dispose();
       this.componentEdges = null;
-      for (const overlay of [this.selectedVertexOverlay, this.selectedEdgeOverlay, this.activeEdgeOverlay, this.selectedFaceOverlay, this.knifePreviewPoint, this.knifePreviewLine]) {
+      for (const overlay of [this.selectedVertexOverlay, this.selectedEdgeOverlay, this.activeEdgeOverlay, this.selectedFaceOverlay, this.knifePreviewPoint, this.knifePreviewLine, this.knifePendingPoint, this.knifePendingLine]) {
         overlay?.geometry.dispose();
         if (overlay) (overlay.material as THREE.Material).dispose();
       }
@@ -1170,6 +1175,10 @@ export class Editor extends EventTarget {
       this.selectedFaceOverlay = null;
       this.knifePreviewPoint = null;
       this.knifePreviewLine = null;
+      this.knifePendingPoint = null;
+      this.knifePendingLine = null;
+      this.knifePendingStart = null;
+      this.knifePendingBend = null;
       this.knifePreviewAnchor = null;
       this.knifePreviewHover = null;
       this.knifePreviewTarget = null;
@@ -1234,12 +1243,30 @@ export class Editor extends EventTarget {
       this.knifePreviewLine.frustumCulled = false;
       this.knifePreviewLine.visible = false;
 
+      this.knifePendingPoint = new THREE.Points(
+        new THREE.BufferGeometry(),
+        new THREE.PointsMaterial({ color: 0x7ee787, size: 12, sizeAttenuation: false, depthTest: false, depthWrite: false }),
+      );
+      this.knifePendingPoint.userData.forgeEditorHelper = true;
+      this.knifePendingPoint.renderOrder = 17;
+      this.knifePendingPoint.visible = false;
+
+      const knifePendingMaterial = new LineMaterial({ color: 0x62d982, linewidth: 3, worldUnits: false, depthTest: false, depthWrite: false });
+      knifePendingMaterial.resolution.copy(this.renderer.getSize(new THREE.Vector2()));
+      this.knifePendingLine = new LineSegments2(new LineSegmentsGeometry(), knifePendingMaterial);
+      this.knifePendingLine.userData.forgeEditorHelper = true;
+      this.knifePendingLine.renderOrder = 16;
+      this.knifePendingLine.frustumCulled = false;
+      this.knifePendingLine.visible = false;
+
       this.vertexPoints.add(
         this.componentEdges,
         this.selectedVertexOverlay,
         this.selectedEdgeOverlay,
         this.activeEdgeOverlay,
         this.selectedFaceOverlay,
+        this.knifePendingLine,
+        this.knifePendingPoint,
         this.knifePreviewLine,
         this.knifePreviewPoint,
       );
@@ -1716,6 +1743,41 @@ export class Editor extends EventTarget {
     this.invalidate();
   }
 
+  setKnifePendingBend(start: [number, number, number] | null, bend: [number, number, number] | null) {
+    this.knifePendingStart = start ? new THREE.Vector3(...start) : null;
+    this.knifePendingBend = bend ? new THREE.Vector3(...bend) : null;
+
+    if (this.knifePendingPoint) {
+      if (this.knifePendingBend) {
+        this.knifePendingPoint.geometry.setAttribute(
+          'position',
+          new THREE.Float32BufferAttribute(this.knifePendingBend.toArray(), 3),
+        );
+        this.knifePendingPoint.geometry.computeBoundingSphere();
+        this.knifePendingPoint.visible = true;
+      } else {
+        this.knifePendingPoint.visible = false;
+      }
+    }
+
+    if (this.knifePendingLine) {
+      if (
+        this.knifePendingStart &&
+        this.knifePendingBend &&
+        this.knifePendingStart.distanceToSquared(this.knifePendingBend) > 1e-16
+      ) {
+        (this.knifePendingLine.geometry as LineSegmentsGeometry).setPositions([
+          this.knifePendingStart.x, this.knifePendingStart.y, this.knifePendingStart.z,
+          this.knifePendingBend.x, this.knifePendingBend.y, this.knifePendingBend.z,
+        ]);
+        this.knifePendingLine.visible = true;
+      } else {
+        this.knifePendingLine.visible = false;
+      }
+    }
+    this.invalidate();
+  }
+
   setKnifePreviewAnchor(position: [number, number, number] | null) {
     this.knifePreviewAnchor = position ? new THREE.Vector3(...position) : null;
     if (this.knifePreviewLine) {
@@ -1738,6 +1800,10 @@ export class Editor extends EventTarget {
       lineVisible: this.knifePreviewLine?.visible ?? false,
       point: this.knifePreviewHover?.toArray() ?? null,
       anchor: this.knifePreviewAnchor?.toArray() ?? null,
+      pendingStart: this.knifePendingStart?.toArray() ?? null,
+      pendingBend: this.knifePendingBend?.toArray() ?? null,
+      pendingPointVisible: this.knifePendingPoint?.visible ?? false,
+      pendingLineVisible: this.knifePendingLine?.visible ?? false,
       target: this.knifePreviewTarget ? { ...this.knifePreviewTarget } : null,
       validity: this.knifePreviewValidity,
       lockedVertex: this.knifeLockedVertex,
