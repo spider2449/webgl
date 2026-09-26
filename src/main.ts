@@ -1714,6 +1714,41 @@ async function finishKnifeSegment(target: KnifeTarget, targetPosition: [number, 
   }
 }
 
+function planKnifePendingBendReplacement(target: KnifeTarget | null): {
+  points: [number, number, number][];
+  reason: string | null;
+} {
+  if (!knifeActive || !knifeAnchor || !knifeInteriorPath?.points.length) {
+    return { points: [], reason: 'Knife has no pending bend to move.' };
+  }
+  if (!target || target.kind !== 'face') {
+    return { points: [], reason: 'The pending Knife bend must stay inside its logical face.' };
+  }
+  if (target.face !== knifeInteriorPath.face) {
+    return { points: [], reason: 'The pending Knife bend must stay on the same logical face.' };
+  }
+  if (!(editor.selected instanceof THREE.Mesh) || !editor.meshTopology) {
+    return { points: [], reason: 'Knife requires an active editable mesh.' };
+  }
+
+  const points = [
+    ...knifeInteriorPath.points.slice(0, -1).map(point => [...point] as [number, number, number]),
+    [...target.position] as [number, number, number],
+  ];
+  try {
+    validateLogicalFaceInteriorKnifePath(
+      editor.selected.geometry,
+      editor.meshTopology,
+      knifeInteriorPath.face,
+      knifeAnchor.position,
+      points,
+    );
+  } catch (error) {
+    return { points: [], reason: (error as Error).message };
+  }
+  return { points, reason: null };
+}
+
 editor.addEventListener('knife-preview', event => {
   const target = (event as CustomEvent<KnifeTarget | null>).detail;
   if (!knifeActive || !target || !knifeAnchor) {
@@ -1721,6 +1756,38 @@ editor.addEventListener('knife-preview', event => {
     return;
   }
   editor.setKnifePreviewValidity(!!planKnifeSegment(target).plan);
+});
+
+editor.addEventListener('knife-pending-drag-preview', event => {
+  const target = (event as CustomEvent<KnifeTarget | null>).detail;
+  const planned = planKnifePendingBendReplacement(target);
+  editor.setKnifePreviewValidity(planned.reason === null);
+});
+
+editor.addEventListener('knife-pending-drag-commit', event => {
+  const target = (event as CustomEvent<KnifeTarget | null>).detail;
+  const planned = planKnifePendingBendReplacement(target);
+  if (planned.reason || !knifeAnchor || !knifeInteriorPath) {
+    const current = knifeInteriorPath?.points.at(-1) ?? null;
+    if (knifeAnchor && knifeInteriorPath) {
+      editor.setKnifePendingPath([
+        [...knifeAnchor.position],
+        ...knifeInteriorPath.points.map(point => [...point] as [number, number, number]),
+      ]);
+    }
+    editor.setKnifePreviewAnchor(current);
+    armKnife(`${planned.reason ?? 'Invalid pending Knife bend move.'} Bend unchanged.`);
+    return;
+  }
+
+  knifeInteriorPath.points = planned.points;
+  knifeInteriorRedo = [];
+  editor.setKnifePendingPath([
+    [...knifeAnchor.position],
+    ...knifeInteriorPath.points.map(point => [...point] as [number, number, number]),
+  ]);
+  editor.setKnifePreviewAnchor(knifeInteriorPath.points.at(-1)!);
+  armKnife('Knife bend moved. Continue the pending path or finish on the face boundary.');
 });
 
 editor.addEventListener('knife-target', event => {
