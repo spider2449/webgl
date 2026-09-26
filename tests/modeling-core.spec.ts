@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import * as THREE from 'three';
-import { bevelEdges, bevelLogicalEdges, cutLogicalFace, deleteLogicalComponents, extrudeLogicalFace, insetLogicalFace, loopCut, loopCutLogicalEdge, editUV } from '../src/modeling/modeling';
+import { bevelEdges, bevelLogicalEdges, cutLogicalFace, deleteLogicalComponents, extrudeLogicalFace, insetLogicalFace, knifeLogicalFace, loopCut, loopCutLogicalEdge, editUV } from '../src/modeling/modeling';
 import { buildTopology } from '../src/modeling/topology';
 import { evaluateModifiers } from '../src/modeling/modifiers';
 
@@ -186,6 +186,74 @@ test('Cut Face splits an n-gon into arbitrary Triangle / Quad results without fo
   expect(output.polygonEdges).toHaveLength(6);
 
   expect(() => cutLogicalFace(geometry, 0, [0,1], input.polygonTriangles)).toThrow(/already share/);
+});
+
+test('Knife inserts shared edge vertices and keeps Cube topology watertight', () => {
+  const box = new THREE.BoxGeometry(2, 2, 2);
+  const before = JSON.stringify(box.toJSON());
+  const input = buildTopology(box.getAttribute('position').array, box.index?.array, true);
+  const face = 0;
+  const boundary = input.polygons[face];
+  const edgeId = (a: number, b: number) => input.polygonEdges.findIndex(([x, y]) =>
+    (x === a && y === b) || (x === b && y === a)
+  );
+  const firstEdge = edgeId(boundary[0], boundary[1]);
+  const secondEdge = edgeId(boundary[2], boundary[3]);
+  expect(firstEdge).toBeGreaterThanOrEqual(0);
+  expect(secondEdge).toBeGreaterThanOrEqual(0);
+
+  const cut = knifeLogicalFace(
+    box,
+    face,
+    [{ edge: firstEdge, t: 0.5 }, { edge: secondEdge, t: 0.5 }],
+    input.polygonTriangles,
+  );
+  expect(JSON.stringify(box.toJSON())).toBe(before);
+  closed(cut.geometry);
+
+  const output = buildTopology(
+    cut.geometry.getAttribute('position').array,
+    cut.geometry.index?.array,
+    cut.polygonTriangles,
+  );
+  expect(output.polygons).toHaveLength(7);
+  expect(output.polygons.map(polygon => polygon.length).sort((a, b) => a - b)).toEqual([4,4,4,4,4,5,5]);
+  expect(output.logicalVertices).toHaveLength(10);
+  expect(output.polygonEdges).toHaveLength(15);
+  expect(output.faces).toHaveLength(16);
+  expect(cut.geometry.getAttribute('uv').count).toBe(cut.geometry.getAttribute('position').count);
+
+  const sourcePosition = box.getAttribute('position');
+  const midpoint = ([a, b]: [number, number]) => {
+    const first = new THREE.Vector3().fromBufferAttribute(sourcePosition, input.vertices[a][0]);
+    const second = new THREE.Vector3().fromBufferAttribute(sourcePosition, input.vertices[b][0]);
+    return first.lerp(second, 0.5);
+  };
+  const expectedPoints = [
+    midpoint(input.polygonEdges[firstEdge]),
+    midpoint(input.polygonEdges[secondEdge]),
+  ];
+  const resultPosition = cut.geometry.getAttribute('position');
+  for (const expected of expectedPoints) {
+    const vertex = output.vertices.findIndex(copies =>
+      new THREE.Vector3().fromBufferAttribute(resultPosition, copies[0]).distanceToSquared(expected) < 1e-12
+    );
+    expect(vertex).toBeGreaterThanOrEqual(0);
+    expect(output.polygons.filter(polygon => polygon.includes(vertex)).length).toBe(3);
+  }
+});
+
+test('Knife rejects two points that would create a two-point face', () => {
+  const plane = new THREE.PlaneGeometry(2, 2, 1, 1);
+  const input = buildTopology(plane.getAttribute('position').array, plane.index?.array, true);
+  const edge = input.polygonEdges[0];
+  const edgeId = input.polygonEdges.findIndex(candidate => candidate[0] === edge[0] && candidate[1] === edge[1]);
+  expect(() => knifeLogicalFace(
+    plane,
+    0,
+    [{ edge: edgeId, t: 0.25 }, { edge: edgeId, t: 0.75 }],
+    input.polygonTriangles,
+  )).toThrow(/fewer than three/);
 });
 
 test('logical Cube inset keeps polygon topology and selects an inner quad representation', () => {
