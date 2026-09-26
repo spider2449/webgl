@@ -125,8 +125,8 @@ test('viewport Knife cuts from one selected logical vertex to a clicked point on
     e.selectComponent(vertex);
 
     const [edgeA, edgeB] = topology.polygonEdges[edge];
-    const a = new THREE.Vector3().fromBufferAttribute(position, topology.vertices[edgeA][0]);
-    const b = new THREE.Vector3().fromBufferAttribute(position, topology.vertices[edgeB][0]);
+    const a = mesh.position.clone().fromBufferAttribute(position, topology.vertices[edgeA][0]);
+    const b = mesh.position.clone().fromBufferAttribute(position, topology.vertices[edgeB][0]);
     const local = a.clone().lerp(b, 0.35);
     mesh.updateWorldMatrix(true, true);
     e.camera.updateMatrixWorld(true);
