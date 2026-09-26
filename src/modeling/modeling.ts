@@ -671,27 +671,6 @@ export function knifeLogicalFace(
       }
     }
 
-    // Endpoint t=1 belongs to the second vertex of the canonical global edge.
-    // If that vertex was not the current face's traversal start, resolve it now.
-    for (const endpoint of normalized) {
-      if (endpointNodes.has(endpoint.id)) continue;
-      const vertex = endpoint.t === 0 ? endpoint.vertices[0] : endpoint.t === 1 ? endpoint.vertices[1] : undefined;
-      if (vertex === undefined) continue;
-      const local = boundary.indexOf(vertex);
-      if (local < 0) continue;
-      // Count inserted points on all preceding local edges to recover the augmented node index.
-      let node = 0;
-      for (let i = 0; i < local; i++) {
-        node++;
-        const a = boundary[i], b = boundary[(i + 1) % boundary.length];
-        node += normalized.filter(candidate => {
-          if (candidate.t === 0 || candidate.t === 1) return false;
-          return edgeKey(a, b) === edgeKey(candidate.vertices[0], candidate.vertices[1]);
-        }).length;
-      }
-      endpointNodes.set(endpoint.id, node);
-    }
-
     return {
       polygon: {
         material: polygon.material,
