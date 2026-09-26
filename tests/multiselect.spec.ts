@@ -39,6 +39,24 @@ for (const mode of ['vertex', 'edge', 'face'] as const) test(`Shift-click ${mode
   await click(1, true);
   expect((await state()).ids).toEqual(targets.map(t=>t.id).sort((a,b)=>a-b));
   expect((await state()).vertices).toEqual([...new Set(targets.flatMap(t=>t.vs))].sort((a,b)=>a-b));
+  if (mode === 'edge') {
+    expect(await page.evaluate(() => {
+      const e = (window as any).__forge;
+      return {
+        selectedSegments: e.selectedEdgeOverlay?.geometry.getAttribute('instanceStart')?.count ?? 0,
+        activeSegments: e.activeEdgeOverlay?.geometry.getAttribute('instanceStart')?.count ?? 0,
+        selectedWidth: e.selectedEdgeOverlay?.material.linewidth ?? 0,
+        activeWidth: e.activeEdgeOverlay?.material.linewidth ?? 0,
+        baseOpacity: e.componentEdges?.material.opacity ?? 1,
+      };
+    })).toEqual({
+      selectedSegments: 2,
+      activeSegments: 1,
+      selectedWidth: 6,
+      activeWidth: 9,
+      baseOpacity: 0.42,
+    });
+  }
   if (mode === 'face') {
     const before = await page.evaluate(() => (window as any).__forge.snapshot());
     for (const command of ['extrudeFace', 'insetFace'] as const) {
