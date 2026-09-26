@@ -183,9 +183,14 @@ test('RMB Cut Face splits a Cube quad between two selected opposite vertices', a
     const face = 0;
     const polygon = t.polygons[face];
     const vertices = [polygon[0], polygon[2]];
+    const position = e.selected.geometry.getAttribute('position');
+    const points = vertices.map((vertex: number) => {
+      const index = t.vertices[vertex][0];
+      return [position.getX(index), position.getY(index), position.getZ(index)].join(',');
+    });
     e.selectComponent(vertices[0]);
     e.selectComponent(vertices[1], true);
-    return { vertices };
+    return { points };
   });
 
   await rightClickViewport(page);
@@ -195,19 +200,15 @@ test('RMB Cut Face splits a Cube quad between two selected opposite vertices', a
   await page.waitForFunction(() => !(window as any).__forge.modelingBusy);
   await expect(page.locator('#toast')).toContainText('Face cut');
 
-  expect(await page.evaluate(vertices => {
+  expect(await page.evaluate(points => {
     const e = (window as any).__forge, t = e.meshTopology;
     const position = e.selected.geometry.getAttribute('position');
-    const sourcePoints = vertices.map((vertex: number) => {
-      const index = t.vertices[vertex]?.[0];
-      return index === undefined ? null : [position.getX(index), position.getY(index), position.getZ(index)].join(',');
-    });
     const edgeExists = t.polygonEdges.some(([a,b]: [number,number]) => {
       const read = (vertex: number) => {
         const index = t.vertices[vertex][0];
         return [position.getX(index), position.getY(index), position.getZ(index)].join(',');
       };
-      return sourcePoints.includes(read(a)) && sourcePoints.includes(read(b));
+      return points.includes(read(a)) && points.includes(read(b));
     });
     return {
       polygons: t.polygons.length,
@@ -219,7 +220,7 @@ test('RMB Cut Face splits a Cube quad between two selected opposite vertices', a
       selection: e.componentSelection,
       edgeExists,
     };
-  }, setup.vertices)).toEqual({
+  }, setup.points)).toEqual({
     polygons: 7,
     triangles: 12,
     sizes: [3,3,4,4,4,4,4],
