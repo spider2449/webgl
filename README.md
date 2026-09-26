@@ -16,18 +16,11 @@ Open the local URL printed by Vite. The default is `http://127.0.0.1:5173`; Vite
 ```sh
 npm run build
 npm run preview
-npm run test:setup
+npx playwright install chromium
 npm test
 ```
 
-The browser tests use port 5174. `@playwright/test` is pinned so `npm install`
-and the cached browser cannot silently drift to different revisions. In a
-network-restricted CI environment, run `npm run test:setup` during image
-provisioning and cache `~/.cache/ms-playwright`. Production output is in
-`dist/`. No backend, account, model download or NVIDIA GPU is required for the
-editor and local rigging features. Google Fonts is the only external
-presentation dependency; system fonts are the fallback. Models and project
-data are processed locally.
+The browser tests use port 5174. Production output is in `dist/`. No backend, account, model download or NVIDIA GPU is required for the editor and local rigging features. Google Fonts is the only external presentation dependency; system fonts are the fallback. Models and project data are processed locally.
 
 ## Editor workflow
 
