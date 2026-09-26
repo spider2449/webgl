@@ -103,6 +103,7 @@ export class Editor extends EventTarget {
   private knifePendingPoint: THREE.Points | null = null;
   private knifePendingLine: LineSegments2 | null = null;
   private knifePendingPath: THREE.Vector3[] = [];
+  private knifePendingDrag: { pointerId: number } | null = null;
   private knifePreviewAnchor: THREE.Vector3 | null = null;
   private knifePreviewHover: THREE.Vector3 | null = null;
   private knifePreviewTarget: KnifePickTarget | null = null;
@@ -1594,6 +1595,19 @@ export class Editor extends EventTarget {
     this.invalidate();
     this.emit('snap-target');
   }
+  private pickKnifeFaceTarget(): KnifePick | null {
+    if (!(this.selected instanceof THREE.Mesh) || !this.topology) return null;
+    const surfaceHit = this.raycaster.intersectObject(this.selected, false)[0];
+    if (surfaceHit?.faceIndex == null || !surfaceHit.point) return null;
+    const face = this.topology.triangleToPolygon[surfaceHit.faceIndex];
+    if (face === undefined || !this.topology.polygons[face]) return null;
+    const local = this.selected.worldToLocal(surfaceHit.point.clone());
+    return {
+      detail: { kind: 'face', face, position: local.toArray() as [number, number, number] },
+      point: local,
+    };
+  }
+
   private pickKnifeTarget(threshold: number, interaction: 'hover' | 'click' = 'hover'): KnifePick | null {
     if (!this.componentEdges || !this.selected || !(this.selected instanceof THREE.Mesh) || !this.topology) return null;
     const position = this.selected.geometry.getAttribute('position');
@@ -1638,17 +1652,7 @@ export class Editor extends EventTarget {
 
     this.raycaster.params.Line.threshold = threshold;
     const hit = this.raycaster.intersectObject(this.componentEdges, false)[0];
-    if (hit?.index === undefined) {
-      const surfaceHit = this.raycaster.intersectObject(this.selected, false)[0];
-      if (surfaceHit?.faceIndex == null || !surfaceHit.point) return null;
-      const face = this.topology.triangleToPolygon[surfaceHit.faceIndex];
-      if (face === undefined || !this.topology.polygons[face]) return null;
-      const local = this.selected.worldToLocal(surfaceHit.point.clone());
-      return {
-        detail: { kind: 'face', face, position: local.toArray() as [number, number, number] },
-        point: local,
-      };
-    }
+    if (hit?.index === undefined) return this.pickKnifeFaceTarget();
     const edge = Math.floor(hit.index / 2);
     const logicalEdge = this.topology.polygonEdges[edge];
     if (!logicalEdge) return null;
@@ -1704,7 +1708,10 @@ export class Editor extends EventTarget {
     };
   }
 
-  private setKnifePreview(pick: KnifePick | null) {
+  private setKnifePreview(
+    pick: KnifePick | null,
+    eventName: 'knife-preview' | 'knife-pending-drag-preview' = 'knife-preview',
+  ) {
     this.knifePreviewTarget = pick?.detail ?? null;
     this.knifePreviewHover = pick?.point.clone() ?? null;
     this.setKnifePreviewValidity(null);
@@ -1728,7 +1735,7 @@ export class Editor extends EventTarget {
         this.knifePreviewLine.visible = false;
       }
     }
-    this.dispatchEvent(new CustomEvent('knife-preview', { detail: pick?.detail ?? null }));
+    this.dispatchEvent(new CustomEvent(eventName, { detail: pick?.detail ?? null }));
     this.invalidate();
   }
 
