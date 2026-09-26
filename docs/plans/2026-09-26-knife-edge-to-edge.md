@@ -1,63 +1,79 @@
-# Knife edge-to-edge increment
+# Continuous snapped Knife paths
 
 ## Goal
 
-Extend the existing single-face Knife without jumping to unrestricted multi-face cutting.
+Extend the single-face Knife interaction into a practical continuous cutting tool without introducing arbitrary face-interior points.
 
-The existing behavior remains:
+Knife is now activated once and remains active until `Esc`. Each completed endpoint becomes the start of the next segment automatically.
 
-- Vertex mode
-- one selected logical vertex
-- `K` or RMB -> Knife
-- click one logical edge on the same face
-- cut vertex -> edge point
+## Knife target snapping
 
-This increment adds:
+Knife has its own target control; it does not reuse Transform/Grid Snap.
 
-- Vertex mode
-- no selected logical vertex
-- `K` or RMB -> Knife
-- click one logical edge
-- click a different logical edge sharing exactly one logical face with the first
-- create true logical vertices at both clicked edge positions
-- split that one logical face between the two new vertices
+### Vertex + Edge
 
-## Topology contract
+This is the default.
 
-Both clicked endpoints are real modeling topology, not renderer-only helpers.
+- clicking close to a logical vertex snaps exactly to that vertex
+- otherwise the clicked point is projected onto the logical edge
+- this allows a cut to start directly on an existing modeling vertex without preselecting it
 
-For each endpoint:
+### Edge only
 
-- the containing logical edge is split at the clicked `t`
-- all logical polygons sharing that edge receive the inserted boundary vertex
-- per-corner numeric attributes are interpolated
-- normals are recomputed after retessellation
+- logical vertices are not preferred
+- Knife uses the exact interior edge position
+- clicking at an edge endpoint is rejected because it is not an interior edge point
 
-After both insertions, the selected logical face is split between the two new boundary vertices.
+The control is exposed as `Knife Snap` in the Vertex context menu next to the Knife operator.
 
-Logical IDs are never assumed stable across retessellation. The second edge and both inserted endpoints are re-resolved by preserved geometry positions. If an edge direction reverses after topology rebuild, its parameter is converted from `t` to `1 - t`.
-
-## Interaction
+## Continuous interaction
 
 1. Enter Edit Mode -> Vertex.
-2. Leave the vertex selection empty.
-3. Press `K` or use RMB -> Knife.
-4. Click inside the first logical edge.
-5. Click inside a different logical edge on the same logical face.
-6. Forge commits one modeling transaction containing both inserted vertices and the face split.
-7. `Esc` cancels while waiting for either click.
+2. Press `K` or choose RMB -> Knife.
+3. Click a start point:
+   - an existing logical vertex when Vertex + Edge snapping is enabled, or
+   - an interior point on a logical edge.
+4. Click the next vertex or edge point.
+5. Forge commits that Knife segment.
+6. The endpoint automatically becomes the start of the next segment.
+7. Continue clicking without pressing `K` again.
+8. Press `Esc` to leave Knife.
 
-Selecting exactly one vertex before `K` keeps the existing vertex -> edge Knife behavior.
+A preselected single logical vertex is still accepted as the initial start point for compatibility with the previous Knife increment.
+
+## Segment topology
+
+Each segment is resolved from the current logical topology.
+
+Supported combinations:
+
+- vertex -> vertex
+- vertex -> edge point
+- edge point -> vertex
+- edge point -> edge point
+
+An edge point becomes a true logical vertex when its segment is committed. Shared neighboring polygons receive the same inserted boundary vertex, preserving logical manifold topology.
+
+Each individual segment must resolve to one unambiguous logical face. After a segment is committed, the new endpoint may continue into another incident face, so a continuous Knife path can progress across the mesh one face at a time.
+
+## Identity safety
+
+Renderer retessellation can reorder logical IDs. Continuous Knife never treats those IDs as durable across a committed segment.
+
+- completed anchors are preserved by local-space position
+- the next segment resolves the current anchor back to a logical vertex
+- a second edge endpoint is remapped by endpoint geometry positions
+- if remapping reverses the edge direction, `t` is converted to `1 - t`
+- edge remapping is scoped to the intended logical face
 
 ## Deliberate limits
 
-- one logical face per cut
-- both endpoints must lie on existing logical edges
-- no arbitrary face-interior point
-- no path crossing into another face
-- no multi-segment Knife polyline
-- no click-drag stroke
-- no snapping modes beyond the clicked point on the edge
+- target points are existing logical vertices or points on existing logical edges
+- no arbitrary face-interior points yet
+- each committed segment crosses one logical face
+- no drag-stroke Knife
+- no preview polyline yet
+- segments commit as they are completed; `Esc` ends the tool rather than confirming a deferred batch
 
 ## Windows-local validation
 
@@ -67,12 +83,28 @@ npx playwright test tests/cut-edge-endpoint.spec.ts tests/context-menu.spec.ts -
 npm test -- --workers=2
 ```
 
-Manual check:
+Manual checks:
+
+### Snap directly to a vertex
 
 1. Cube -> Edit Mode -> Vertex.
 2. Deselect all vertices.
-3. Press `K`.
-4. Click inside one edge of a visible Quad.
-5. Click inside a different edge of that same Quad.
-6. Verify both clicked points become logical vertices and one new logical cut edge connects them.
-7. Undo must restore the original Quad in one step.
+3. RMB -> Knife and leave `Knife Snap = Vertex + Edge`.
+4. Click an existing visible logical vertex.
+5. Click an edge point on the same face.
+6. Confirm the cut starts exactly at the existing vertex.
+
+### Continuous path
+
+1. Keep Knife active after the first segment.
+2. Without pressing `K` again, click another edge or logical vertex incident to the previous endpoint.
+3. Confirm a second segment is created.
+4. Continue for additional segments as desired.
+5. Press `Esc` to end Knife.
+
+### Edge-only targeting
+
+1. Set `Knife Snap = Edge only`.
+2. Start Knife.
+3. Click an interior edge position.
+4. Confirm the endpoint stays at the clicked edge position rather than snapping to a nearby vertex.
