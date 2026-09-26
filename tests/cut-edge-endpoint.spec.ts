@@ -891,7 +891,7 @@ test('viewport Knife keeps a face bend pending until a same-face boundary endpoi
       mesh.position.clone().fromBufferAttribute(position, topology.vertices[vertex][0]);
     const boundaryPoints = boundary.map(local);
     const center = boundaryPoints
-      .reduce((sum: any, value: any) => sum.add(value), new THREE.Vector3())
+      .reduce((sum: any, value: any) => sum.add(value), mesh.position.clone().set(0, 0, 0))
       .multiplyScalar(1 / boundaryPoints.length);
     const interior = center.clone().lerp(boundaryPoints[1], 0.2);
 
