@@ -1760,6 +1760,10 @@ editor.addEventListener('knife-preview', event => {
 
 editor.addEventListener('knife-pending-drag-preview', event => {
   const target = (event as CustomEvent<KnifeTarget | null>).detail;
+  if (!target) {
+    editor.setKnifePreviewValidity(null);
+    return;
+  }
   const planned = planKnifePendingBendReplacement(target);
   editor.setKnifePreviewValidity(planned.reason === null);
 });
