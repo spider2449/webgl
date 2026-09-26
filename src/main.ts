@@ -4,7 +4,7 @@ import './style.css';
 import * as THREE from 'three';
 import { createIcons, Box, ChevronDown, ChevronRight, Plus, MousePointer2, Move, Rotate3d, Scaling, Magnet, Grid2x2, Scan, Eye, EyeOff, Search, SlidersHorizontal, Layers, Diamond, Play, Pause, SkipBack, SkipForward, ChevronFirst, ChevronLast, Undo2, Redo2, Copy, Trash2, X, HelpCircle, Download, Upload, Camera, Check, Circle, Triangle, Hexagon, FolderOpen, FolderPlus, LogOut, Save, FilePlus2, Maximize, Globe, Settings2, Crosshair, Sun, Moon, Activity, PanelRightClose } from 'lucide';
 import { mountModelingUI } from './modeling/modeling-ui';
-import { validateLogicalFaceInteriorKnifeLeg, validateLogicalFaceInteriorKnifePath } from './modeling/modeling';
+import { validateLogicalFaceInteriorKnifePath } from './modeling/modeling';
 import { Editor, type AnimationTrackMap, type Primitive, type Project, type KeyInterpolation, type KeyTangentMode, type ScalarAnimationChannel, type TransformOrientation } from './editor';
 import { RigSystem, rigBones } from './rig/rig';
 import { addSomaPreview, createSomaRig, RIG_SOURCE } from './rig/soma77';
