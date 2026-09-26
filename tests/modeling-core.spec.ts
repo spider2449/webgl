@@ -205,7 +205,7 @@ test('Knife inserts shared edge vertices and keeps Cube topology watertight', ()
   const cut = knifeLogicalFace(
     box,
     face,
-    [{ edge: firstEdge, t: 0.5 }, { edge: secondEdge, t: 0.5 }],
+    [{ edge: firstEdge, t: 0.25 }, { edge: secondEdge, t: 0.7 }],
     input.polygonTriangles,
   );
   expect(JSON.stringify(box.toJSON())).toBe(before);
@@ -224,14 +224,14 @@ test('Knife inserts shared edge vertices and keeps Cube topology watertight', ()
   expect(cut.geometry.getAttribute('uv').count).toBe(cut.geometry.getAttribute('position').count);
 
   const sourcePosition = box.getAttribute('position');
-  const midpoint = ([a, b]: [number, number]) => {
+  const edgePoint = ([a, b]: [number, number], t: number) => {
     const first = new THREE.Vector3().fromBufferAttribute(sourcePosition, input.vertices[a][0]);
     const second = new THREE.Vector3().fromBufferAttribute(sourcePosition, input.vertices[b][0]);
-    return first.lerp(second, 0.5);
+    return first.lerp(second, t);
   };
   const expectedPoints = [
-    midpoint(input.polygonEdges[firstEdge]),
-    midpoint(input.polygonEdges[secondEdge]),
+    edgePoint(input.polygonEdges[firstEdge], 0.25),
+    edgePoint(input.polygonEdges[secondEdge], 0.7),
   ];
   const resultPosition = cut.geometry.getAttribute('position');
   for (const expected of expectedPoints) {
