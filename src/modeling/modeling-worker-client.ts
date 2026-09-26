@@ -1,11 +1,6 @@
 import * as THREE from 'three';
 import type { Modifier } from './modifiers';
-export type KnifeSessionSegment = {
-  start: [number, number, number];
-  end: [number, number, number];
-};
 export type ModelingOperation =
-  | { kind: 'knife-session'; segments: KnifeSessionSegment[]; polygonTriangles?: number[][] }
   | { kind: 'bevel'; edges: number[]; width: number; polygonTriangles?: number[][] }
   | { kind: 'loop'; edge: number; polygonTriangles?: number[][] }
   | { kind: 'uv'; faces: number[]; operation: 'project' | 'transform'; values: number[] }
