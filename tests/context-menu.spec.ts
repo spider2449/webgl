@@ -313,6 +313,37 @@ test('RMB Knife inserts edge points and splits one Cube face through real pointe
   });
 });
 
+test('Knife Escape cancellation leaves topology unchanged', async ({ page }) => {
+  await page.locator('#mode').selectOption('edit');
+  await page.getByLabel('Mesh component').selectOption('face');
+  const before = await page.evaluate(() => {
+    const e = (window as any).__forge;
+    e.selectComponent(0);
+    return {
+      snapshot: e.snapshot(),
+      polygons: e.meshTopology.polygons.length,
+    };
+  });
+
+  await page.keyboard.press('k');
+  expect(await page.evaluate(() => (window as any).__forge.knifePending)).toBe(true);
+  await page.keyboard.press('Escape');
+  await expect(page.locator('#toast')).toContainText('Knife cancelled');
+
+  expect(await page.evaluate(() => {
+    const e = (window as any).__forge;
+    return {
+      pending: e.knifePending,
+      snapshot: e.snapshot(),
+      polygons: e.meshTopology.polygons.length,
+    };
+  })).toEqual({
+    pending: false,
+    snapshot: before.snapshot,
+    polygons: before.polygons,
+  });
+});
+
 test('RMB Bevel mutates the default Cube through the real worker path', async ({ page }) => {
   await page.locator('#mode').selectOption('edit');
   await page.getByLabel('Mesh component').selectOption('edge');
