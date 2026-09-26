@@ -103,6 +103,7 @@ export class Editor extends EventTarget {
   private knifePendingPoint: THREE.Points | null = null;
   private knifePendingLine: LineSegments2 | null = null;
   private knifePendingPath: THREE.Vector3[] = [];
+  private knifePendingDrag: { pointerId: number } | null = null;
   private knifePreviewAnchor: THREE.Vector3 | null = null;
   private knifePreviewHover: THREE.Vector3 | null = null;
   private knifePreviewTarget: KnifePickTarget | null = null;
@@ -230,9 +231,50 @@ export class Editor extends EventTarget {
     const restoreTransform = (e: PointerEvent) => {
       if (e.pointerId === selectionPointer) { selectionPointer = null; this.transform.enabled = true; }
     };
+    const cancelKnifePendingDrag = (pointerId: number) => {
+      if (this.knifePendingDrag?.pointerId !== pointerId) return;
+      this.knifePendingDrag = null;
+      this.orbit.enabled = true;
+      const last = this.knifePendingPath.at(-1);
+      this.setKnifePreviewAnchor(last ? last.toArray() as [number, number, number] : null);
+      this.setKnifePreview(null, 'knife-pending-drag-preview');
+    };
     this.renderer.domElement.addEventListener('pointerdown', e => {
       this.mouseDown.set(e.clientX, e.clientY);
       this.suppressClick = this.transform.dragging;
+      if (
+        e.button === 0 &&
+        !e.altKey &&
+        !this.transform.dragging &&
+        !this.playing &&
+        !this.modelingBusy &&
+        this.snapTargetPending &&
+        this.snapTargetKind === 'knife' &&
+        this.knifePendingPoint &&
+        this.knifePendingPath.length >= 2
+      ) {
+        const rect = host.getBoundingClientRect();
+        this.raycaster.setFromCamera(
+          new THREE.Vector2(
+            (e.clientX - rect.left) / rect.width * 2 - 1,
+            -(e.clientY - rect.top) / rect.height * 2 + 1,
+          ),
+          this.camera,
+        );
+        const threshold = this.camera.position.distanceTo(this.orbit.target) * 0.018;
+        this.raycaster.params.Points.threshold = threshold;
+        const hit = this.raycaster.intersectObject(this.knifePendingPoint, false)
+          .find(candidate => candidate.index === this.knifePendingPath.length - 2);
+        if (hit) {
+          this.knifePendingDrag = { pointerId: e.pointerId };
+          this.suppressClick = true;
+          this.orbit.enabled = false;
+          const previous = this.knifePendingPath.at(-2);
+          this.setKnifePreviewAnchor(previous ? previous.toArray() as [number, number, number] : null);
+          this.setKnifePreview(null, 'knife-pending-drag-preview');
+          return;
+        }
+      }
       if (e.button === 0 && !e.altKey && !this.transform.dragging && !this.playing && !this.modelingBusy && !this.snapTargetPending) {
         const rect = host.getBoundingClientRect();
         const start = new THREE.Vector2(e.clientX - rect.left, e.clientY - rect.top);
@@ -258,6 +300,19 @@ export class Editor extends EventTarget {
       if (drag.active) this.updateBoxSelectOverlay(drag.start, drag.current);
     });
     this.renderer.domElement.addEventListener('pointermove', e => {
+      if (this.knifePendingDrag) {
+        if (this.knifePendingDrag.pointerId !== e.pointerId || this.modelingBusy) return;
+        const rect = host.getBoundingClientRect();
+        this.raycaster.setFromCamera(
+          new THREE.Vector2(
+            (e.clientX - rect.left) / rect.width * 2 - 1,
+            -(e.clientY - rect.top) / rect.height * 2 + 1,
+          ),
+          this.camera,
+        );
+        this.setKnifePreview(this.pickKnifeFaceTarget(), 'knife-pending-drag-preview');
+        return;
+      }
       if (!this.snapTargetPending || this.snapTargetKind !== 'knife' || this.modelingBusy || this.transform.dragging) return;
       const rect = host.getBoundingClientRect();
       this.raycaster.setFromCamera(
@@ -271,9 +326,27 @@ export class Editor extends EventTarget {
       this.setKnifePreview(this.pickKnifeTarget(threshold, 'hover'));
     });
     this.renderer.domElement.addEventListener('pointerleave', () => {
-      if (this.snapTargetPending && this.snapTargetKind === 'knife') this.setKnifePreview(null);
+      if (!this.knifePendingDrag && this.snapTargetPending && this.snapTargetKind === 'knife') this.setKnifePreview(null);
     });
     this.renderer.domElement.addEventListener('pointerup', e => {
+      if (this.knifePendingDrag?.pointerId === e.pointerId) {
+        const rect = host.getBoundingClientRect();
+        this.raycaster.setFromCamera(
+          new THREE.Vector2(
+            (e.clientX - rect.left) / rect.width * 2 - 1,
+            -(e.clientY - rect.top) / rect.height * 2 + 1,
+          ),
+          this.camera,
+        );
+        const pick = this.pickKnifeFaceTarget();
+        this.knifePendingDrag = null;
+        this.dispatchEvent(new CustomEvent('knife-pending-drag-commit', { detail: pick?.detail ?? null }));
+        this.orbit.enabled = true;
+        const last = this.knifePendingPath.at(-1);
+        this.setKnifePreviewAnchor(last ? last.toArray() as [number, number, number] : null);
+        this.setKnifePreview(null, 'knife-pending-drag-preview');
+        return;
+      }
       const box = this.boxSelectDrag;
       if (box && box.pointerId === e.pointerId && box.active) {
         const end = box.current.clone();
@@ -335,8 +408,16 @@ export class Editor extends EventTarget {
       this.select(object, e.shiftKey);
     });
     this.renderer.domElement.addEventListener('pointerup', restoreTransform);
-    this.renderer.domElement.addEventListener('pointercancel', e => { restoreTransform(e); this.cancelBoxSelection(); });
-    this.renderer.domElement.addEventListener('lostpointercapture', e => { restoreTransform(e); if (this.boxSelectDrag?.pointerId === e.pointerId) this.cancelBoxSelection(); });
+    this.renderer.domElement.addEventListener('pointercancel', e => {
+      restoreTransform(e);
+      cancelKnifePendingDrag(e.pointerId);
+      this.cancelBoxSelection();
+    });
+    this.renderer.domElement.addEventListener('lostpointercapture', e => {
+      restoreTransform(e);
+      cancelKnifePendingDrag(e.pointerId);
+      if (this.boxSelectDrag?.pointerId === e.pointerId) this.cancelBoxSelection();
+    });
     this.renderer.domElement.addEventListener('contextmenu', e => e.preventDefault());
     this.resizeObserver = new ResizeObserver(() => this.resize());
     this.resizeObserver.observe(host);
@@ -1594,6 +1675,19 @@ export class Editor extends EventTarget {
     this.invalidate();
     this.emit('snap-target');
   }
+  private pickKnifeFaceTarget(): KnifePick | null {
+    if (!(this.selected instanceof THREE.Mesh) || !this.topology) return null;
+    const surfaceHit = this.raycaster.intersectObject(this.selected, false)[0];
+    if (surfaceHit?.faceIndex == null || !surfaceHit.point) return null;
+    const face = this.topology.triangleToPolygon[surfaceHit.faceIndex];
+    if (face === undefined || !this.topology.polygons[face]) return null;
+    const local = this.selected.worldToLocal(surfaceHit.point.clone());
+    return {
+      detail: { kind: 'face', face, position: local.toArray() as [number, number, number] },
+      point: local,
+    };
+  }
+
   private pickKnifeTarget(threshold: number, interaction: 'hover' | 'click' = 'hover'): KnifePick | null {
     if (!this.componentEdges || !this.selected || !(this.selected instanceof THREE.Mesh) || !this.topology) return null;
     const position = this.selected.geometry.getAttribute('position');
@@ -1638,17 +1732,7 @@ export class Editor extends EventTarget {
 
     this.raycaster.params.Line.threshold = threshold;
     const hit = this.raycaster.intersectObject(this.componentEdges, false)[0];
-    if (hit?.index === undefined) {
-      const surfaceHit = this.raycaster.intersectObject(this.selected, false)[0];
-      if (surfaceHit?.faceIndex == null || !surfaceHit.point) return null;
-      const face = this.topology.triangleToPolygon[surfaceHit.faceIndex];
-      if (face === undefined || !this.topology.polygons[face]) return null;
-      const local = this.selected.worldToLocal(surfaceHit.point.clone());
-      return {
-        detail: { kind: 'face', face, position: local.toArray() as [number, number, number] },
-        point: local,
-      };
-    }
+    if (hit?.index === undefined) return this.pickKnifeFaceTarget();
     const edge = Math.floor(hit.index / 2);
     const logicalEdge = this.topology.polygonEdges[edge];
     if (!logicalEdge) return null;
@@ -1704,7 +1788,10 @@ export class Editor extends EventTarget {
     };
   }
 
-  private setKnifePreview(pick: KnifePick | null) {
+  private setKnifePreview(
+    pick: KnifePick | null,
+    eventName: 'knife-preview' | 'knife-pending-drag-preview' = 'knife-preview',
+  ) {
     this.knifePreviewTarget = pick?.detail ?? null;
     this.knifePreviewHover = pick?.point.clone() ?? null;
     this.setKnifePreviewValidity(null);
@@ -1728,7 +1815,7 @@ export class Editor extends EventTarget {
         this.knifePreviewLine.visible = false;
       }
     }
-    this.dispatchEvent(new CustomEvent('knife-preview', { detail: pick?.detail ?? null }));
+    this.dispatchEvent(new CustomEvent(eventName, { detail: pick?.detail ?? null }));
     this.invalidate();
   }
 
