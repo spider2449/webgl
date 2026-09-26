@@ -1269,8 +1269,6 @@ type KnifeAnchor =
 
 let knifeActive = false;
 let knifeAnchor: KnifeAnchor | null = null;
-let knifeSegments: import('./modeling/modeling-worker-client').KnifeSessionSegment[] = [];
-let knifePath: [number, number, number][] = [];
 
 function knifePositionForTarget(target: KnifeTarget): [number, number, number] {
   if (!(editor.selected instanceof THREE.Mesh) || !editor.meshTopology) throw new Error('Knife requires an active editable mesh.');
@@ -1325,9 +1323,6 @@ function armKnife(message: string) {
   } catch (error) {
     knifeActive = false;
     knifeAnchor = null;
-    knifeSegments = [];
-    knifePath = [];
-    editor.setKnifePreviewPath([]);
     editor.setKnifePreviewAnchor(null);
     toast((error as Error).message);
   }
@@ -1336,35 +1331,8 @@ function armKnife(message: string) {
 function cancelKnife() {
   knifeActive = false;
   knifeAnchor = null;
-  knifeSegments = [];
-  knifePath = [];
-  editor.setKnifePreviewPath([]);
   editor.setKnifePreviewAnchor(null);
   if (editor.snapTargetPending && editor.snapTargetKind === 'knife') editor.cancelVertexSnap();
-}
-
-async function confirmKnife() {
-  if (!knifeActive || !knifeSegments.length) return;
-  const segments = knifeSegments.map(segment => ({
-    start: [...segment.start] as [number, number, number],
-    end: [...segment.end] as [number, number, number],
-  }));
-  try {
-    if (!editor.meshTopology) throw new Error('Knife requires current logical topology.');
-    await editor.runModeling({
-      kind: 'knife-session',
-      segments,
-      polygonTriangles: editor.meshTopology.polygonTriangles.map(group => [...group]),
-    });
-    knifeSegments = [];
-    knifePath = [];
-    knifeAnchor = null;
-    editor.setKnifePreviewPath([]);
-    editor.setKnifePreviewAnchor(null);
-    armKnife('Knife committed. Choose a new start point or press Escape to finish.');
-  } catch (error) {
-    armKnife(`${(error as Error).message} The pending Knife path was not changed.`);
-  }
 }
 
 function startKnifeCut() {
@@ -1372,16 +1340,12 @@ function startKnifeCut() {
     if (editor.snapTargetPending) editor.cancelVertexSnap();
     knifeActive = true;
     knifeAnchor = null;
-    knifeSegments = [];
-    knifePath = [];
     if (!editor.editMode || editor.componentMode !== 'vertex' || editor.componentSelection.length > 1 || !(editor.selected instanceof THREE.Mesh) || !editor.meshTopology) {
       throw new Error('Knife requires Vertex mode with zero or one selected logical vertex.');
     }
     if (editor.componentSelection.length === 1) {
       knifeAnchor = { kind: 'vertex', position: knifePositionForTarget({ kind: 'vertex', vertex: editor.componentSelection[0] }) };
-      knifePath = [[...knifeAnchor.position]];
     }
-    editor.setKnifePreviewPath(knifePath);
     editor.setKnifePreviewAnchor(knifeAnchor?.position ?? null);
     armKnife(
       knifeAnchor
@@ -1467,25 +1431,43 @@ function planKnifeSegment(target: KnifeTarget): { plan: KnifeSegmentPlan | null;
 }
 
 async function finishKnifeSegment(target: KnifeTarget, targetPosition: [number, number, number]) {
-  const anchor = knifeAnchor;
-  if (!anchor || !editor.meshTopology) return;
+  const topology = editor.meshTopology;
+  if (!knifeAnchor || !topology) return;
   try {
     const { plan, reason } = planKnifeSegment(target);
     if (!plan) throw new Error(reason ?? 'Invalid Knife segment.');
 
-    knifeSegments.push({
-      start: [...anchor.position],
-      end: [...targetPosition],
-    });
+    if (plan.kind === 'vertex-vertex') {
+      await editor.runModeling({
+        kind: 'cut-face',
+        face: plan.face,
+        vertices: [plan.first, plan.second],
+        polygonTriangles: topology.polygonTriangles.map(group => [...group]),
+      });
+    } else if (plan.kind === 'vertex-edge' || plan.kind === 'edge-vertex') {
+      await editor.runModeling({
+        kind: 'cut-face-edge',
+        face: plan.face,
+        vertex: plan.vertex,
+        edge: plan.edge,
+        t: plan.t,
+        polygonTriangles: topology.polygonTriangles.map(group => [...group]),
+      });
+    } else {
+      await editor.runModeling({
+        kind: 'cut-face-edges',
+        face: plan.face,
+        firstEdge: plan.firstEdge,
+        firstT: plan.firstT,
+        secondEdge: plan.secondEdge,
+        secondT: plan.secondT,
+        polygonTriangles: topology.polygonTriangles.map(group => [...group]),
+      });
+    }
 
-    knifeAnchor = target.kind === 'vertex'
-      ? { kind: 'vertex', position: targetPosition }
-      : { kind: 'edge', edge: target.edge, t: target.t, position: targetPosition };
-    if (!knifePath.length) knifePath.push([...anchor.position]);
-    knifePath.push([...targetPosition]);
-    editor.setKnifePreviewPath(knifePath);
+    knifeAnchor = { kind: 'vertex', position: targetPosition };
     editor.setKnifePreviewAnchor(targetPosition);
-    armKnife('Knife segment added. Choose the next point; Enter confirms, Escape cancels.');
+    armKnife('Knife segment complete. Choose the next vertex or edge point; Escape ends Knife.');
   } catch (error) {
     armKnife(`${(error as Error).message} Choose another vertex or edge point, or press Escape to end.`);
   }
@@ -1515,10 +1497,8 @@ editor.addEventListener('knife-target', event => {
     knifeAnchor = target.kind === 'vertex'
       ? { kind: 'vertex', position }
       : { kind: 'edge', edge: target.edge, t: target.t, position };
-    knifePath = [[...position]];
-    editor.setKnifePreviewPath(knifePath);
     editor.setKnifePreviewAnchor(position);
-    armKnife('Knife start set. Choose the next vertex or edge point; Enter confirms after a segment, Escape cancels.');
+    armKnife('Knife start set. Choose the next vertex or edge point; Escape ends Knife.');
     return;
   }
 
@@ -1528,7 +1508,6 @@ editor.addEventListener('knife-target', event => {
 editor.addEventListener('mode', () => {
   if (knifeActive && !editor.modelingBusy && (!editor.editMode || editor.componentMode !== 'vertex')) cancelKnife();
 });
-editor.addEventListener('selection', () => { if (knifeActive && !editor.modelingBusy) cancelKnife(); });
 
 async function deleteSelectedComponents() {
   try {
@@ -2931,7 +2910,6 @@ document.addEventListener('keydown', e => {
   if (key === 'alt') editor.orbit.mouseButtons.LEFT = THREE.MOUSE.ROTATE;
   if (key === 'q') tool('select'); if (key === 'g') tool('translate'); if (key === 'r') tool('rotate'); if (key === 's') tool('scale');
   if (key === 'k' && editor.editMode && editor.componentMode === 'vertex') { e.preventDefault(); modelingCommands.knife(); }
-  if (key === 'enter' && knifeActive) { e.preventDefault(); void confirmKnife(); return; }
   if (key === 'f') editor.focus();
   if (key === 'd' && e.shiftKey) { e.preventDefault(); editor.duplicate(); }
   else if (key === 'd' && e.altKey) { e.preventDefault(); if (!editor.duplicateLinked()) toast('Linked duplicate requires an ordinary mesh without modifiers.'); }
@@ -2962,7 +2940,7 @@ document.addEventListener('keydown', e => {
       animationGraph.selectKeyFrame(null);
       updateTimeline();
     } else if (editor.modelingBusy) editor.cancelModeling();
-    else if (knifeActive) { e.preventDefault(); cancelKnife(); toast('Knife path cancelled.'); }
+    else if (knifeActive) { e.preventDefault(); cancelKnife(); toast('Knife ended.'); }
     else if (editor.snapTargetPending) editor.cancelVertexSnap();
     else if (editor.transform.dragging) editor.transform.reset();
     else editor.select(null);
