@@ -112,18 +112,25 @@ export function cutLogicalFaceToEdge(
 
   const splitGroups = topology.polygonTriangles.map(group => group.flatMap(triangle => oldToNewTriangles.get(triangle) ?? []));
   const splitTopology = buildTopology(geometry.getAttribute('position').array, geometry.index?.array, splitGroups);
+  const sourceStart = new THREE.Vector3().fromBufferAttribute(position, topology.vertices[vertex][0]);
   const sourceA = new THREE.Vector3().fromBufferAttribute(position, topology.vertices[edgeA][0]);
   const sourceB = new THREE.Vector3().fromBufferAttribute(position, topology.vertices[edgeB][0]);
-  const expected = sourceA.lerp(sourceB, t);
+  const expected = sourceA.clone().lerp(sourceB, t);
   const splitPosition = geometry.getAttribute('position');
-  const inserted = splitTopology.polygons[face].find(candidate => {
-    if (candidate === vertex) return false;
+  const splitBoundary = splitTopology.polygons[face];
+  const atPosition = (candidate: number, expectedPosition: THREE.Vector3) => {
     const raw = splitTopology.vertices[candidate][0];
-    return new THREE.Vector3().fromBufferAttribute(splitPosition, raw).distanceToSquared(expected) < 1e-12;
-  });
+    return new THREE.Vector3().fromBufferAttribute(splitPosition, raw).distanceToSquared(expectedPosition) < 1e-12;
+  };
+  // Retessellating the target edge rebuilds renderer triangles and can change
+  // logical vertex IDs. Re-resolve both endpoints on the preserved logical
+  // face boundary instead of assuming source IDs survive that rebuild.
+  const mappedStart = splitBoundary.find(candidate => atPosition(candidate, sourceStart));
+  if (mappedStart === undefined) throw new Error('Cut start vertex was not preserved on the logical face boundary.');
+  const inserted = splitBoundary.find(candidate => candidate !== mappedStart && atPosition(candidate, expected));
   if (inserted === undefined) throw new Error('Cut endpoint vertex was not created on the logical edge.');
 
-  const result = cutLogicalFace(geometry, face, [vertex, inserted], splitGroups);
+  const result = cutLogicalFace(geometry, face, [mappedStart, inserted], splitGroups);
   geometry.dispose();
   return result;
 }
