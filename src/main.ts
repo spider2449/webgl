@@ -3057,8 +3057,9 @@ function capture() {
 on('capture', capture); on('capture-quick', capture);
 document.addEventListener('keydown', e => {
   const key = e.key.toLowerCase();
+  const isBackspace = key === 'backspace' || e.code === 'Backspace';
   const dialogOpen = Boolean(document.querySelector('dialog[open]'));
-  if ((key === 'delete' || key === 'backspace') && timelineSelectedFrames.size && !dialogOpen) {
+  if ((key === 'delete' || isBackspace) && timelineSelectedFrames.size && !dialogOpen) {
     const target = e.target;
     const editingField = (target instanceof HTMLInputElement && target !== $<HTMLInputElement>('#scrubber'))
       || target instanceof HTMLTextAreaElement
@@ -3087,12 +3088,13 @@ document.addEventListener('keydown', e => {
       return;
     }
   }
-  if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement || e.target instanceof HTMLSelectElement || dialogOpen) return;
-  if (key === 'backspace' && knifeActive) {
+  const typingField = e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement;
+  if (isBackspace && knifeActive && !typingField && !dialogOpen) {
     e.preventDefault();
     undoKnifePendingBend();
     return;
   }
+  if (typingField || e.target instanceof HTMLSelectElement || dialogOpen) return;
   if (e.ctrlKey || e.metaKey) {
     if (['s','o','z','y','n'].includes(key)) e.preventDefault();
     if (key === 's') showSaveDialog(); else if (key === 'o') $('#project-input').click(); else if (key === 'z') e.shiftKey ? editor.redo() : editor.undo(); else if (key === 'y') editor.redo(); else if (key === 'n') $<HTMLDialogElement>('#new-dialog').showModal();
@@ -3104,7 +3106,7 @@ document.addEventListener('keydown', e => {
   if (key === 'f') editor.focus();
   if (key === 'd' && e.shiftKey) { e.preventDefault(); editor.duplicate(); }
   else if (key === 'd' && e.altKey) { e.preventDefault(); if (!editor.duplicateLinked()) toast('Linked duplicate requires an ordinary mesh without modifiers.'); }
-  if (key === 'delete' || key === 'backspace') { e.preventDefault(); deleteSelection(); }
+  if (key === 'delete' || isBackspace) { e.preventDefault(); deleteSelection(); }
   if (key === 'tab') {
     e.preventDefault();
     if (e.shiftKey) snap();
