@@ -1072,6 +1072,7 @@ document.querySelectorAll<HTMLInputElement>('[data-transform]').forEach(input =>
 on('reset-transform', () => { if (editor.selected) { editor.selected.position.set(0,0,0); editor.selected.rotation.set(0,0,0); editor.selected.scale.set(1,1,1); rigSystem.captureEditedRest(); editor.commit(); } });
 
 let modelingSnapTarget: 'vertex' | 'edge' | 'surface' = 'vertex';
+let modelingKnifeSnap: 'vertex-edge' | 'edge-only' = 'vertex-edge';
 const modelingToolSettings = {
   extrudeDistance: 0.5,
   insetDistance: 0.1,
@@ -1081,6 +1082,8 @@ const modelingToolSettings = {
     if (editor.snapTargetPending && value !== modelingSnapTarget) editor.cancelVertexSnap();
     modelingSnapTarget = value;
   },
+  get knifeSnap() { return modelingKnifeSnap; },
+  set knifeSnap(value: 'vertex-edge' | 'edge-only') { modelingKnifeSnap = value; },
 };
 
 async function extrudeSelectedFace() {
@@ -1257,46 +1260,214 @@ async function cutFaceBetweenSelectedVertices() {
     toast('Face cut between selected vertices.');
   } catch (error) { toast((error as Error).message); }
 }
+type KnifeTarget =
+  | { kind: 'vertex'; vertex: number }
+  | { kind: 'edge'; edge: number; t: number };
+type KnifeAnchor =
+  | { kind: 'vertex'; position: [number, number, number] }
+  | { kind: 'edge'; edge: number; t: number; position: [number, number, number] };
+
+let knifeActive = false;
+let knifeAnchor: KnifeAnchor | null = null;
+
+function knifePositionForTarget(target: KnifeTarget): [number, number, number] {
+  if (!(editor.selected instanceof THREE.Mesh) || !editor.meshTopology) throw new Error('Knife requires an active editable mesh.');
+  const topology = editor.meshTopology;
+  const position = editor.selected.geometry.getAttribute('position');
+  if (target.kind === 'vertex') {
+    const copies = topology.vertices[target.vertex];
+    if (!copies || !topology.logicalVertices.includes(target.vertex)) throw new Error('Knife target is not a logical vertex.');
+    const raw = copies[0];
+    return [position.getX(raw), position.getY(raw), position.getZ(raw)];
+  }
+  const edge = topology.polygonEdges[target.edge];
+  if (!edge || !Number.isFinite(target.t) || target.t <= 0 || target.t >= 1) throw new Error('Knife target must lie inside a logical edge.');
+  const a = topology.vertices[edge[0]][0], b = topology.vertices[edge[1]][0];
+  return [
+    position.getX(a) + (position.getX(b) - position.getX(a)) * target.t,
+    position.getY(a) + (position.getY(b) - position.getY(a)) * target.t,
+    position.getZ(a) + (position.getZ(b) - position.getZ(a)) * target.t,
+  ];
+}
+
+function knifeVertexAtPosition(expected: [number, number, number]) {
+  if (!(editor.selected instanceof THREE.Mesh) || !editor.meshTopology) return undefined;
+  const topology = editor.meshTopology;
+  const position = editor.selected.geometry.getAttribute('position');
+  return topology.logicalVertices.find(vertex => {
+    const raw = topology.vertices[vertex][0];
+    return Math.hypot(
+      position.getX(raw) - expected[0],
+      position.getY(raw) - expected[1],
+      position.getZ(raw) - expected[2],
+    ) < 1e-5;
+  });
+}
+
+const knifeEdgeFaces = (edge: number) => {
+  const topology = editor.meshTopology;
+  const target = topology?.polygonEdges[edge];
+  if (!topology || !target) return [];
+  const edgeKey = (a: number, b: number) => `${Math.min(a, b)}:${Math.max(a, b)}`;
+  const targetKey = edgeKey(target[0], target[1]);
+  return topology.polygons.flatMap((polygon, face) =>
+    polygon.some((a, index) => edgeKey(a, polygon[(index + 1) % polygon.length]) === targetKey) ? [face] : []
+  );
+};
+
+function armKnife(message: string) {
+  if (!knifeActive) return;
+  try {
+    editor.beginKnifeTarget(modelingToolSettings.knifeSnap === 'vertex-edge');
+    toast(message);
+  } catch (error) {
+    knifeActive = false;
+    knifeAnchor = null;
+    editor.setKnifePreviewAnchor(null);
+    toast((error as Error).message);
+  }
+}
+
+function cancelKnife() {
+  knifeActive = false;
+  knifeAnchor = null;
+  editor.setKnifePreviewAnchor(null);
+  if (editor.snapTargetPending && editor.snapTargetKind === 'knife') editor.cancelVertexSnap();
+}
+
 function startKnifeCut() {
   try {
     if (editor.snapTargetPending) editor.cancelVertexSnap();
-    editor.beginKnifeEdgeTarget();
-    toast('Knife: click inside a logical edge on the same face. Escape cancels.');
-  } catch (error) { toast((error as Error).message); }
-}
-
-async function finishKnifeCut(edge: number, t: number) {
-  try {
-    if (!editor.editMode || editor.componentMode !== 'vertex' || editor.componentSelection.length !== 1 || !editor.meshTopology) {
-      throw new Error('Knife requires one selected logical start vertex.');
+    knifeActive = true;
+    knifeAnchor = null;
+    if (!editor.editMode || editor.componentMode !== 'vertex' || editor.componentSelection.length > 1 || !(editor.selected instanceof THREE.Mesh) || !editor.meshTopology) {
+      throw new Error('Knife requires Vertex mode with zero or one selected logical vertex.');
     }
-    const topology = editor.meshTopology;
-    const vertex = editor.componentSelection[0];
-    const target = topology.polygonEdges[edge];
-    if (!target) throw new Error('Knife target must be a logical edge.');
-    const edgeKey = (a: number, b: number) => `${Math.min(a, b)}:${Math.max(a, b)}`;
-    const targetKey = edgeKey(target[0], target[1]);
-    const candidates = topology.polygons.flatMap((polygon, face) => {
-      if (!polygon.includes(vertex) || target.includes(vertex)) return [];
-      const hasTarget = polygon.some((a, index) => edgeKey(a, polygon[(index + 1) % polygon.length]) === targetKey);
-      return hasTarget ? [face] : [];
-    });
-    if (candidates.length !== 1) throw new Error('Knife start vertex and target edge must define one unambiguous logical face.');
-    await editor.runModeling({
-      kind: 'cut-face-edge',
-      face: candidates[0],
-      vertex,
-      edge,
-      t,
-      polygonTriangles: topology.polygonTriangles.map(group => [...group]),
-    });
-    toast('Knife cut complete. A true logical vertex was created on the target edge.');
-  } catch (error) { toast((error as Error).message); }
+    if (editor.componentSelection.length === 1) {
+      knifeAnchor = { kind: 'vertex', position: knifePositionForTarget({ kind: 'vertex', vertex: editor.componentSelection[0] }) };
+    }
+    editor.setKnifePreviewAnchor(knifeAnchor?.position ?? null);
+    armKnife(
+      knifeAnchor
+        ? 'Knife: choose the next vertex or edge point. Continue clicking; Escape ends Knife.'
+        : 'Knife: choose a start vertex or edge point. Continue clicking; Escape ends Knife.'
+    );
+  } catch (error) {
+    knifeActive = false;
+    knifeAnchor = null;
+    toast((error as Error).message);
+  }
 }
 
-editor.addEventListener('knife-edge-target', event => {
-  const detail = (event as CustomEvent<{ edge: number; t: number }>).detail;
-  void finishKnifeCut(detail.edge, detail.t);
+function knifeNonAdjacentVertexFaces(a: number, b: number) {
+  const topology = editor.meshTopology;
+  if (!topology) return [];
+  return topology.polygons.flatMap((polygon, face) => {
+    const first = polygon.indexOf(a), second = polygon.indexOf(b);
+    if (first < 0 || second < 0 || first === second) return [];
+    const distance = Math.abs(first - second);
+    return distance === 1 || distance === polygon.length - 1 ? [] : [face];
+  });
+}
+
+async function finishKnifeSegment(target: KnifeTarget, targetPosition: [number, number, number]) {
+  const anchor = knifeAnchor;
+  if (!anchor || !editor.meshTopology) return;
+  try {
+    const topology = editor.meshTopology;
+    if (anchor.kind === 'vertex') {
+      const startVertex = knifeVertexAtPosition(anchor.position);
+      if (startVertex === undefined) throw new Error('Knife start point is no longer on the logical topology.');
+
+      if (target.kind === 'vertex') {
+        const candidates = knifeNonAdjacentVertexFaces(startVertex, target.vertex);
+        if (candidates.length !== 1) throw new Error('Knife points must define one unambiguous non-adjacent face cut.');
+        await editor.runModeling({
+          kind: 'cut-face',
+          face: candidates[0],
+          vertices: [startVertex, target.vertex],
+          polygonTriangles: topology.polygonTriangles.map(group => [...group]),
+        });
+      } else {
+        const edgeVertices = topology.polygonEdges[target.edge];
+        if (!edgeVertices) throw new Error('Knife target must be a logical edge.');
+        const candidates = knifeEdgeFaces(target.edge).filter(face =>
+          topology.polygons[face].includes(startVertex) && !edgeVertices.includes(startVertex)
+        );
+        if (candidates.length !== 1) throw new Error('Knife start and edge target must define one unambiguous logical face.');
+        await editor.runModeling({
+          kind: 'cut-face-edge',
+          face: candidates[0],
+          vertex: startVertex,
+          edge: target.edge,
+          t: target.t,
+          polygonTriangles: topology.polygonTriangles.map(group => [...group]),
+        });
+      }
+    } else if (target.kind === 'vertex') {
+      const edgeVertices = topology.polygonEdges[anchor.edge];
+      if (!edgeVertices) throw new Error('Knife start edge is no longer available.');
+      const candidates = knifeEdgeFaces(anchor.edge).filter(face =>
+        topology.polygons[face].includes(target.vertex) && !edgeVertices.includes(target.vertex)
+      );
+      if (candidates.length !== 1) throw new Error('Knife edge start and vertex target must define one unambiguous logical face.');
+      await editor.runModeling({
+        kind: 'cut-face-edge',
+        face: candidates[0],
+        vertex: target.vertex,
+        edge: anchor.edge,
+        t: anchor.t,
+        polygonTriangles: topology.polygonTriangles.map(group => [...group]),
+      });
+    } else {
+      if (anchor.edge === target.edge) throw new Error('Choose a different second logical edge.');
+      const targetFaces = new Set(knifeEdgeFaces(target.edge));
+      const candidates = knifeEdgeFaces(anchor.edge).filter(face => targetFaces.has(face));
+      if (candidates.length !== 1) throw new Error('The two Knife edges must define one unambiguous logical face.');
+      await editor.runModeling({
+        kind: 'cut-face-edges',
+        face: candidates[0],
+        firstEdge: anchor.edge,
+        firstT: anchor.t,
+        secondEdge: target.edge,
+        secondT: target.t,
+        polygonTriangles: topology.polygonTriangles.map(group => [...group]),
+      });
+    }
+
+    knifeAnchor = { kind: 'vertex', position: targetPosition };
+    editor.setKnifePreviewAnchor(targetPosition);
+    armKnife('Knife segment complete. Choose the next vertex or edge point; Escape ends Knife.');
+  } catch (error) {
+    armKnife(`${(error as Error).message} Choose another vertex or edge point, or press Escape to end.`);
+  }
+}
+
+editor.addEventListener('knife-target', event => {
+  if (!knifeActive) return;
+  const target = (event as CustomEvent<KnifeTarget>).detail;
+  let position: [number, number, number];
+  try {
+    position = knifePositionForTarget(target);
+  } catch (error) {
+    armKnife(`${(error as Error).message} Choose another vertex or edge point, or press Escape to end.`);
+    return;
+  }
+
+  if (!knifeAnchor) {
+    knifeAnchor = target.kind === 'vertex'
+      ? { kind: 'vertex', position }
+      : { kind: 'edge', edge: target.edge, t: target.t, position };
+    editor.setKnifePreviewAnchor(position);
+    armKnife('Knife start set. Choose the next vertex or edge point; Escape ends Knife.');
+    return;
+  }
+
+  void finishKnifeSegment(target, position);
+});
+
+editor.addEventListener('mode', () => {
+  if (knifeActive && !editor.modelingBusy && (!editor.editMode || editor.componentMode !== 'vertex')) cancelKnife();
 });
 
 async function deleteSelectedComponents() {
@@ -1382,13 +1553,14 @@ function viewportContextCommands(mode: ViewportContextMode): ViewportContextComm
   const hasComponents = () => editor.componentSelection.length > 0 && !editor.modelingBusy;
   const oneComponent = () => editor.componentSelection.length === 1 && !editor.modelingBusy;
   const twoComponents = () => editor.componentSelection.length === 2 && !editor.modelingBusy;
+  const knifeReady = () => editor.componentSelection.length <= 1 && !editor.modelingBusy;
   const hasObject = () => !!editor.selected && !editor.modelingBusy;
 
   if (mode === 'vertex') return [
     { label: 'Move', shortcut: 'G', action: () => tool('translate'), enabled: hasComponents },
     { label: 'Rotate', shortcut: 'R', action: () => tool('rotate'), enabled: hasComponents },
     { label: 'Scale', shortcut: 'S', action: () => tool('scale'), enabled: hasComponents },
-    { label: 'Knife', shortcut: 'K', action: modelingCommands.knife, enabled: oneComponent, separatorBefore: true },
+    { label: 'Knife', shortcut: 'K', action: modelingCommands.knife, enabled: knifeReady, separatorBefore: true },
     { label: 'Cut Face', action: modelingCommands.cutFace, enabled: twoComponents },
     { label: 'Snap Selection…', action: modelingCommands.vertexSnap, enabled: hasComponents },
     { label: 'Delete Vertices', shortcut: 'Del', action: modelingCommands.deleteComponents, enabled: hasComponents, separatorBefore: true, danger: true },
@@ -1513,6 +1685,15 @@ function appendContextParameter(parameter: ContextParameter) {
 }
 
 function contextParameterBefore(mode: ViewportContextMode, command: ViewportContextCommand): ContextParameter | null {
+  if (mode === 'vertex' && command.label === 'Knife') return {
+    kind: 'select',
+    label: 'Knife Snap',
+    ariaLabel: 'Context Knife snap',
+    get: () => modelingToolSettings.knifeSnap,
+    set: value => { modelingToolSettings.knifeSnap = value as 'vertex-edge' | 'edge-only'; },
+    options: [['vertex-edge', 'Vertex + Edge'], ['edge-only', 'Edge only']],
+    run: modelingCommands.knife,
+  };
   if (mode === 'vertex' && command.label === 'Snap Selection…') return {
     kind: 'select',
     label: 'Snap Target',
@@ -2720,6 +2901,7 @@ document.addEventListener('keydown', e => {
       animationGraph.selectKeyFrame(null);
       updateTimeline();
     } else if (editor.modelingBusy) editor.cancelModeling();
+    else if (knifeActive) { e.preventDefault(); cancelKnife(); toast('Knife ended.'); }
     else if (editor.snapTargetPending) editor.cancelVertexSnap();
     else if (editor.transform.dragging) editor.transform.reset();
     else editor.select(null);
