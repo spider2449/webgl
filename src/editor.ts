@@ -1484,6 +1484,129 @@ export class Editor extends EventTarget {
     this.restoreSubdivisionSelection('edge', oldEdges, midpointIndex);
     this.commit();
   }
+  private clearKnifeState() {
+    this.knifePending = false;
+    this.knifeFace = null;
+    this.knifeFirst = null;
+    this.renderer.domElement.style.cursor = '';
+    if (this.knifePointOverlay) {
+      this.knifePointOverlay.visible = false;
+      this.knifePointOverlay.geometry.setAttribute('position', new THREE.Float32BufferAttribute([], 3));
+    }
+  }
+  cancelKnife() {
+    if (!this.knifePending && this.knifeFace === null && !this.knifeFirst) return false;
+    this.clearKnifeState();
+    this.refreshComponents();
+    this.invalidate();
+    this.emit('knife-cancel');
+    return true;
+  }
+  beginKnife(face: number) {
+    if (
+      !this.editMode ||
+      this.weightMode ||
+      this.componentMode !== 'face' ||
+      !this.topology ||
+      !(this.selected instanceof THREE.Mesh) ||
+      this.playing ||
+      this.transform.dragging ||
+      this.modelingBusy ||
+      !Number.isInteger(face) ||
+      !this.topology.polygons[face] ||
+      !this.selectedComponents.has(face)
+    ) throw new Error('Select exactly one logical face in Face Mode first.');
+    this.cancelVertexSnap();
+    this.clearKnifeState();
+    this.knifePending = true;
+    this.knifeFace = face;
+    this.transform.detach();
+    this.renderer.domElement.style.cursor = 'crosshair';
+    this.refreshComponents();
+    this.invalidate();
+    this.emit('knife-start');
+  }
+  private pickKnifePoint() {
+    if (
+      !this.knifePending ||
+      this.knifeFace === null ||
+      !this.topology ||
+      !this.componentEdges ||
+      !(this.selected instanceof THREE.Mesh)
+    ) return;
+
+    const polygon = this.topology.polygons[this.knifeFace];
+    if (!polygon) {
+      this.cancelKnife();
+      return;
+    }
+    const edgeKey = (a: number, b: number) => `${Math.min(a, b)}:${Math.max(a, b)}`;
+    const allowed = new Set(
+      polygon.map((vertex, index) => edgeKey(vertex, polygon[(index + 1) % polygon.length])),
+    );
+    const threshold = this.camera.position.distanceTo(this.orbit.target) * 0.012;
+    this.raycaster.params.Line.threshold = threshold;
+    const hit = this.raycaster.intersectObject(this.componentEdges, false).find(candidate => {
+      if (candidate.index === undefined) return false;
+      const edgeId = Math.floor(candidate.index / 2);
+      const edge = this.topology!.polygonEdges[edgeId];
+      return !!edge && allowed.has(edgeKey(edge[0], edge[1]));
+    });
+    if (!hit || hit.index === undefined) {
+      this.dispatchEvent(new CustomEvent('knife-error', { detail: 'Click a boundary edge of the selected face.' }));
+      return;
+    }
+
+    const edgeId = Math.floor(hit.index / 2);
+    const edge = this.topology.polygonEdges[edgeId];
+    const position = this.selected.geometry.getAttribute('position');
+    const a = new THREE.Vector3().fromBufferAttribute(position, this.topology.vertices[edge[0]][0]);
+    const b = new THREE.Vector3().fromBufferAttribute(position, this.topology.vertices[edge[1]][0]);
+    this.selected.updateWorldMatrix(true, false);
+    const point = this.selected.worldToLocal(hit.point.clone());
+    const direction = b.clone().sub(a);
+    const lengthSq = direction.lengthSq();
+    if (lengthSq < 1e-16) {
+      this.dispatchEvent(new CustomEvent('knife-error', { detail: 'Cannot cut a collapsed boundary edge.' }));
+      return;
+    }
+    let t = THREE.MathUtils.clamp(point.clone().sub(a).dot(direction) / lengthSq, 0, 1);
+    const snap = 0.03;
+    if (t <= snap) t = 0;
+    else if (t >= 1 - snap) t = 1;
+    const endpoint = { edge: edgeId, t };
+
+    if (!this.knifeFirst) {
+      this.knifeFirst = endpoint;
+      const marker = a.clone().lerp(b, t);
+      if (this.knifePointOverlay) {
+        this.knifePointOverlay.geometry.setAttribute('position', new THREE.Float32BufferAttribute(marker.toArray(), 3));
+        this.knifePointOverlay.geometry.computeBoundingSphere();
+        this.knifePointOverlay.visible = true;
+      }
+      this.invalidate();
+      this.dispatchEvent(new CustomEvent('knife-point', { detail: 1 }));
+      return;
+    }
+
+    const first = this.knifeFirst;
+    const face = this.knifeFace;
+    const polygonTriangles = this.topology.polygonTriangles.map(group => [...group]);
+    this.clearKnifeState();
+    this.refreshComponents();
+    this.invalidate();
+    void this.runModeling({
+      kind: 'knife-face',
+      face,
+      endpoints: [first, endpoint],
+      polygonTriangles,
+    }).then(() => {
+      this.dispatchEvent(new Event('knife-complete'));
+    }).catch(error => {
+      this.dispatchEvent(new CustomEvent('knife-error', { detail: (error as Error).message }));
+    });
+  }
+
   cancelVertexSnap() {
     if (!this.snapTargetPending) return;
     this.snapTargetPending = false;
