@@ -3,24 +3,76 @@ import { cutLogicalFace } from './modeling';
 import { buildTopology } from './topology';
 
 const edgeKey = (a: number, b: number) => `${Math.min(a, b)}:${Math.max(a, b)}`;
+const POSITION_EPSILON_SQ = 1e-12;
 
-type CutEdgeEndpoint = {
+type EdgePoint = {
   face: number;
-  vertex: number;
   edge: number;
   t: number;
 };
 
-/**
- * Insert a true logical vertex on an existing logical edge, then split one
- * incident logical face from an existing boundary vertex to that new point.
- *
- * This is deliberately a single-face Knife building block: it does not walk
- * across faces and it does not accept arbitrary surface points.
- */
-export function cutLogicalFaceToEdge(
+type CutEdgeEndpoint = EdgePoint & {
+  vertex: number;
+};
+
+type CutBetweenEdges = {
+  face: number;
+  firstEdge: number;
+  firstT: number;
+  secondEdge: number;
+  secondT: number;
+};
+
+function vertexPosition(
+  topology: ReturnType<typeof buildTopology>,
+  position: THREE.BufferAttribute | THREE.InterleavedBufferAttribute,
+  vertex: number,
+) {
+  return new THREE.Vector3().fromBufferAttribute(position, topology.vertices[vertex][0]);
+}
+
+function boundaryHasEdge(boundary: number[], a: number, b: number) {
+  const target = edgeKey(a, b);
+  return boundary.some((vertex, index) => edgeKey(vertex, boundary[(index + 1) % boundary.length]) === target);
+}
+
+function validateInteriorT(t: number) {
+  if (!Number.isFinite(t) || t <= 0 || t >= 1) throw new Error('Cut endpoint must lie strictly inside the logical edge.');
+}
+
+function samePosition(a: THREE.Vector3, b: THREE.Vector3) {
+  return a.distanceToSquared(b) < POSITION_EPSILON_SQ;
+}
+
+function resolveBoundaryVertex(
+  topology: ReturnType<typeof buildTopology>,
+  position: THREE.BufferAttribute | THREE.InterleavedBufferAttribute,
+  face: number,
+  expected: THREE.Vector3,
+) {
+  return topology.polygons[face]?.find(vertex => samePosition(vertexPosition(topology, position, vertex), expected));
+}
+
+function resolveEdgeByPositions(
+  topology: ReturnType<typeof buildTopology>,
+  position: THREE.BufferAttribute | THREE.InterleavedBufferAttribute,
+  expectedA: THREE.Vector3,
+  expectedB: THREE.Vector3,
+  t: number,
+) {
+  for (let edge = 0; edge < topology.polygonEdges.length; edge++) {
+    const [a, b] = topology.polygonEdges[edge];
+    const actualA = vertexPosition(topology, position, a);
+    const actualB = vertexPosition(topology, position, b);
+    if (samePosition(actualA, expectedA) && samePosition(actualB, expectedB)) return { edge, t };
+    if (samePosition(actualA, expectedB) && samePosition(actualB, expectedA)) return { edge, t: 1 - t };
+  }
+  throw new Error('Knife target edge was not preserved after endpoint insertion.');
+}
+
+function insertLogicalEdgePoint(
   source: THREE.BufferGeometry,
-  endpoint: CutEdgeEndpoint,
+  endpoint: EdgePoint,
   polygonTriangles?: number[][],
 ) {
   const position = source.getAttribute('position');
@@ -29,17 +81,14 @@ export function cutLogicalFaceToEdge(
   if (!indexCount || indexCount % 3) throw new Error('Cut endpoint requires triangle geometry.');
 
   const topology = buildTopology(position.array, source.index?.array, polygonTriangles ?? false);
-  const { face, vertex, edge, t } = endpoint;
+  const { face, edge, t } = endpoint;
   if (!Number.isInteger(face) || !topology.polygons[face]) throw new Error('Select one valid logical face to cut.');
-  if (!Number.isInteger(vertex) || !topology.polygons[face].includes(vertex)) throw new Error('Cut start must be a logical vertex on the selected face.');
   if (!Number.isInteger(edge) || !topology.polygonEdges[edge]) throw new Error('Cut endpoint must lie on a logical edge.');
-  if (!Number.isFinite(t) || t <= 0 || t >= 1) throw new Error('Cut endpoint must lie strictly inside the logical edge.');
+  validateInteriorT(t);
 
   const [edgeA, edgeB] = topology.polygonEdges[edge];
   const boundary = topology.polygons[face];
-  const boundaryEdges = new Set(boundary.map((a, i) => edgeKey(a, boundary[(i + 1) % boundary.length])));
-  if (!boundaryEdges.has(edgeKey(edgeA, edgeB))) throw new Error('Cut endpoint edge must bound the selected face.');
-  if (vertex === edgeA || vertex === edgeB) throw new Error('Cut start cannot be an endpoint of the target edge.');
+  if (!boundaryHasEdge(boundary, edgeA, edgeB)) throw new Error('Cut endpoint edge must bound the selected face.');
 
   const attributes = Object.entries(source.attributes);
   for (const [name, attribute] of attributes) {
@@ -112,25 +161,108 @@ export function cutLogicalFaceToEdge(
 
   const splitGroups = topology.polygonTriangles.map(group => group.flatMap(triangle => oldToNewTriangles.get(triangle) ?? []));
   const splitTopology = buildTopology(geometry.getAttribute('position').array, geometry.index?.array, splitGroups);
-  const sourceStart = new THREE.Vector3().fromBufferAttribute(position, topology.vertices[vertex][0]);
-  const sourceA = new THREE.Vector3().fromBufferAttribute(position, topology.vertices[edgeA][0]);
-  const sourceB = new THREE.Vector3().fromBufferAttribute(position, topology.vertices[edgeB][0]);
-  const expected = sourceA.clone().lerp(sourceB, t);
+  const expected = vertexPosition(topology, position, edgeA).lerp(vertexPosition(topology, position, edgeB), t);
   const splitPosition = geometry.getAttribute('position');
-  const splitBoundary = splitTopology.polygons[face];
-  const atPosition = (candidate: number, expectedPosition: THREE.Vector3) => {
-    const raw = splitTopology.vertices[candidate][0];
-    return new THREE.Vector3().fromBufferAttribute(splitPosition, raw).distanceToSquared(expectedPosition) < 1e-12;
-  };
-  // Retessellating the target edge rebuilds renderer triangles and can change
-  // logical vertex IDs. Re-resolve both endpoints on the preserved logical
-  // face boundary instead of assuming source IDs survive that rebuild.
-  const mappedStart = splitBoundary.find(candidate => atPosition(candidate, sourceStart));
-  if (mappedStart === undefined) throw new Error('Cut start vertex was not preserved on the logical face boundary.');
-  const inserted = splitBoundary.find(candidate => candidate !== mappedStart && atPosition(candidate, expected));
-  if (inserted === undefined) throw new Error('Cut endpoint vertex was not created on the logical edge.');
+  const inserted = resolveBoundaryVertex(splitTopology, splitPosition, face, expected);
+  if (inserted === undefined) {
+    geometry.dispose();
+    throw new Error('Cut endpoint vertex was not created on the logical edge.');
+  }
 
-  const result = cutLogicalFace(geometry, face, [mappedStart, inserted], splitGroups);
-  geometry.dispose();
-  return result;
+  return { geometry, polygonTriangles: splitGroups, position: expected };
+}
+
+/**
+ * Insert a true logical vertex on an existing logical edge, then split one
+ * incident logical face from an existing boundary vertex to that new point.
+ */
+export function cutLogicalFaceToEdge(
+  source: THREE.BufferGeometry,
+  endpoint: CutEdgeEndpoint,
+  polygonTriangles?: number[][],
+) {
+  const position = source.getAttribute('position');
+  if (!position || position.itemSize !== 3) throw new Error('Cut endpoint requires position data.');
+  const topology = buildTopology(position.array, source.index?.array, polygonTriangles ?? false);
+  const { face, vertex, edge, t } = endpoint;
+  if (!Number.isInteger(face) || !topology.polygons[face]) throw new Error('Select one valid logical face to cut.');
+  if (!Number.isInteger(vertex) || !topology.polygons[face].includes(vertex)) throw new Error('Cut start must be a logical vertex on the selected face.');
+  if (!Number.isInteger(edge) || !topology.polygonEdges[edge]) throw new Error('Cut endpoint must lie on a logical edge.');
+  validateInteriorT(t);
+
+  const [edgeA, edgeB] = topology.polygonEdges[edge];
+  if (!boundaryHasEdge(topology.polygons[face], edgeA, edgeB)) throw new Error('Cut endpoint edge must bound the selected face.');
+  if (vertex === edgeA || vertex === edgeB) throw new Error('Cut start cannot be an endpoint of the target edge.');
+
+  const startPosition = vertexPosition(topology, position, vertex);
+  const inserted = insertLogicalEdgePoint(source, { face, edge, t }, polygonTriangles);
+  try {
+    const splitPosition = inserted.geometry.getAttribute('position');
+    const splitTopology = buildTopology(splitPosition.array, inserted.geometry.index?.array, inserted.polygonTriangles);
+    const mappedStart = resolveBoundaryVertex(splitTopology, splitPosition, face, startPosition);
+    const mappedEnd = resolveBoundaryVertex(splitTopology, splitPosition, face, inserted.position);
+    if (mappedStart === undefined) throw new Error('Cut start vertex was not preserved on the logical face boundary.');
+    if (mappedEnd === undefined) throw new Error('Cut endpoint vertex was not created on the logical edge.');
+    return cutLogicalFace(inserted.geometry, face, [mappedStart, mappedEnd], inserted.polygonTriangles);
+  } finally {
+    inserted.geometry.dispose();
+  }
+}
+
+/**
+ * Insert two true logical vertices on two existing logical edges of one face,
+ * then cut directly between those inserted points.
+ */
+export function cutLogicalFaceBetweenEdges(
+  source: THREE.BufferGeometry,
+  cut: CutBetweenEdges,
+  polygonTriangles?: number[][],
+) {
+  const position = source.getAttribute('position');
+  if (!position || position.itemSize !== 3) throw new Error('Knife requires position data.');
+  const topology = buildTopology(position.array, source.index?.array, polygonTriangles ?? false);
+  const { face, firstEdge, firstT, secondEdge, secondT } = cut;
+  if (!Number.isInteger(face) || !topology.polygons[face]) throw new Error('Select one valid logical face to cut.');
+  if (!Number.isInteger(firstEdge) || !topology.polygonEdges[firstEdge] || !Number.isInteger(secondEdge) || !topology.polygonEdges[secondEdge]) {
+    throw new Error('Knife endpoints must lie on valid logical edges.');
+  }
+  if (firstEdge === secondEdge) throw new Error('Knife endpoints must lie on two different logical edges.');
+  validateInteriorT(firstT);
+  validateInteriorT(secondT);
+
+  const [firstA, firstB] = topology.polygonEdges[firstEdge];
+  const [secondA, secondB] = topology.polygonEdges[secondEdge];
+  const boundary = topology.polygons[face];
+  if (!boundaryHasEdge(boundary, firstA, firstB) || !boundaryHasEdge(boundary, secondA, secondB)) {
+    throw new Error('Both Knife edges must bound the selected logical face.');
+  }
+
+  const firstExpected = vertexPosition(topology, position, firstA).lerp(vertexPosition(topology, position, firstB), firstT);
+  const secondAExpected = vertexPosition(topology, position, secondA);
+  const secondBExpected = vertexPosition(topology, position, secondB);
+  const secondExpected = secondAExpected.clone().lerp(secondBExpected, secondT);
+
+  const first = insertLogicalEdgePoint(source, { face, edge: firstEdge, t: firstT }, polygonTriangles);
+  try {
+    const firstPosition = first.geometry.getAttribute('position');
+    const firstTopology = buildTopology(firstPosition.array, first.geometry.index?.array, first.polygonTriangles);
+    const remappedSecond = resolveEdgeByPositions(firstTopology, firstPosition, secondAExpected, secondBExpected, secondT);
+    const second = insertLogicalEdgePoint(
+      first.geometry,
+      { face, edge: remappedSecond.edge, t: remappedSecond.t },
+      first.polygonTriangles,
+    );
+    try {
+      const secondPosition = second.geometry.getAttribute('position');
+      const secondTopology = buildTopology(secondPosition.array, second.geometry.index?.array, second.polygonTriangles);
+      const firstVertex = resolveBoundaryVertex(secondTopology, secondPosition, face, firstExpected);
+      const secondVertex = resolveBoundaryVertex(secondTopology, secondPosition, face, secondExpected);
+      if (firstVertex === undefined || secondVertex === undefined) throw new Error('Knife endpoints were not preserved on the logical face boundary.');
+      return cutLogicalFace(second.geometry, face, [firstVertex, secondVertex], second.polygonTriangles);
+    } finally {
+      second.geometry.dispose();
+    }
+  } finally {
+    first.geometry.dispose();
+  }
 }
