@@ -98,7 +98,8 @@ export class Editor extends EventTarget {
   private proportionalRadius = 2;
   private proportionalConnected = false;
   snapTargetPending = false;
-  snapTargetKind: 'vertex' | 'edge' | 'surface' | 'knife-edge' = 'vertex';
+  snapTargetKind: 'vertex' | 'edge' | 'surface' | 'knife' = 'vertex';
+  private knifeSnapToVertex = true;
   private componentDrag: {
     positions: number[];
     weights: Float32Array;
@@ -271,7 +272,19 @@ export class Editor extends EventTarget {
                 if (!weights) throw new Error('Cannot snap to a collapsed surface.');
                 this.snapSelectionToSurface(hit.faceIndex, weights.toArray());
               }
-            } else if (this.snapTargetKind === 'knife-edge' && this.componentEdges && this.selected instanceof THREE.Mesh && this.topology) {
+            } else if (this.snapTargetKind === 'knife' && this.componentEdges && this.selected instanceof THREE.Mesh && this.topology) {
+              if (this.knifeSnapToVertex && this.vertexPoints) {
+                this.raycaster.params.Points.threshold = threshold;
+                const vertexHit = this.raycaster.intersectObject(this.vertexPoints, false)[0];
+                if (vertexHit?.index !== undefined) {
+                  const vertex = this.topology.bufferToVertex[vertexHit.index];
+                  if (this.topology.logicalVertices.includes(vertex)) {
+                    this.cancelVertexSnap();
+                    this.dispatchEvent(new CustomEvent('knife-target', { detail: { kind: 'vertex', vertex } }));
+                    return;
+                  }
+                }
+              }
               this.raycaster.params.Line.threshold = threshold;
               const hit = this.raycaster.intersectObject(this.componentEdges, false)[0];
               if (hit?.index !== undefined) {
@@ -288,7 +301,7 @@ export class Editor extends EventTarget {
                 const t = localPoint.sub(a).dot(direction) / lengthSq;
                 if (!Number.isFinite(t) || t <= 1e-5 || t >= 1 - 1e-5) throw new Error('Click inside the edge, away from its vertices.');
                 this.cancelVertexSnap();
-                this.dispatchEvent(new CustomEvent('knife-edge-target', { detail: { edge, t } }));
+                this.dispatchEvent(new CustomEvent('knife-target', { detail: { kind: 'edge', edge, t } }));
               }
             } else if (this.snapTargetKind === 'edge' && this.componentEdges) {
               this.raycaster.params.Line.threshold = threshold;
@@ -1242,7 +1255,7 @@ export class Editor extends EventTarget {
     this.componentEdges.visible =
       this.viewStyle === 'wire' ||
       this.componentMode !== 'vertex' ||
-      (this.snapTargetPending && (this.snapTargetKind === 'edge' || this.snapTargetKind === 'knife-edge'));
+      (this.snapTargetPending && (this.snapTargetKind === 'edge' || this.snapTargetKind === 'knife'));
     const colors = this.vertexPoints.geometry.getAttribute('color');
     const selected = new Set(this.vertexIndices);
     for (let i = 0; i < colors.count; i++) colors.setXYZ(i, 1, selected.has(i) ? 0.45 : 1, selected.has(i) ? 0.12 : 1);
@@ -1502,11 +1515,12 @@ export class Editor extends EventTarget {
     this.invalidate();
     this.emit('snap-target');
   }
-  beginKnifeEdgeTarget() {
+  beginKnifeTarget(snapToVertex = true) {
     if (!this.editMode || this.componentMode !== 'vertex' || this.selectedComponents.size > 1 || !this.topology || !(this.selected instanceof THREE.Mesh) || this.playing || this.transform.dragging || this.modelingBusy) {
-      throw new Error('Knife requires zero or one selected logical vertex in Edit Mode.');
+      throw new Error('Knife requires Vertex mode with zero or one selected logical vertex.');
     }
-    this.snapTargetKind = 'knife-edge';
+    this.knifeSnapToVertex = snapToVertex;
+    this.snapTargetKind = 'knife';
     this.snapTargetPending = true;
     this.refreshComponents();
     this.invalidate();
