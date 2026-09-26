@@ -171,6 +171,7 @@ test('Edit Mode RMB menu changes with Vertex, Edge and Face component mode', asy
   await expect(menu.getByRole('menuitem', { name: 'Extrude Face' })).toBeVisible();
   await expect(menu.getByRole('menuitem', { name: 'Extrude Region' })).toBeVisible();
   await expect(menu.getByRole('menuitem', { name: 'Inset Face' })).toBeVisible();
+  await expect(menu.getByRole('menuitem', { name: 'Knife K' })).toBeVisible();
   await expect(menu.getByRole('menuitem', { name: 'Delete Faces Del' })).toBeVisible();
   await expect(menu.getByRole('menuitem', { name: 'Bevel Edges' })).toHaveCount(0);
 });
@@ -229,6 +230,86 @@ test('RMB Cut Face splits a Cube quad between two selected opposite vertices', a
     mode: 'vertex',
     selection: [],
     edgeExists: true,
+  });
+});
+
+test('RMB Knife inserts edge points and splits one Cube face through real pointer clicks', async ({ page }) => {
+  await page.locator('#mode').selectOption('edit');
+  await page.getByLabel('Mesh component').selectOption('face');
+
+  const setup = await page.evaluate(() => {
+    const e = (window as any).__forge, t = e.meshTopology, mesh = e.selected;
+    const position = mesh.geometry.getAttribute('position');
+    e.selected.rotation.set(0, 0, 0);
+    e.selected.scale.set(1, 1, 1);
+    e.view('front');
+    e.setTool('select');
+
+    const face = t.polygons.findIndex((polygon: number[]) =>
+      polygon.every((vertex: number) => position.getZ(t.vertices[vertex][0]) === 1)
+    );
+    if (face < 0) throw new Error('Expected a front logical face.');
+    e.selectComponent(face);
+
+    mesh.updateWorldMatrix(true, true);
+    const rect = e.host.getBoundingClientRect();
+    const boundary = t.polygons[face];
+    const screenMidpoint = (a: number, b: number) => {
+      const ia = t.vertices[a][0], ib = t.vertices[b][0];
+      const point = new (window as any).THREE.Vector3(
+        (position.getX(ia) + position.getX(ib)) / 2,
+        (position.getY(ia) + position.getY(ib)) / 2,
+        (position.getZ(ia) + position.getZ(ib)) / 2,
+      );
+      mesh.localToWorld(point).project(e.camera);
+      return {
+        x: rect.left + (point.x + 1) * rect.width / 2,
+        y: rect.top + (1 - point.y) * rect.height / 2,
+      };
+    };
+    return {
+      face,
+      first: screenMidpoint(boundary[0], boundary[1]),
+      second: screenMidpoint(boundary[2], boundary[3]),
+    };
+  });
+
+  await rightClickViewport(page);
+  await page.locator('#viewport-context-menu').getByRole('menuitem', { name: 'Knife K' }).click();
+  expect(await page.evaluate(() => (window as any).__forge.knifePending)).toBe(true);
+
+  await page.mouse.click(setup.first.x, setup.first.y);
+  await expect(page.locator('#toast')).toContainText('First Knife point set');
+  expect(await page.evaluate(() => ({
+    pending: (window as any).__forge.knifePending,
+    marker: (window as any).__forge.knifePointOverlay?.visible,
+  }))).toEqual({ pending: true, marker: true });
+
+  await page.mouse.click(setup.second.x, setup.second.y);
+  await page.waitForFunction(() => !(window as any).__forge.modelingBusy);
+  await expect(page.locator('#toast')).toContainText('Knife cut complete');
+
+  expect(await page.evaluate(() => {
+    const e = (window as any).__forge, t = e.meshTopology;
+    return {
+      pending: e.knifePending,
+      polygons: t.polygons.length,
+      logicalVertices: t.logicalVertices.length,
+      edges: t.polygonEdges.length,
+      triangles: t.faces.length,
+      sizes: t.polygons.map((polygon: number[]) => polygon.length).sort((a:number,b:number)=>a-b),
+      stored: e.selected.userData.forgePolygonTriangles?.length,
+      mode: e.componentMode,
+    };
+  })).toEqual({
+    pending: false,
+    polygons: 7,
+    logicalVertices: 10,
+    edges: 15,
+    triangles: 16,
+    sizes: [4,4,4,4,4,5,5],
+    stored: 7,
+    mode: 'face',
   });
 });
 
