@@ -99,6 +99,7 @@ export class Editor extends EventTarget {
   private selectedFaceOverlay: THREE.Mesh | null = null;
   private knifePreviewPoint: THREE.Points | null = null;
   private knifePreviewLine: LineSegments2 | null = null;
+  private knifePreviewPathLine: LineSegments2 | null = null;
   private knifePreviewAnchor: THREE.Vector3 | null = null;
   private knifePreviewPath: THREE.Vector3[] = [];
   private knifePreviewHover: THREE.Vector3 | null = null;
@@ -622,6 +623,7 @@ export class Editor extends EventTarget {
     if (this.selectedEdgeOverlay) (this.selectedEdgeOverlay.material as LineMaterial).resolution.set(width, height);
     if (this.activeEdgeOverlay) (this.activeEdgeOverlay.material as LineMaterial).resolution.set(width, height);
     if (this.knifePreviewLine) (this.knifePreviewLine.material as LineMaterial).resolution.set(width, height);
+    if (this.knifePreviewPathLine) (this.knifePreviewPathLine.material as LineMaterial).resolution.set(width, height);
     this.perspective.aspect = width / height;
     this.perspective.updateProjectionMatrix();
     const extent = 7;
@@ -1160,7 +1162,7 @@ export class Editor extends EventTarget {
       this.componentEdges?.geometry.dispose();
       if (this.componentEdges) (this.componentEdges.material as THREE.Material).dispose();
       this.componentEdges = null;
-      for (const overlay of [this.selectedVertexOverlay, this.selectedEdgeOverlay, this.activeEdgeOverlay, this.selectedFaceOverlay, this.knifePreviewPoint, this.knifePreviewLine]) {
+      for (const overlay of [this.selectedVertexOverlay, this.selectedEdgeOverlay, this.activeEdgeOverlay, this.selectedFaceOverlay, this.knifePreviewPoint, this.knifePreviewLine, this.knifePreviewPathLine]) {
         overlay?.geometry.dispose();
         if (overlay) (overlay.material as THREE.Material).dispose();
       }
@@ -1170,6 +1172,7 @@ export class Editor extends EventTarget {
       this.selectedFaceOverlay = null;
       this.knifePreviewPoint = null;
       this.knifePreviewLine = null;
+      this.knifePreviewPathLine = null;
       this.knifePreviewAnchor = null;
       this.knifePreviewPath = [];
       this.knifePreviewHover = null;
@@ -1235,12 +1238,21 @@ export class Editor extends EventTarget {
       this.knifePreviewLine.frustumCulled = false;
       this.knifePreviewLine.visible = false;
 
+      const knifePathMaterial = new LineMaterial({ color: 0xffd060, linewidth: 3, worldUnits: false, transparent: true, opacity: 0.65, depthTest: false, depthWrite: false });
+      knifePathMaterial.resolution.copy(this.renderer.getSize(new THREE.Vector2()));
+      this.knifePreviewPathLine = new LineSegments2(new LineSegmentsGeometry(), knifePathMaterial);
+      this.knifePreviewPathLine.userData.forgeEditorHelper = true;
+      this.knifePreviewPathLine.renderOrder = 14;
+      this.knifePreviewPathLine.frustumCulled = false;
+      this.knifePreviewPathLine.visible = false;
+
       this.vertexPoints.add(
         this.componentEdges,
         this.selectedVertexOverlay,
         this.selectedEdgeOverlay,
         this.activeEdgeOverlay,
         this.selectedFaceOverlay,
+        this.knifePreviewPathLine,
         this.knifePreviewLine,
         this.knifePreviewPoint,
       );
@@ -1725,6 +1737,19 @@ export class Editor extends EventTarget {
 
   setKnifePreviewPath(positions: [number, number, number][]) {
     this.knifePreviewPath = positions.map(position => new THREE.Vector3(...position));
+    if (this.knifePreviewPathLine) {
+      if (this.knifePreviewPath.length >= 2) {
+        const segments: number[] = [];
+        for (let index = 0; index + 1 < this.knifePreviewPath.length; index++) {
+          const a = this.knifePreviewPath[index], b = this.knifePreviewPath[index + 1];
+          segments.push(a.x, a.y, a.z, b.x, b.y, b.z);
+        }
+        (this.knifePreviewPathLine.geometry as LineSegmentsGeometry).setPositions(segments);
+        this.knifePreviewPathLine.visible = true;
+      } else {
+        this.knifePreviewPathLine.visible = false;
+      }
+    }
     this.setKnifePreviewAnchor(positions.at(-1) ?? null);
   }
 
@@ -1735,6 +1760,7 @@ export class Editor extends EventTarget {
       point: this.knifePreviewHover?.toArray() ?? null,
       anchor: this.knifePreviewAnchor?.toArray() ?? null,
       path: this.knifePreviewPath.map(point => point.toArray()),
+      pathVisible: this.knifePreviewPathLine?.visible ?? false,
       target: this.knifePreviewTarget ? { ...this.knifePreviewTarget } : null,
       validity: this.knifePreviewValidity,
       lockedVertex: this.knifeLockedVertex,
