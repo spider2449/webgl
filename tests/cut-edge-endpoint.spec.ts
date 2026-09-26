@@ -867,3 +867,124 @@ test('Edge-only Knife does not proximity-snap near vertices but accepts an inten
   await page.keyboard.press('Escape');
   await page.evaluate(() => { (window as any).__forgeModelingSettings.knifeSnap = 'vertex-edge'; });
 });
+
+
+test('viewport Knife keeps a face bend pending until a same-face boundary endpoint completes it', async ({ page }) => {
+  await page.goto('/');
+  await page.waitForFunction(() => (window as any).__forge?.selected);
+  await page.evaluate(() => (window as any).__forge.view('front'));
+  await page.locator('#mode').selectOption('edit');
+  await page.getByLabel('Mesh component').selectOption('vertex');
+
+  const target = await page.evaluate(() => {
+    const e = (window as any).__forge;
+    const topology = e.meshTopology;
+    const mesh = e.selected;
+    const position = mesh.geometry.getAttribute('position');
+    const face = topology.polygons.findIndex((polygon: number[]) =>
+      polygon.every((vertex: number) => position.getZ(topology.vertices[vertex][0]) === 1)
+    );
+    if (face < 0) throw new Error('Expected a front logical quad.');
+
+    const boundary = topology.polygons[face];
+    const local = (vertex: number) =>
+      mesh.position.clone().fromBufferAttribute(position, topology.vertices[vertex][0]);
+    const boundaryPoints = boundary.map(local);
+    const center = boundaryPoints
+      .reduce((sum: any, value: any) => sum.add(value), new THREE.Vector3())
+      .multiplyScalar(1 / boundaryPoints.length);
+    const interior = center.clone().lerp(boundaryPoints[1], 0.2);
+
+    const rect = e.host.getBoundingClientRect();
+    const screen = (point: any) => {
+      mesh.updateWorldMatrix(true, true);
+      e.camera.updateMatrixWorld(true);
+      const projected = mesh.localToWorld(point.clone()).project(e.camera);
+      return {
+        local: point.toArray(),
+        x: rect.left + (projected.x + 1) * rect.width / 2,
+        y: rect.top + (1 - projected.y) * rect.height / 2,
+      };
+    };
+
+    return {
+      before: e.snapshot(),
+      face,
+      start: screen(boundaryPoints[0]),
+      interior: screen(interior),
+      end: screen(boundaryPoints[2]),
+    };
+  });
+
+  await page.keyboard.press('k');
+  await page.mouse.click(target.start.x, target.start.y);
+  await expect(page.locator('#toast')).toContainText('Knife start set');
+
+  await page.mouse.move(target.interior.x, target.interior.y);
+  let preview = await page.evaluate(() => (window as any).__forge.knifePreviewState);
+  expect(preview.target.kind).toBe('face');
+  expect(preview.target.face).toBe(target.face);
+  expect(preview.validity).toBe('valid');
+
+  await page.mouse.click(target.interior.x, target.interior.y);
+  await expect(page.locator('#toast')).toContainText('Knife bend point set');
+  expect(await page.evaluate(() => (window as any).__forge.snapshot())).toBe(target.before);
+
+  preview = await page.evaluate(() => (window as any).__forge.knifePreviewState);
+  expect(preview.anchor).not.toBeNull();
+  preview.anchor.forEach((value: number, index: number) =>
+    expect(value).toBeCloseTo(target.interior.local[index], 4)
+  );
+
+  await page.mouse.move(target.end.x, target.end.y);
+  preview = await page.evaluate(() => (window as any).__forge.knifePreviewState);
+  expect(preview.target.kind).toBe('vertex');
+  expect(preview.validity).toBe('valid');
+
+  await page.mouse.click(target.end.x, target.end.y);
+  await page.waitForFunction(() => !(window as any).__forge.modelingBusy && (window as any).__forge.snapTargetPending);
+  await expect(page.locator('#toast')).toContainText('Knife segment complete');
+
+  const result = await page.evaluate(expected => {
+    const e = (window as any).__forge;
+    const topology = e.meshTopology;
+    const position = e.selected.geometry.getAttribute('position');
+    const findVertex = (point: number[]) => topology.logicalVertices.find((vertex: number) => {
+      const raw = topology.vertices[vertex][0];
+      return Math.hypot(
+        position.getX(raw) - point[0],
+        position.getY(raw) - point[1],
+        position.getZ(raw) - point[2],
+      ) < 1e-5;
+    });
+    const interiorVertex = findVertex(expected.interior);
+    const endVertex = findVertex(expected.end);
+    return {
+      snapshot: e.snapshot(),
+      polygons: topology.polygons.length,
+      logicalVertices: topology.logicalVertices.length,
+      polygonEdges: topology.polygonEdges.length,
+      interiorFound: interiorVertex !== undefined,
+      interiorUses: interiorVertex === undefined
+        ? 0
+        : topology.polygons.filter((polygon: number[]) => polygon.includes(interiorVertex)).length,
+      endFound: endVertex !== undefined,
+      pending: e.snapTargetPending,
+      anchor: e.knifePreviewState.anchor,
+    };
+  }, { interior: target.interior.local, end: target.end.local });
+
+  expect(result.snapshot).not.toBe(target.before);
+  expect(result.polygons).toBe(7);
+  expect(result.logicalVertices).toBe(9);
+  expect(result.polygonEdges).toBe(14);
+  expect(result.interiorFound).toBe(true);
+  expect(result.interiorUses).toBe(2);
+  expect(result.endFound).toBe(true);
+  expect(result.pending).toBe(true);
+  result.anchor.forEach((value: number, index: number) =>
+    expect(value).toBeCloseTo(target.end.local[index], 4)
+  );
+
+  await page.keyboard.press('Escape');
+});
