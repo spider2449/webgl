@@ -68,6 +68,57 @@ test('interior Knife bend creates one true logical interior vertex and two cut e
   plane.dispose();
 });
 
+test('interior Knife bend inserts two edge endpoints before splitting the logical face', () => {
+  const plane = new THREE.PlaneGeometry(2, 2, 1, 1);
+  const input = buildTopology(plane.getAttribute('position').array, plane.index?.array, true);
+  const face = 0;
+  const boundary = input.polygons[face];
+  const edgeId = (a: number, b: number) => input.polygonEdges.findIndex(([x, y]) =>
+    (x === a && y === b) || (x === b && y === a)
+  );
+  const startEdge = edgeId(boundary[0], boundary[1]);
+  const endEdge = edgeId(boundary[2], boundary[3]);
+  expect(startEdge).toBeGreaterThanOrEqual(0);
+  expect(endEdge).toBeGreaterThanOrEqual(0);
+
+  const edgePoint = (edge: number, t: number) => {
+    const [a, b] = input.polygonEdges[edge];
+    return point(plane, input, a).lerp(point(plane, input, b), t);
+  };
+  const startExpected = edgePoint(startEdge, 0.3);
+  const endExpected = edgePoint(endEdge, 0.65);
+  const center = boundary
+    .map(vertex => point(plane, input, vertex))
+    .reduce((sum, value) => sum.add(value), new THREE.Vector3())
+    .multiplyScalar(1 / boundary.length);
+  const interior = center.clone().lerp(point(plane, input, boundary[1]), 0.15);
+
+  const result = cutLogicalFaceViaPoint(plane, {
+    face,
+    start: { kind: 'edge', edge: startEdge, t: 0.3 },
+    interior: interior.toArray() as [number, number, number],
+    end: { kind: 'edge', edge: endEdge, t: 0.65 },
+  }, input.polygonTriangles);
+
+  const output = buildTopology(
+    result.geometry.getAttribute('position').array,
+    result.geometry.index?.array,
+    result.polygonTriangles,
+  );
+  expect(output.polygons).toHaveLength(2);
+  expect(output.logicalVertices).toHaveLength(7);
+  expect(output.polygonEdges).toHaveLength(8);
+
+  for (const expected of [startExpected, interior, endExpected]) {
+    expect(output.logicalVertices.some(vertex =>
+      point(result.geometry, output, vertex).distanceToSquared(expected) < 1e-12
+    )).toBe(true);
+  }
+
+  result.geometry.dispose();
+  plane.dispose();
+});
+
 test('edge endpoint cut inserts one logical midpoint and splits only the selected face', () => {
   const box = new THREE.BoxGeometry(2, 2, 2);
   const before = JSON.stringify(box.toJSON());
