@@ -172,6 +172,12 @@ function triangulateBoundary(
   const extent = Math.max(maxX - minX, maxY - minY, 1);
   const epsilon = extent * extent * 1e-12;
 
+  const collinear = corners.map((_, index) => {
+    const previous = (index + corners.length - 1) % corners.length;
+    const next = (index + 1) % corners.length;
+    return Math.abs(cross(previous, index, next)) <= epsilon;
+  });
+
   const remaining = corners.map((_, index) => index);
   const triangles: Corner[][] = [];
   while (remaining.length > 3) {
@@ -217,6 +223,11 @@ function triangulateBoundary(
           points[next].distanceTo(points[previous]);
         score += area / Math.max(perimeter * perimeter, 1e-12);
       }
+      // A boundary point inserted on an existing edge is intentionally
+      // collinear. Prefer clipping one of its neighboring ears early so the
+      // point remains part of the tessellation instead of becoming the final
+      // degenerate three-point remainder.
+      if (collinear[previous] || collinear[next]) score += 100_000;
       if (forbiddenDiagonals) {
         const currentPosition = key(corners[current].position);
         if ([...forbiddenDiagonals].some(edge => edge.startsWith(`${currentPosition}|`) || edge.endsWith(`|${currentPosition}`))) {
