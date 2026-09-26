@@ -1232,6 +1232,30 @@ async function loopCutSelectedEdge() {
     toast('Loop cut complete.');
   } catch (error) { toast((error as Error).message); }
 }
+async function cutFaceBetweenSelectedVertices() {
+  try {
+    if (!editor.editMode || editor.componentMode !== 'vertex' || editor.componentSelection.length !== 2 || !editor.meshTopology) {
+      throw new Error('Select exactly two non-adjacent vertices on one face.');
+    }
+    const vertices = editor.componentSelection as [number, number];
+    const candidates = editor.meshTopology.polygons.flatMap((polygon, face) => {
+      const first = polygon.indexOf(vertices[0]);
+      const second = polygon.indexOf(vertices[1]);
+      if (first < 0 || second < 0) return [];
+      const distance = Math.abs(first - second);
+      if (distance === 1 || distance === polygon.length - 1) return [];
+      return [face];
+    });
+    if (candidates.length !== 1) throw new Error('Selected vertices must define one unambiguous face cut.');
+    await editor.runModeling({
+      kind: 'cut-face',
+      face: candidates[0],
+      vertices,
+      polygonTriangles: editor.meshTopology.polygonTriangles.map(group => [...group]),
+    });
+    toast('Face cut between selected vertices.');
+  } catch (error) { toast((error as Error).message); }
+}
 async function deleteSelectedComponents() {
   try {
     if (!editor.editMode || !editor.componentSelection.length || !editor.meshTopology) throw new Error('Select mesh components in Edit Mode first.');
@@ -1259,6 +1283,7 @@ const modelingCommands = {
   vertexSnap: startVertexSnap,
   bevelEdges: bevelSelectedEdges,
   loopCut: loopCutSelectedEdge,
+  cutFace: cutFaceBetweenSelectedVertices,
   deleteComponents: deleteSelectedComponents,
 };
 
@@ -1312,13 +1337,15 @@ function viewportContextMode(): ViewportContextMode {
 function viewportContextCommands(mode: ViewportContextMode): ViewportContextCommand[] {
   const hasComponents = () => editor.componentSelection.length > 0 && !editor.modelingBusy;
   const oneComponent = () => editor.componentSelection.length === 1 && !editor.modelingBusy;
+  const twoComponents = () => editor.componentSelection.length === 2 && !editor.modelingBusy;
   const hasObject = () => !!editor.selected && !editor.modelingBusy;
 
   if (mode === 'vertex') return [
     { label: 'Move', shortcut: 'G', action: () => tool('translate'), enabled: hasComponents },
     { label: 'Rotate', shortcut: 'R', action: () => tool('rotate'), enabled: hasComponents },
     { label: 'Scale', shortcut: 'S', action: () => tool('scale'), enabled: hasComponents },
-    { label: 'Snap Selection…', action: modelingCommands.vertexSnap, enabled: hasComponents, separatorBefore: true },
+    { label: 'Cut Face', action: modelingCommands.cutFace, enabled: twoComponents, separatorBefore: true },
+    { label: 'Snap Selection…', action: modelingCommands.vertexSnap, enabled: hasComponents },
     { label: 'Delete Vertices', shortcut: 'Del', action: modelingCommands.deleteComponents, enabled: hasComponents, separatorBefore: true, danger: true },
   ];
   if (mode === 'edge') return [
