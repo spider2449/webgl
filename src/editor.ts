@@ -128,7 +128,14 @@ export class Editor extends EventTarget {
   private faceDisplay: 'front' | 'double' = 'double';
   private originalMaterialSides = new WeakMap<THREE.Material, THREE.Side>();
   private solid = new THREE.MeshStandardMaterial({ color: 0x666a70, roughness: 0.9, metalness: 0, side: THREE.DoubleSide });
-  private wire = new THREE.MeshBasicMaterial({ color: 0x555a62, wireframe: true, side: THREE.DoubleSide });
+  private wire = new THREE.MeshBasicMaterial({
+    color: 0x555a62,
+    wireframe: false,
+    transparent: true,
+    opacity: 0.12,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+  });
   private resizeObserver: ResizeObserver;
 
   constructor(readonly host: HTMLElement) {
@@ -1209,7 +1216,10 @@ export class Editor extends EventTarget {
     }
     edges.needsUpdate = true;
     this.componentEdges.geometry.computeBoundingSphere();
-    this.componentEdges.visible = this.componentMode !== 'vertex' || (this.snapTargetPending && this.snapTargetKind === 'edge');
+    this.componentEdges.visible =
+      this.viewStyle === 'wire' ||
+      this.componentMode !== 'vertex' ||
+      (this.snapTargetPending && this.snapTargetKind === 'edge');
     const colors = this.vertexPoints.geometry.getAttribute('color');
     const selected = new Set(this.vertexIndices);
     for (let i = 0; i < colors.count; i++) colors.setXYZ(i, 1, selected.has(i) ? 0.45 : 1, selected.has(i) ? 0.12 : 1);
