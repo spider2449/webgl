@@ -9,6 +9,7 @@ export type ModelingOperation =
   | { kind: 'inset'; face: number; distance: number; polygonTriangles?: number[][] }
   | { kind: 'delete-components'; mode: 'vertex' | 'edge' | 'face'; components: number[]; polygonTriangles?: number[][] }
   | { kind: 'cut-face'; face: number; vertices: [number, number]; polygonTriangles?: number[][] }
+  | { kind: 'knife-face'; face: number; endpoints: [{ edge: number; t: number }, { edge: number; t: number }]; polygonTriangles?: number[][] }
   | { kind: 'region'; faces: number[]; distance: number }
   | { kind: 'subdivide'; edges: [number, number][] }
   | { kind: 'subdivide-all' }
