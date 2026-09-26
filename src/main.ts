@@ -1404,7 +1404,6 @@ function undoKnifePendingBend() {
   knifeInteriorRedo.push({ face: knifeInteriorPath.face, point: [...removed] });
   if (!knifeInteriorPath.points.length) {
     knifeInteriorPath = null;
-    knifeInteriorRedo = [];
     editor.setKnifePendingPath([]);
     editor.setKnifePreviewAnchor(knifeAnchor.position);
     armKnife('Last Knife bend removed. Choose a face point or boundary target.');
@@ -1705,6 +1704,7 @@ async function finishKnifeSegment(target: KnifeTarget, targetPosition: [number, 
     }
 
     knifeInteriorPath = null;
+    knifeInteriorRedo = [];
     editor.setKnifePendingPath([]);
     knifeAnchor = { kind: 'vertex', position: targetPosition };
     editor.setKnifePreviewAnchor(targetPosition);
