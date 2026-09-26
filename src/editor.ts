@@ -1300,6 +1300,9 @@ export class Editor extends EventTarget {
       this.knifePendingPoint = null;
       this.knifePendingLine = null;
       this.knifePendingPath = [];
+      this.knifePendingActiveIndex = null;
+      this.knifePendingHoverIndex = null;
+      this.knifePendingDrag = null;
       this.knifePreviewAnchor = null;
       this.knifePreviewHover = null;
       this.knifePreviewTarget = null;
@@ -1894,6 +1897,14 @@ export class Editor extends EventTarget {
 
   setKnifePendingPath(points: [number, number, number][]) {
     this.knifePendingPath = points.map(point => new THREE.Vector3(...point));
+    const bendCount = Math.max(0, this.knifePendingPath.length - 1);
+    if (!bendCount) {
+      this.knifePendingActiveIndex = null;
+      this.knifePendingHoverIndex = null;
+    } else {
+      if (this.knifePendingActiveIndex !== null) this.knifePendingActiveIndex = Math.min(this.knifePendingActiveIndex, bendCount - 1);
+      if (this.knifePendingHoverIndex !== null && this.knifePendingHoverIndex >= bendCount) this.knifePendingHoverIndex = null;
+    }
 
     if (this.knifePendingPoint) {
       const bends = this.knifePendingPath.slice(1);
