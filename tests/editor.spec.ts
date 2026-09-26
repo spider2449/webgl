@@ -863,6 +863,7 @@ test('indexed and expanded triangles produce equivalent seam connectivity', () =
   expect(buildTopology([])).toEqual({
     vertices: [],
     bufferToVertex: [],
+    logicalVertices: [],
     edges: [],
     faces: [],
     polygons: [],
