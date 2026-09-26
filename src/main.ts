@@ -1257,15 +1257,37 @@ async function cutFaceBetweenSelectedVertices() {
     toast('Face cut between selected vertices.');
   } catch (error) { toast((error as Error).message); }
 }
+type KnifeEdgeTarget = { edge: number; t: number };
+let knifeEdgeStart: KnifeEdgeTarget | null = null;
+
 function startKnifeCut() {
   try {
     if (editor.snapTargetPending) editor.cancelVertexSnap();
+    knifeEdgeStart = null;
+    if (!editor.editMode || editor.componentMode !== 'vertex' || editor.componentSelection.length > 1) {
+      throw new Error('Knife requires Vertex mode with zero or one selected logical vertex.');
+    }
     editor.beginKnifeEdgeTarget();
-    toast('Knife: click inside a logical edge on the same face. Escape cancels.');
+    toast(
+      editor.componentSelection.length === 1
+        ? 'Knife: click inside a logical edge on the same face. Escape cancels.'
+        : 'Knife: click the first logical edge. Escape cancels.'
+    );
   } catch (error) { toast((error as Error).message); }
 }
 
-async function finishKnifeCut(edge: number, t: number) {
+const knifeEdgeFaces = (edge: number) => {
+  const topology = editor.meshTopology;
+  const target = topology?.polygonEdges[edge];
+  if (!topology || !target) return [];
+  const edgeKey = (a: number, b: number) => `${Math.min(a, b)}:${Math.max(a, b)}`;
+  const targetKey = edgeKey(target[0], target[1]);
+  return topology.polygons.flatMap((polygon, face) =>
+    polygon.some((a, index) => edgeKey(a, polygon[(index + 1) % polygon.length]) === targetKey) ? [face] : []
+  );
+};
+
+async function finishVertexToEdgeKnife(edge: number, t: number) {
   try {
     if (!editor.editMode || editor.componentMode !== 'vertex' || editor.componentSelection.length !== 1 || !editor.meshTopology) {
       throw new Error('Knife requires one selected logical start vertex.');
@@ -1274,13 +1296,7 @@ async function finishKnifeCut(edge: number, t: number) {
     const vertex = editor.componentSelection[0];
     const target = topology.polygonEdges[edge];
     if (!target) throw new Error('Knife target must be a logical edge.');
-    const edgeKey = (a: number, b: number) => `${Math.min(a, b)}:${Math.max(a, b)}`;
-    const targetKey = edgeKey(target[0], target[1]);
-    const candidates = topology.polygons.flatMap((polygon, face) => {
-      if (!polygon.includes(vertex) || target.includes(vertex)) return [];
-      const hasTarget = polygon.some((a, index) => edgeKey(a, polygon[(index + 1) % polygon.length]) === targetKey);
-      return hasTarget ? [face] : [];
-    });
+    const candidates = knifeEdgeFaces(edge).filter(face => topology.polygons[face].includes(vertex) && !target.includes(vertex));
     if (candidates.length !== 1) throw new Error('Knife start vertex and target edge must define one unambiguous logical face.');
     await editor.runModeling({
       kind: 'cut-face-edge',
@@ -1294,10 +1310,62 @@ async function finishKnifeCut(edge: number, t: number) {
   } catch (error) { toast((error as Error).message); }
 }
 
+async function finishEdgeToEdgeKnife(second: KnifeEdgeTarget) {
+  try {
+    if (!editor.editMode || editor.componentMode !== 'vertex' || editor.componentSelection.length !== 0 || !editor.meshTopology || !knifeEdgeStart) {
+      throw new Error('Edge-to-edge Knife requires no selected start vertex.');
+    }
+    const first = knifeEdgeStart;
+    knifeEdgeStart = null;
+    if (first.edge === second.edge) throw new Error('Choose a different second logical edge.');
+
+    const topology = editor.meshTopology;
+    const secondFaces = new Set(knifeEdgeFaces(second.edge));
+    const candidates = knifeEdgeFaces(first.edge).filter(face => secondFaces.has(face));
+    if (candidates.length !== 1) throw new Error('The two Knife edges must define one unambiguous logical face.');
+    await editor.runModeling({
+      kind: 'cut-face-edges',
+      face: candidates[0],
+      firstEdge: first.edge,
+      firstT: first.t,
+      secondEdge: second.edge,
+      secondT: second.t,
+      polygonTriangles: topology.polygonTriangles.map(group => [...group]),
+    });
+    toast('Knife edge-to-edge cut complete. Two true logical vertices were created.');
+  } catch (error) {
+    knifeEdgeStart = null;
+    toast((error as Error).message);
+  }
+}
+
 editor.addEventListener('knife-edge-target', event => {
-  const detail = (event as CustomEvent<{ edge: number; t: number }>).detail;
-  void finishKnifeCut(detail.edge, detail.t);
+  const detail = (event as CustomEvent<KnifeEdgeTarget>).detail;
+  if (editor.componentSelection.length === 1) {
+    knifeEdgeStart = null;
+    void finishVertexToEdgeKnife(detail.edge, detail.t);
+    return;
+  }
+  if (editor.componentSelection.length !== 0) {
+    knifeEdgeStart = null;
+    toast('Knife requires zero or one selected logical vertex.');
+    return;
+  }
+  if (!knifeEdgeStart) {
+    knifeEdgeStart = detail;
+    try {
+      editor.beginKnifeEdgeTarget();
+      toast('Knife: click a different logical edge on the same face. Escape cancels.');
+    } catch (error) {
+      knifeEdgeStart = null;
+      toast((error as Error).message);
+    }
+    return;
+  }
+  void finishEdgeToEdgeKnife(detail);
 });
+
+editor.addEventListener('mode', () => { knifeEdgeStart = null; });
 
 async function deleteSelectedComponents() {
   try {
@@ -1382,13 +1450,14 @@ function viewportContextCommands(mode: ViewportContextMode): ViewportContextComm
   const hasComponents = () => editor.componentSelection.length > 0 && !editor.modelingBusy;
   const oneComponent = () => editor.componentSelection.length === 1 && !editor.modelingBusy;
   const twoComponents = () => editor.componentSelection.length === 2 && !editor.modelingBusy;
+  const knifeReady = () => editor.componentSelection.length <= 1 && !editor.modelingBusy;
   const hasObject = () => !!editor.selected && !editor.modelingBusy;
 
   if (mode === 'vertex') return [
     { label: 'Move', shortcut: 'G', action: () => tool('translate'), enabled: hasComponents },
     { label: 'Rotate', shortcut: 'R', action: () => tool('rotate'), enabled: hasComponents },
     { label: 'Scale', shortcut: 'S', action: () => tool('scale'), enabled: hasComponents },
-    { label: 'Knife', shortcut: 'K', action: modelingCommands.knife, enabled: oneComponent, separatorBefore: true },
+    { label: 'Knife', shortcut: 'K', action: modelingCommands.knife, enabled: knifeReady, separatorBefore: true },
     { label: 'Cut Face', action: modelingCommands.cutFace, enabled: twoComponents },
     { label: 'Snap Selection…', action: modelingCommands.vertexSnap, enabled: hasComponents },
     { label: 'Delete Vertices', shortcut: 'Del', action: modelingCommands.deleteComponents, enabled: hasComponents, separatorBefore: true, danger: true },
@@ -2720,7 +2789,7 @@ document.addEventListener('keydown', e => {
       animationGraph.selectKeyFrame(null);
       updateTimeline();
     } else if (editor.modelingBusy) editor.cancelModeling();
-    else if (editor.snapTargetPending) editor.cancelVertexSnap();
+    else if (editor.snapTargetPending) { knifeEdgeStart = null; editor.cancelVertexSnap(); }
     else if (editor.transform.dragging) editor.transform.reset();
     else editor.select(null);
   }
