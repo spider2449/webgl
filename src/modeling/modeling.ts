@@ -251,7 +251,7 @@ function finishDetailed(polygons: Polygon[]) {
   const values: Record<string, number[]> = {}, sizes: Record<string, number> = {}, groups: { start: number; count: number; material: number }[] = [];
   const polygonTriangles: number[][] = [];
   let count = 0;
-  for (const { corners, material } of polygons) {
+  for (const { corners, material, referenceNormals, forbiddenDiagonals } of polygons) {
     if (corners.length < 3) continue;
     // Rendering tessellation is not modeling topology. Triangulate only with
     // existing polygon corners: never create centroid/interior vertices.
