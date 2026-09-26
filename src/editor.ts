@@ -102,6 +102,7 @@ export class Editor extends EventTarget {
   private knifePreviewAnchor: THREE.Vector3 | null = null;
   private knifePreviewHover: THREE.Vector3 | null = null;
   private knifePreviewTarget: KnifePickTarget | null = null;
+  private knifePreviewValidity: 'neutral' | 'valid' | 'invalid' = 'neutral';
   private componentCenter = new THREE.Vector3();
   private proportionalEnabled = false;
   private proportionalRadius = 2;
@@ -1168,6 +1169,7 @@ export class Editor extends EventTarget {
       this.knifePreviewAnchor = null;
       this.knifePreviewHover = null;
       this.knifePreviewTarget = null;
+      this.knifePreviewValidity = 'neutral';
       this.topology = null;
       this.vertexPoints.geometry.dispose();
       (this.vertexPoints.material as THREE.Material).dispose();
@@ -1602,6 +1604,7 @@ export class Editor extends EventTarget {
   private setKnifePreview(pick: KnifePick | null) {
     this.knifePreviewTarget = pick?.detail ?? null;
     this.knifePreviewHover = pick?.point.clone() ?? null;
+    this.setKnifePreviewValidity(null);
     if (this.knifePreviewPoint) {
       if (pick) {
         this.knifePreviewPoint.geometry.setAttribute('position', new THREE.Float32BufferAttribute(pick.point.toArray(), 3));
@@ -1622,6 +1625,16 @@ export class Editor extends EventTarget {
         this.knifePreviewLine.visible = false;
       }
     }
+    this.dispatchEvent(new CustomEvent('knife-preview', { detail: pick?.detail ?? null }));
+    this.invalidate();
+  }
+
+  setKnifePreviewValidity(valid: boolean | null) {
+    this.knifePreviewValidity = valid === null ? 'neutral' : valid ? 'valid' : 'invalid';
+    const pointColor = valid === null ? 0xffe08a : valid ? 0x7ee787 : 0xff6b6b;
+    const lineColor = valid === null ? 0xffd060 : valid ? 0x62d982 : 0xff6b6b;
+    if (this.knifePreviewPoint) (this.knifePreviewPoint.material as THREE.PointsMaterial).color.setHex(pointColor);
+    if (this.knifePreviewLine) (this.knifePreviewLine.material as LineMaterial).color.setHex(lineColor);
     this.invalidate();
   }
 
@@ -1648,6 +1661,7 @@ export class Editor extends EventTarget {
       point: this.knifePreviewHover?.toArray() ?? null,
       anchor: this.knifePreviewAnchor?.toArray() ?? null,
       target: this.knifePreviewTarget ? { ...this.knifePreviewTarget } : null,
+      validity: this.knifePreviewValidity,
     };
   }
 
