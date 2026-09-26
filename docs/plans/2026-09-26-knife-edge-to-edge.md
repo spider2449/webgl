@@ -26,6 +26,19 @@ This is the default.
 
 The control is exposed as `Knife Snap` in the Vertex context menu next to the Knife operator.
 
+## Live hover preview
+
+Knife now previews the exact candidate before a click commits anything.
+
+- before the first click, moving the mouse over a valid logical edge or vertex shows a highlighted candidate point
+- after a start point exists, moving the mouse also shows a temporary line from the current Knife anchor to the candidate endpoint
+- the preview uses the exact same picker as the click path, so the point shown on screen is the point that will be committed
+- with `Vertex + Edge`, entering a logical vertex's snap range moves the preview exactly onto that vertex
+- moving away from valid topology hides the candidate instead of inventing an arbitrary face point
+- leaving Knife with `Esc` clears both the preview point and preview line
+
+This gives visual confirmation of both the start and destination before each segment is committed.
+
 ## Continuous interaction
 
 1. Enter Edit Mode -> Vertex.
@@ -84,6 +97,17 @@ npm test -- --workers=2
 ```
 
 Manual checks:
+
+### Hover preview
+
+1. Cube -> Edit Mode -> Vertex.
+2. Press `K`.
+3. Move the mouse along a visible logical edge without clicking.
+4. Confirm the highlighted preview point follows the edge.
+5. Move onto a logical vertex and confirm the preview snaps exactly to it.
+6. Click a start point, then move toward another edge/vertex.
+7. Confirm a temporary line follows from the start anchor to the hovered candidate.
+8. Press `Esc` and confirm both preview helpers disappear.
 
 ### Snap directly to a vertex
 
