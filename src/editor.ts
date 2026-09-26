@@ -1111,6 +1111,7 @@ export class Editor extends EventTarget {
   setEditMode(enabled: boolean, preparedTopology?: MeshTopology, weightMode = false) {
     this.modelingVersion++;
     this.cancelVertexSnap();
+    this.clearKnifeState();
     const nextWeightMode = enabled && weightMode;
     if (enabled && (!(this.selected instanceof THREE.Mesh) || (!nextWeightMode && this.selected instanceof THREE.SkinnedMesh) || this.playing || this.selected.userData.modifierStack)) return false;
     this.weightMode = nextWeightMode;
@@ -1206,6 +1207,7 @@ export class Editor extends EventTarget {
     if (this.weightMode && mode !== 'vertex') throw new Error('Weight Mode supports vertex selection only.');
     this.modelingVersion++;
     this.cancelVertexSnap();
+    this.clearKnifeState();
     this.componentDrag = null;
     this.componentMode = mode;
     this.selectedComponents.clear();
@@ -1616,6 +1618,7 @@ export class Editor extends EventTarget {
   }
   beginVertexSnap(kind: 'vertex' | 'edge' | 'surface' = 'vertex') {
     if (!this.editMode || !this.vertexIndices.length || this.playing || this.transform.dragging) throw new Error('Select mesh components in Edit Mode and finish the current drag first.');
+    this.cancelKnife();
     this.snapTargetKind = kind;
     this.snapTargetPending = true;
     this.refreshComponents();
@@ -1713,7 +1716,7 @@ export class Editor extends EventTarget {
       meshes.forEach((mesh, i) => {
         if (operation.kind === 'uv') {
           this.markPrimitiveApplied(mesh);
-        } else if ((operation.kind === 'bevel' || operation.kind === 'extrude' || operation.kind === 'inset' || operation.kind === 'loop' || operation.kind === 'delete-components' || operation.kind === 'cut-face') && topologies[i]) {
+        } else if ((operation.kind === 'bevel' || operation.kind === 'extrude' || operation.kind === 'inset' || operation.kind === 'loop' || operation.kind === 'delete-components' || operation.kind === 'cut-face' || operation.kind === 'knife-face') && topologies[i]) {
           this.markPrimitiveApplied(mesh);
           if (mesh.userData.forgeLogicalQuads !== undefined) delete mesh.userData.forgeLogicalQuads;
           mesh.userData.forgePolygonTriangles = topologies[i]!.polygonTriangles.map(group => [...group]);
@@ -1728,13 +1731,13 @@ export class Editor extends EventTarget {
         // main thread. This keeps raycast faceIndex -> logical polygon mapping
         // aligned with the parsed BufferGeometry rather than trusting a
         // transient worker-side triangle numbering.
-        const rebuildFromStoredPolygons = operation.kind === 'bevel' || operation.kind === 'extrude' || operation.kind === 'inset' || operation.kind === 'loop' || operation.kind === 'delete-components' || operation.kind === 'cut-face';
+        const rebuildFromStoredPolygons = operation.kind === 'bevel' || operation.kind === 'extrude' || operation.kind === 'inset' || operation.kind === 'loop' || operation.kind === 'delete-components' || operation.kind === 'cut-face' || operation.kind === 'knife-face';
         this.setEditMode(true, operation.kind === 'uv' || rebuildFromStoredPolygons ? undefined : topologies[0]);
         if (operation.kind === 'subdivide') {
           this.restoreSubdivisionSelection(oldMode, oldEdges, midpoint);
         } else if (operation.kind === 'subdivide-all') {
           this.setComponentMode(oldMode);
-        } else if (operation.kind === 'loop' || operation.kind === 'delete-components' || operation.kind === 'cut-face') {
+        } else if (operation.kind === 'loop' || operation.kind === 'delete-components' || operation.kind === 'cut-face' || operation.kind === 'knife-face') {
           this.setComponentMode(oldMode);
         } else if (['uv', 'inset', 'extrude', 'region'].includes(operation.kind)) {
           const restoredFaces =
