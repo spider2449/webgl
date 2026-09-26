@@ -1499,8 +1499,17 @@ export class Editor extends EventTarget {
   cancelKnife() {
     if (!this.knifePending && this.knifeFace === null && !this.knifeFirst) return false;
     this.clearKnifeState();
-    this.refreshComponents();
-    this.invalidate();
+    if (this.topology && this.editMode) {
+      const vertices = [...this.selectedComponents].flatMap(id =>
+        this.componentMode === 'vertex' ? [id] :
+        this.componentMode === 'edge' ? this.topology!.polygonEdges[id] ?? [] :
+        this.topology!.polygons[id] ?? []
+      );
+      this.selectComponentVertices(vertices);
+    } else {
+      this.refreshComponents();
+      this.invalidate();
+    }
     this.emit('knife-cancel');
     return true;
   }
@@ -1605,6 +1614,14 @@ export class Editor extends EventTarget {
     }).then(() => {
       this.dispatchEvent(new Event('knife-complete'));
     }).catch(error => {
+      if (this.topology && this.editMode) {
+        const vertices = [...this.selectedComponents].flatMap(id =>
+          this.componentMode === 'vertex' ? [id] :
+          this.componentMode === 'edge' ? this.topology!.polygonEdges[id] ?? [] :
+          this.topology!.polygons[id] ?? []
+        );
+        this.selectComponentVertices(vertices);
+      }
       this.dispatchEvent(new CustomEvent('knife-error', { detail: (error as Error).message }));
     });
   }
