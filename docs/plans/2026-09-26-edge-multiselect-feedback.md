@@ -13,8 +13,8 @@ Make every selected Edit Mode edge visibly selected, regardless of whether selec
 
 Current intended values:
 
-- selected edge linewidth: 6 px
-- active edge linewidth: 9 px
+- selected edge linewidth: 4 px
+- active edge linewidth: 6 px
 - unselected material/solid edge opacity: 0.42
 - unselected wire edge opacity: 0.48
 
