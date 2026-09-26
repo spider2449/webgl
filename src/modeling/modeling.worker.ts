@@ -18,14 +18,19 @@ self.onmessage = (event: MessageEvent<{ source: ReturnType<THREE.BufferGeometry[
         if (!op.segments.length) throw new Error('Knife session requires at least one segment.');
         let current = source;
         let groups = op.polygonTriangles;
-        for (const segment of op.segments) {
-          const cut = cutLogicalSegmentByPositions(current, segment, groups);
+        try {
+          for (const segment of op.segments) {
+            const cut = cutLogicalSegmentByPositions(current, segment, groups);
+            if (current !== source) current.dispose();
+            current = cut.geometry;
+            groups = cut.polygonTriangles;
+          }
+          result = current;
+          logicalGroups = groups;
+        } catch (error) {
           if (current !== source) current.dispose();
-          current = cut.geometry;
-          groups = cut.polygonTriangles;
+          throw error;
         }
-        result = current;
-        logicalGroups = groups;
         break;
       }
       case 'topology': self.postMessage({ topology: inspectGeometry(source, op.polygonTriangles ?? op.pairTriangles ?? false).topology, milliseconds: performance.now() - start }); return;
