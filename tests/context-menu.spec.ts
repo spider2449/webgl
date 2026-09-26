@@ -132,6 +132,8 @@ test('Edit Mode RMB menu changes with Vertex, Edge and Face component mode', asy
   await expect(menu.getByRole('menuitem', { name: 'Move G' })).toBeVisible();
   await expect(menu.getByRole('menuitem', { name: 'Rotate R' })).toBeVisible();
   await expect(menu.getByRole('menuitem', { name: 'Scale S' })).toBeVisible();
+  await expect(menu.getByRole('menuitem', { name: 'Knife K' })).toBeVisible();
+  await expect(menu.getByRole('menuitem', { name: 'Knife K' })).toBeEnabled();
   await expect(menu.getByRole('menuitem', { name: 'Cut Face' })).toBeVisible();
   await expect(menu.getByRole('menuitem', { name: 'Cut Face' })).toBeDisabled();
   await expect(menu.getByRole('menuitem', { name: 'Snap Selection…' })).toBeVisible();
