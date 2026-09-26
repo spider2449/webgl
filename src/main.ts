@@ -1455,10 +1455,10 @@ function planKnifeSegment(target: KnifeTarget): { plan: KnifeSegmentPlan | null;
     try {
       validateLogicalFaceInteriorKnifeLeg(
         editor.selected.geometry,
+        topology,
         knifeInterior.face,
         endPosition,
         knifeInterior.position,
-        topology.polygonTriangles,
       );
     } catch (error) {
       return { plan: null, reason: (error as Error).message };
@@ -1486,10 +1486,10 @@ function planKnifeSegment(target: KnifeTarget): { plan: KnifeSegmentPlan | null;
     try {
       validateLogicalFaceInteriorKnifeLeg(
         editor.selected.geometry,
+        topology,
         target.face,
         anchor.position,
         target.position,
-        topology.polygonTriangles,
       );
     } catch (error) {
       return { plan: null, reason: (error as Error).message };
