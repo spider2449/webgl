@@ -1143,14 +1143,14 @@ export class Editor extends EventTarget {
       this.selectedVertexOverlay.userData.forgeEditorHelper = true;
       this.selectedVertexOverlay.renderOrder = 12;
 
-      const selectedEdgeMaterial = new LineMaterial({ color: 0xffa94d, linewidth: 6, worldUnits: false, depthTest: false, depthWrite: false });
+      const selectedEdgeMaterial = new LineMaterial({ color: 0xffa94d, linewidth: 4, worldUnits: false, depthTest: false, depthWrite: false });
       selectedEdgeMaterial.resolution.copy(this.renderer.getSize(new THREE.Vector2()));
       this.selectedEdgeOverlay = new LineSegments2(new LineSegmentsGeometry(), selectedEdgeMaterial);
       this.selectedEdgeOverlay.userData.forgeEditorHelper = true;
       this.selectedEdgeOverlay.renderOrder = 13;
       this.selectedEdgeOverlay.frustumCulled = false;
 
-      const activeEdgeMaterial = new LineMaterial({ color: 0xfff2db, linewidth: 9, worldUnits: false, depthTest: false, depthWrite: false });
+      const activeEdgeMaterial = new LineMaterial({ color: 0xfff2db, linewidth: 6, worldUnits: false, depthTest: false, depthWrite: false });
       activeEdgeMaterial.resolution.copy(this.renderer.getSize(new THREE.Vector2()));
       this.activeEdgeOverlay = new LineSegments2(new LineSegmentsGeometry(), activeEdgeMaterial);
       this.activeEdgeOverlay.userData.forgeEditorHelper = true;
