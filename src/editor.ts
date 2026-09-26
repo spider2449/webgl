@@ -102,8 +102,7 @@ export class Editor extends EventTarget {
   private knifePreviewLine: LineSegments2 | null = null;
   private knifePendingPoint: THREE.Points | null = null;
   private knifePendingLine: LineSegments2 | null = null;
-  private knifePendingStart: THREE.Vector3 | null = null;
-  private knifePendingBend: THREE.Vector3 | null = null;
+  private knifePendingPath: THREE.Vector3[] = [];
   private knifePreviewAnchor: THREE.Vector3 | null = null;
   private knifePreviewHover: THREE.Vector3 | null = null;
   private knifePreviewTarget: KnifePickTarget | null = null;
@@ -1177,8 +1176,7 @@ export class Editor extends EventTarget {
       this.knifePreviewLine = null;
       this.knifePendingPoint = null;
       this.knifePendingLine = null;
-      this.knifePendingStart = null;
-      this.knifePendingBend = null;
+      this.knifePendingPath = [];
       this.knifePreviewAnchor = null;
       this.knifePreviewHover = null;
       this.knifePreviewTarget = null;
@@ -1743,15 +1741,15 @@ export class Editor extends EventTarget {
     this.invalidate();
   }
 
-  setKnifePendingBend(start: [number, number, number] | null, bend: [number, number, number] | null) {
-    this.knifePendingStart = start ? new THREE.Vector3(...start) : null;
-    this.knifePendingBend = bend ? new THREE.Vector3(...bend) : null;
+  setKnifePendingPath(points: [number, number, number][]) {
+    this.knifePendingPath = points.map(point => new THREE.Vector3(...point));
 
     if (this.knifePendingPoint) {
-      if (this.knifePendingBend) {
+      const bends = this.knifePendingPath.slice(1);
+      if (bends.length) {
         this.knifePendingPoint.geometry.setAttribute(
           'position',
-          new THREE.Float32BufferAttribute(this.knifePendingBend.toArray(), 3),
+          new THREE.Float32BufferAttribute(bends.flatMap(point => point.toArray()), 3),
         );
         this.knifePendingPoint.geometry.computeBoundingSphere();
         this.knifePendingPoint.visible = true;
@@ -1761,21 +1759,24 @@ export class Editor extends EventTarget {
     }
 
     if (this.knifePendingLine) {
-      if (
-        this.knifePendingStart &&
-        this.knifePendingBend &&
-        this.knifePendingStart.distanceToSquared(this.knifePendingBend) > 1e-16
-      ) {
-        (this.knifePendingLine.geometry as LineSegmentsGeometry).setPositions([
-          this.knifePendingStart.x, this.knifePendingStart.y, this.knifePendingStart.z,
-          this.knifePendingBend.x, this.knifePendingBend.y, this.knifePendingBend.z,
-        ]);
+      if (this.knifePendingPath.length >= 2) {
+        const segments: number[] = [];
+        for (let index = 0; index + 1 < this.knifePendingPath.length; index++) {
+          const a = this.knifePendingPath[index];
+          const b = this.knifePendingPath[index + 1];
+          segments.push(a.x, a.y, a.z, b.x, b.y, b.z);
+        }
+        (this.knifePendingLine.geometry as LineSegmentsGeometry).setPositions(segments);
         this.knifePendingLine.visible = true;
       } else {
         this.knifePendingLine.visible = false;
       }
     }
     this.invalidate();
+  }
+
+  setKnifePendingBend(start: [number, number, number] | null, bend: [number, number, number] | null) {
+    this.setKnifePendingPath(start && bend ? [start, bend] : []);
   }
 
   setKnifePreviewAnchor(position: [number, number, number] | null) {
@@ -1800,8 +1801,9 @@ export class Editor extends EventTarget {
       lineVisible: this.knifePreviewLine?.visible ?? false,
       point: this.knifePreviewHover?.toArray() ?? null,
       anchor: this.knifePreviewAnchor?.toArray() ?? null,
-      pendingStart: this.knifePendingStart?.toArray() ?? null,
-      pendingBend: this.knifePendingBend?.toArray() ?? null,
+      pendingPath: this.knifePendingPath.map(point => point.toArray()),
+      pendingStart: this.knifePendingPath[0]?.toArray() ?? null,
+      pendingBend: this.knifePendingPath.at(-1)?.toArray() ?? null,
       pendingPointVisible: this.knifePendingPoint?.visible ?? false,
       pendingLineVisible: this.knifePendingLine?.visible ?? false,
       target: this.knifePreviewTarget ? { ...this.knifePreviewTarget } : null,
