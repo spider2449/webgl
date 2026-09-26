@@ -43,6 +43,32 @@ test('edge endpoint cut inserts one logical midpoint and splits only the selecte
   expect(new Set(output.polygons.flat()).size).toBe(output.logicalVertices.length);
 });
 
+test('edge endpoint cut remaps the start vertex after retessellation on every Cube face', () => {
+  for (let face = 0; face < 6; face++) {
+    const box = new THREE.BoxGeometry(2, 2, 2);
+    const input = buildTopology(box.getAttribute('position').array, box.index?.array, true);
+    const boundary = input.polygons[face];
+    const vertex = boundary[0];
+    const edgeA = boundary[1], edgeB = boundary[2];
+    const edge = input.polygonEdges.findIndex(([a, b]) =>
+      (a === edgeA && b === edgeB) || (a === edgeB && b === edgeA)
+    );
+    expect(edge).toBeGreaterThanOrEqual(0);
+
+    const result = cutLogicalFaceToEdge(box, { face, vertex, edge, t: 0.35 }, input.polygonTriangles);
+    const output = buildTopology(
+      result.geometry.getAttribute('position').array,
+      result.geometry.index?.array,
+      result.polygonTriangles,
+    );
+    expect(output.polygons).toHaveLength(7);
+    expect(output.logicalVertices).toHaveLength(9);
+    expect(output.polygons.some(polygon => polygon.length === 3)).toBe(true);
+    result.geometry.dispose();
+    box.dispose();
+  }
+});
+
 test('edge endpoint cut interpolates per-corner UV and color attributes at arbitrary t', () => {
   const plane = new THREE.PlaneGeometry(2, 2, 1, 1);
   const position = plane.getAttribute('position');
