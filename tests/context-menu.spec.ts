@@ -256,7 +256,7 @@ test('RMB Knife inserts edge points and splits one Cube face through real pointe
     const boundary = t.polygons[face];
     const screenMidpoint = (a: number, b: number) => {
       const ia = t.vertices[a][0], ib = t.vertices[b][0];
-      const point = new (window as any).THREE.Vector3(
+      const point = mesh.position.clone().set(
         (position.getX(ia) + position.getX(ib)) / 2,
         (position.getY(ia) + position.getY(ib)) / 2,
         (position.getZ(ia) + position.getZ(ib)) / 2,
