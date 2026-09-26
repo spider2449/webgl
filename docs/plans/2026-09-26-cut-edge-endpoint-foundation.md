@@ -1,19 +1,31 @@
-# Cut endpoint on logical edge
+# Interactive Knife: logical edge endpoint
 
 ## Goal
 
-Take one deliberately bounded step from Cut Face toward Knife: allow one cut endpoint to be created inside an existing logical edge.
+Take one deliberately bounded step from Cut Face toward Knife: allow a cut to start at one existing logical vertex and end at a clicked point inside an existing logical edge on the same logical face.
 
-This task adds the topology primitive only. It does not add a viewport Knife gesture, mixed vertex/edge selection, multi-face walking, or arbitrary surface points.
+This remains a single-face Knife foundation. It does not walk across multiple faces and it does not create arbitrary points inside a face.
 
-## Operation
+## Interaction
 
-`cutLogicalFaceToEdge(source, { face, vertex, edge, t }, polygonTriangles)`:
+1. Enter Edit Mode -> Vertex.
+2. Select exactly one logical vertex.
+3. Press `K` or use RMB -> Knife.
+4. Forge exposes logical `polygonEdges` as the Knife target guides.
+5. Click strictly inside a logical edge on the same face as the selected start vertex.
+6. Forge creates a true logical vertex at the clicked position and splits the face from the selected vertex to that endpoint.
+7. Press `Esc` while waiting for the edge click to cancel.
 
-- `face` is one existing logical polygon.
-- `vertex` is an existing logical boundary vertex on that face.
-- `edge` is a logical boundary edge on that same face.
-- `t` is strictly between 0 and 1 along the edge.
+The clicked endpoint uses the actual picked position along the edge, expressed as `0 < t < 1`; it is not forced to the midpoint.
+
+## Core operation
+
+`cutLogicalFaceToEdge(source, { face, vertex, edge, t }, polygonTriangles)` accepts:
+
+- `face`: one existing logical polygon
+- `vertex`: one existing logical boundary vertex on that face
+- `edge`: one existing logical boundary edge on that face
+- `t`: a strict interior parameter along that edge
 
 The operation first inserts a real logical vertex on the selected edge, including on the neighboring polygon when that edge is shared. It then splits only the requested face from the existing vertex to the inserted endpoint.
 
@@ -36,21 +48,21 @@ For a Quad `A-B-C-D`, cutting from `A` to a point `M` inside edge `B-C` produces
 - `A-B-M`
 - `A-M-C-D`
 
-If `B-C` is shared with another polygon, that neighbor keeps one logical face but its boundary is also split at `M`. This preserves manifold logical topology across the shared edge.
+If `B-C` is shared with another polygon, that neighbor remains one logical face but its boundary is also split at `M`. This preserves manifold logical topology across the shared edge.
 
-Renderer triangles are regenerated as needed. Renderer-only diagonals remain implementation details.
+Renderer triangles are regenerated as needed. Renderer-only diagonals remain implementation details and stay hidden from Edit Mode wireframe.
 
 ## Deliberate limits
 
-This task does not expose the primitive through `modelingJob` yet. The current editor selection model cannot represent a mixed existing-vertex + edge-point Knife gesture without inventing temporary UI semantics. Worker/editor integration should happen together with the first explicit Knife interaction so stored `polygonTriangles`, undo, selection restoration, and exact endpoint placement remain one coherent transaction.
+- exactly one existing logical start vertex
+- endpoint must lie inside an existing logical edge
+- start vertex and target edge must define one unambiguous logical face
+- no edge-to-edge cut with two new endpoints
+- no arbitrary face-interior endpoint
+- no multi-face Knife path
+- no click-drag/polyline Knife stroke
 
-Not included:
-
-- edge-to-edge cuts
-- arbitrary point-on-face endpoints
-- multi-face Knife paths
-- click-drag or polyline Knife UI
-- snapping policy for Knife points
+This is the first interactive Knife step, not unrestricted Knife.
 
 ## Validation
 
@@ -58,13 +70,15 @@ Windows-local exact-head gate:
 
 ```powershell
 npm run build
+npx playwright test tests/cut-edge-endpoint.spec.ts tests/context-menu.spec.ts --workers=1
 npm test -- --workers=2
 ```
 
-Focused test while iterating:
+Manual check:
 
-```powershell
-npx playwright test tests/cut-edge-endpoint.spec.ts --workers=1
-```
-
-The focused tests verify midpoint topology on a shared Cube edge, arbitrary `t`, interpolated UV/color presence, source immutability, and invalid endpoint rejection.
+1. Cube -> Edit Mode -> Vertex.
+2. Select one corner vertex.
+3. RMB -> Knife or press `K`.
+4. Click inside a non-incident logical edge on the same face.
+5. Verify the clicked point becomes a real logical vertex and the cut edge is visible in Edit Mode wireframe.
+6. Undo must restore the original logical Quad.
