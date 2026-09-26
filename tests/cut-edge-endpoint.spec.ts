@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import * as THREE from 'three';
-import { cutLogicalFaceBetweenEdges, cutLogicalFaceToEdge } from '../src/modeling/cut-edge-endpoint';
+import { cutLogicalFaceBetweenEdges, cutLogicalFaceToEdge, cutLogicalSegmentByPositions } from '../src/modeling/cut-edge-endpoint';
 import { buildTopology } from '../src/modeling/topology';
 
 function point(geometry: THREE.BufferGeometry, topology: ReturnType<typeof buildTopology>, vertex: number) {
@@ -807,4 +807,69 @@ test('Edge-only Knife does not proximity-snap near vertices but accepts an inten
 
   await page.keyboard.press('Escape');
   await page.evaluate(() => { (window as any).__forgeModelingSettings.knifeSnap = 'vertex-edge'; });
+});
+
+
+test('deferred Knife segments re-resolve endpoint positions after earlier topology changes', () => {
+  const box = new THREE.BoxGeometry(2, 2, 2);
+  const before = JSON.stringify(box.toJSON());
+  const input = buildTopology(box.getAttribute('position').array, box.index?.array, true);
+  const face = 0;
+  const boundary = input.polygons[face];
+  const findEdge = (a: number, b: number) => input.polygonEdges.findIndex(([x, y]) =>
+    (x === a && y === b) || (x === b && y === a)
+  );
+
+  const firstEdge = findEdge(boundary[1], boundary[2]);
+  expect(firstEdge).toBeGreaterThanOrEqual(0);
+  const start = point(box, input, boundary[0]);
+  const [firstA, firstB] = input.polygonEdges[firstEdge];
+  const firstEnd = point(box, input, firstA).lerp(point(box, input, firstB), 0.35);
+
+  const sharedFaces = input.polygons.flatMap((polygon, candidateFace) =>
+    polygon.some((vertex, index) => {
+      const next = polygon[(index + 1) % polygon.length];
+      return (vertex === firstA && next === firstB) || (vertex === firstB && next === firstA);
+    }) ? [candidateFace] : []
+  );
+  expect(sharedFaces).toHaveLength(2);
+  const adjacentFace = sharedFaces.find(candidate => candidate !== face);
+  expect(adjacentFace).toBeDefined();
+
+  const adjacentBoundary = input.polygons[adjacentFace!];
+  const targetEdge = input.polygonEdges.findIndex(([a, b]) => {
+    if ((a === firstA && b === firstB) || (a === firstB && b === firstA)) return false;
+    return adjacentBoundary.some((vertex, index) => {
+      const next = adjacentBoundary[(index + 1) % adjacentBoundary.length];
+      return (vertex === a && next === b) || (vertex === b && next === a);
+    });
+  });
+  expect(targetEdge).toBeGreaterThanOrEqual(0);
+  const [targetA, targetB] = input.polygonEdges[targetEdge];
+  const secondEnd = point(box, input, targetA).lerp(point(box, input, targetB), 0.6);
+
+  const first = cutLogicalSegmentByPositions(box, {
+    start: start.toArray() as [number, number, number],
+    end: firstEnd.toArray() as [number, number, number],
+  }, input.polygonTriangles);
+
+  const second = cutLogicalSegmentByPositions(first.geometry, {
+    start: firstEnd.toArray() as [number, number, number],
+    end: secondEnd.toArray() as [number, number, number],
+  }, first.polygonTriangles);
+
+  expect(JSON.stringify(box.toJSON())).toBe(before);
+  const output = buildTopology(
+    second.geometry.getAttribute('position').array,
+    second.geometry.index?.array,
+    second.polygonTriangles,
+  );
+  expect(output.polygons).toHaveLength(8);
+  expect(output.logicalVertices).toHaveLength(10);
+  expect(output.logicalVertices.some(vertex => point(second.geometry, output, vertex).distanceToSquared(firstEnd) < 1e-12)).toBe(true);
+  expect(output.logicalVertices.some(vertex => point(second.geometry, output, vertex).distanceToSquared(secondEnd) < 1e-12)).toBe(true);
+
+  first.geometry.dispose();
+  second.geometry.dispose();
+  box.dispose();
 });
