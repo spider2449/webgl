@@ -1012,7 +1012,7 @@ editor.addEventListener('mode', () => {
   $('#mode-hint').textContent = editor.weightMode
     ? 'Weight Mode · click or drag-box vertices; Shift adds; Ctrl toggles; choose a bone and assign influence.'
     : editor.editMode
-      ? `Select a ${editor.componentMode === 'face' ? 'face' : editor.componentMode}, drag-box to select more, Shift adds, Ctrl toggles; G/R/S transform; RMB opens ${editor.componentMode} operators.`
+      ? `Select a ${editor.componentMode === 'face' ? 'face' : editor.componentMode}, drag-box to select more, Shift adds, Ctrl toggles; G/R/S transform${editor.componentMode === 'vertex' ? '; K starts Knife' : ''}; RMB opens ${editor.componentMode} operators.`
       : 'Click or drag-box to select objects; Shift adds; Ctrl-drag toggles; RMB opens object operators.';
 });
 editor.addEventListener('view', () => {
@@ -1257,6 +1257,48 @@ async function cutFaceBetweenSelectedVertices() {
     toast('Face cut between selected vertices.');
   } catch (error) { toast((error as Error).message); }
 }
+function startKnifeCut() {
+  try {
+    if (editor.snapTargetPending) editor.cancelVertexSnap();
+    editor.beginKnifeEdgeTarget();
+    toast('Knife: click inside a logical edge on the same face. Escape cancels.');
+  } catch (error) { toast((error as Error).message); }
+}
+
+async function finishKnifeCut(edge: number, t: number) {
+  try {
+    if (!editor.editMode || editor.componentMode !== 'vertex' || editor.componentSelection.length !== 1 || !editor.meshTopology) {
+      throw new Error('Knife requires one selected logical start vertex.');
+    }
+    const topology = editor.meshTopology;
+    const vertex = editor.componentSelection[0];
+    const target = topology.polygonEdges[edge];
+    if (!target) throw new Error('Knife target must be a logical edge.');
+    const edgeKey = (a: number, b: number) => `${Math.min(a, b)}:${Math.max(a, b)}`;
+    const targetKey = edgeKey(target[0], target[1]);
+    const candidates = topology.polygons.flatMap((polygon, face) => {
+      if (!polygon.includes(vertex) || target.includes(vertex)) return [];
+      const hasTarget = polygon.some((a, index) => edgeKey(a, polygon[(index + 1) % polygon.length]) === targetKey);
+      return hasTarget ? [face] : [];
+    });
+    if (candidates.length !== 1) throw new Error('Knife start vertex and target edge must define one unambiguous logical face.');
+    await editor.runModeling({
+      kind: 'cut-face-edge',
+      face: candidates[0],
+      vertex,
+      edge,
+      t,
+      polygonTriangles: topology.polygonTriangles.map(group => [...group]),
+    });
+    toast('Knife cut complete. A true logical vertex was created on the target edge.');
+  } catch (error) { toast((error as Error).message); }
+}
+
+editor.addEventListener('knife-edge-target', event => {
+  const detail = (event as CustomEvent<{ edge: number; t: number }>).detail;
+  void finishKnifeCut(detail.edge, detail.t);
+});
+
 async function deleteSelectedComponents() {
   try {
     if (!editor.editMode || !editor.componentSelection.length || !editor.meshTopology) throw new Error('Select mesh components in Edit Mode first.');
@@ -1284,6 +1326,7 @@ const modelingCommands = {
   vertexSnap: startVertexSnap,
   bevelEdges: bevelSelectedEdges,
   loopCut: loopCutSelectedEdge,
+  knife: startKnifeCut,
   cutFace: cutFaceBetweenSelectedVertices,
   deleteComponents: deleteSelectedComponents,
 };
@@ -1345,7 +1388,8 @@ function viewportContextCommands(mode: ViewportContextMode): ViewportContextComm
     { label: 'Move', shortcut: 'G', action: () => tool('translate'), enabled: hasComponents },
     { label: 'Rotate', shortcut: 'R', action: () => tool('rotate'), enabled: hasComponents },
     { label: 'Scale', shortcut: 'S', action: () => tool('scale'), enabled: hasComponents },
-    { label: 'Cut Face', action: modelingCommands.cutFace, enabled: twoComponents, separatorBefore: true },
+    { label: 'Knife', shortcut: 'K', action: modelingCommands.knife, enabled: oneComponent, separatorBefore: true },
+    { label: 'Cut Face', action: modelingCommands.cutFace, enabled: twoComponents },
     { label: 'Snap Selection…', action: modelingCommands.vertexSnap, enabled: hasComponents },
     { label: 'Delete Vertices', shortcut: 'Del', action: modelingCommands.deleteComponents, enabled: hasComponents, separatorBefore: true, danger: true },
   ];
@@ -2645,6 +2689,7 @@ document.addEventListener('keydown', e => {
   }
   if (key === 'alt') editor.orbit.mouseButtons.LEFT = THREE.MOUSE.ROTATE;
   if (key === 'q') tool('select'); if (key === 'g') tool('translate'); if (key === 'r') tool('rotate'); if (key === 's') tool('scale');
+  if (key === 'k' && editor.editMode && editor.componentMode === 'vertex') { e.preventDefault(); modelingCommands.knife(); }
   if (key === 'f') editor.focus();
   if (key === 'd' && e.shiftKey) { e.preventDefault(); editor.duplicate(); }
   else if (key === 'd' && e.altKey) { e.preventDefault(); if (!editor.duplicateLinked()) toast('Linked duplicate requires an ordinary mesh without modifiers.'); }
