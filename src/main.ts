@@ -1379,6 +1379,17 @@ function cancelKnife() {
   if (editor.snapTargetPending && editor.snapTargetKind === 'knife') editor.cancelVertexSnap();
 }
 
+function finishKnifeFromKeyboard() {
+  if (!knifeActive) return false;
+  if (knifeInteriorPath?.points.length) {
+    toast('Finish the pending Knife path on the face boundary, or press Escape to cancel it.');
+    return true;
+  }
+  cancelKnife();
+  toast('Knife finished.');
+  return true;
+}
+
 function undoKnifePendingBend() {
   if (!knifeActive) return false;
   if (!knifeAnchor || !knifeInteriorPath?.points.length) {
@@ -3092,6 +3103,12 @@ document.addEventListener('keydown', e => {
   if (isBackspace && knifeActive && !typingField && !dialogOpen) {
     e.preventDefault();
     undoKnifePendingBend();
+    return;
+  }
+  const isEnter = key === 'enter' || e.code === 'Enter' || e.code === 'NumpadEnter';
+  if (isEnter && knifeActive && !typingField && !dialogOpen) {
+    e.preventDefault();
+    finishKnifeFromKeyboard();
     return;
   }
   if (typingField || e.target instanceof HTMLSelectElement || dialogOpen) return;
