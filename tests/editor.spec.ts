@@ -108,6 +108,39 @@ test('viewport face display toggles Front Only and Double-Sided without changing
   expect(doubleSided.snapshot).toBe(before.snapshot);
 });
 
+test('Edit Mode wireframe uses logical polygon edges instead of renderer triangle wires', async ({ page }) => {
+  await page.locator('#mode').selectOption('edit');
+  await page.getByLabel('Mesh component').selectOption('vertex');
+  await page.locator('#shading-wire').click();
+
+  const result = await page.evaluate(() => {
+    const e = (window as any).__forge;
+    const t = e.meshTopology;
+    const edgePositions = e.componentEdges.geometry.getAttribute('position');
+    return {
+      objectWireframe: e.wire.wireframe,
+      editWireframe: e.wireEditSurface.wireframe,
+      editWireOpacity: e.wireEditSurface.opacity,
+      edgeVisible: e.componentEdges.visible,
+      logicalEdges: t.polygonEdges.length,
+      rendererEdges: t.edges.length,
+      drawnSegments: edgePositions.count / 2,
+      mode: e.componentMode,
+    };
+  });
+
+  expect(result.objectWireframe).toBe(true);
+  expect(result.editWireframe).toBe(false);
+  expect(result.editWireOpacity).toBeLessThan(0.2);
+  expect(result.edgeVisible).toBe(true);
+  expect(result.mode).toBe('vertex');
+  expect(result.rendererEdges).toBeGreaterThan(result.logicalEdges);
+  expect(result.drawnSegments).toBe(result.logicalEdges);
+
+  await page.getByLabel('Mesh component').selectOption('face');
+  expect(await page.evaluate(() => (window as any).__forge.componentEdges.visible)).toBe(true);
+});
+
 test('legacy default primitive material migrates to neutral gray on project load', async ({ page }) => {
   const result = await page.evaluate(() => {
     const e = (window as any).__forge;

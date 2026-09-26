@@ -129,6 +129,14 @@ export class Editor extends EventTarget {
   private originalMaterialSides = new WeakMap<THREE.Material, THREE.Side>();
   private solid = new THREE.MeshStandardMaterial({ color: 0x666a70, roughness: 0.9, metalness: 0, side: THREE.DoubleSide });
   private wire = new THREE.MeshBasicMaterial({ color: 0x555a62, wireframe: true, side: THREE.DoubleSide });
+  private wireEditSurface = new THREE.MeshBasicMaterial({
+    color: 0x555a62,
+    wireframe: false,
+    transparent: true,
+    opacity: 0.12,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+  });
   private resizeObserver: ResizeObserver;
 
   constructor(readonly host: HTMLElement) {
@@ -520,6 +528,7 @@ export class Editor extends EventTarget {
     const side = this.faceDisplay === 'double' ? THREE.DoubleSide : THREE.FrontSide;
     if (this.solid.side !== side) { this.solid.side = side; this.solid.needsUpdate = true; }
     if (this.wire.side !== side) { this.wire.side = side; this.wire.needsUpdate = true; }
+    if (this.wireEditSurface.side !== side) { this.wireEditSurface.side = side; this.wireEditSurface.needsUpdate = true; }
     this.content.traverse(object => {
       if (!(object instanceof THREE.Mesh) || object.userData.forgeEditorHelper === true) return;
       for (const material of Array.isArray(object.material) ? object.material : [object.material]) {
@@ -559,7 +568,9 @@ export class Editor extends EventTarget {
     if (this.viewStyle !== 'material') this.content.traverse(o => {
       if (o instanceof THREE.Mesh && o.userData.forgeEditorHelper !== true) {
         originals.set(o, o.material);
-        o.material = this.viewStyle === 'wire' ? this.wire : this.solid;
+        o.material = this.viewStyle === 'wire'
+          ? (this.editMode ? this.wireEditSurface : this.wire)
+          : this.solid;
       }
     });
     this.renderer.render(this.scene, this.camera);
@@ -1209,7 +1220,10 @@ export class Editor extends EventTarget {
     }
     edges.needsUpdate = true;
     this.componentEdges.geometry.computeBoundingSphere();
-    this.componentEdges.visible = this.componentMode !== 'vertex' || (this.snapTargetPending && this.snapTargetKind === 'edge');
+    this.componentEdges.visible =
+      this.viewStyle === 'wire' ||
+      this.componentMode !== 'vertex' ||
+      (this.snapTargetPending && this.snapTargetKind === 'edge');
     const colors = this.vertexPoints.geometry.getAttribute('color');
     const selected = new Set(this.vertexIndices);
     for (let i = 0; i < colors.count; i++) colors.setXYZ(i, 1, selected.has(i) ? 0.45 : 1, selected.has(i) ? 0.12 : 1);
@@ -1560,7 +1574,7 @@ export class Editor extends EventTarget {
       meshes.forEach((mesh, i) => {
         if (operation.kind === 'uv') {
           this.markPrimitiveApplied(mesh);
-        } else if ((operation.kind === 'bevel' || operation.kind === 'extrude' || operation.kind === 'inset' || operation.kind === 'loop' || operation.kind === 'delete-components') && topologies[i]) {
+        } else if ((operation.kind === 'bevel' || operation.kind === 'extrude' || operation.kind === 'inset' || operation.kind === 'loop' || operation.kind === 'delete-components' || operation.kind === 'cut-face') && topologies[i]) {
           this.markPrimitiveApplied(mesh);
           if (mesh.userData.forgeLogicalQuads !== undefined) delete mesh.userData.forgeLogicalQuads;
           mesh.userData.forgePolygonTriangles = topologies[i]!.polygonTriangles.map(group => [...group]);
@@ -1575,13 +1589,13 @@ export class Editor extends EventTarget {
         // main thread. This keeps raycast faceIndex -> logical polygon mapping
         // aligned with the parsed BufferGeometry rather than trusting a
         // transient worker-side triangle numbering.
-        const rebuildFromStoredPolygons = operation.kind === 'bevel' || operation.kind === 'extrude' || operation.kind === 'inset' || operation.kind === 'loop' || operation.kind === 'delete-components';
+        const rebuildFromStoredPolygons = operation.kind === 'bevel' || operation.kind === 'extrude' || operation.kind === 'inset' || operation.kind === 'loop' || operation.kind === 'delete-components' || operation.kind === 'cut-face';
         this.setEditMode(true, operation.kind === 'uv' || rebuildFromStoredPolygons ? undefined : topologies[0]);
         if (operation.kind === 'subdivide') {
           this.restoreSubdivisionSelection(oldMode, oldEdges, midpoint);
         } else if (operation.kind === 'subdivide-all') {
           this.setComponentMode(oldMode);
-        } else if (operation.kind === 'loop' || operation.kind === 'delete-components') {
+        } else if (operation.kind === 'loop' || operation.kind === 'delete-components' || operation.kind === 'cut-face') {
           this.setComponentMode(oldMode);
         } else if (['uv', 'inset', 'extrude', 'region'].includes(operation.kind)) {
           const restoredFaces =

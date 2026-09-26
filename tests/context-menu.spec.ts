@@ -132,6 +132,8 @@ test('Edit Mode RMB menu changes with Vertex, Edge and Face component mode', asy
   await expect(menu.getByRole('menuitem', { name: 'Move G' })).toBeVisible();
   await expect(menu.getByRole('menuitem', { name: 'Rotate R' })).toBeVisible();
   await expect(menu.getByRole('menuitem', { name: 'Scale S' })).toBeVisible();
+  await expect(menu.getByRole('menuitem', { name: 'Cut Face' })).toBeVisible();
+  await expect(menu.getByRole('menuitem', { name: 'Cut Face' })).toBeDisabled();
   await expect(menu.getByRole('menuitem', { name: 'Snap Selection…' })).toBeVisible();
   await expect(menu.getByRole('menuitem', { name: 'Delete Vertices Del' })).toBeVisible();
   await expect(menu.getByRole('menuitem', { name: 'Bevel Edges' })).toHaveCount(0);
@@ -171,6 +173,63 @@ test('Edit Mode RMB menu changes with Vertex, Edge and Face component mode', asy
   await expect(menu.getByRole('menuitem', { name: 'Inset Face' })).toBeVisible();
   await expect(menu.getByRole('menuitem', { name: 'Delete Faces Del' })).toBeVisible();
   await expect(menu.getByRole('menuitem', { name: 'Bevel Edges' })).toHaveCount(0);
+});
+
+test('RMB Cut Face splits a Cube quad between two selected opposite vertices', async ({ page }) => {
+  await page.locator('#mode').selectOption('edit');
+  await page.getByLabel('Mesh component').selectOption('vertex');
+  const setup = await page.evaluate(() => {
+    const e = (window as any).__forge, t = e.meshTopology;
+    const face = 0;
+    const polygon = t.polygons[face];
+    const vertices = [polygon[0], polygon[2]];
+    const position = e.selected.geometry.getAttribute('position');
+    const points = vertices.map((vertex: number) => {
+      const index = t.vertices[vertex][0];
+      return [position.getX(index), position.getY(index), position.getZ(index)].join(',');
+    });
+    e.selectComponent(vertices[0]);
+    e.selectComponent(vertices[1], true);
+    return { points };
+  });
+
+  await rightClickViewport(page);
+  const menu = page.locator('#viewport-context-menu');
+  await expect(menu.getByRole('menuitem', { name: 'Cut Face' })).toBeEnabled();
+  await menu.getByRole('menuitem', { name: 'Cut Face' }).click();
+  await page.waitForFunction(() => !(window as any).__forge.modelingBusy);
+  await expect(page.locator('#toast')).toContainText('Face cut');
+
+  expect(await page.evaluate(points => {
+    const e = (window as any).__forge, t = e.meshTopology;
+    const position = e.selected.geometry.getAttribute('position');
+    const edgeExists = t.polygonEdges.some(([a,b]: [number,number]) => {
+      const read = (vertex: number) => {
+        const index = t.vertices[vertex][0];
+        return [position.getX(index), position.getY(index), position.getZ(index)].join(',');
+      };
+      return points.includes(read(a)) && points.includes(read(b));
+    });
+    return {
+      polygons: t.polygons.length,
+      triangles: t.faces.length,
+      sizes: t.polygons.map((polygon: number[]) => polygon.length).sort((a:number,b:number)=>a-b),
+      edges: t.polygonEdges.length,
+      stored: e.selected.userData.forgePolygonTriangles?.length,
+      mode: e.componentMode,
+      selection: e.componentSelection,
+      edgeExists,
+    };
+  }, setup.points)).toEqual({
+    polygons: 7,
+    triangles: 12,
+    sizes: [3,3,4,4,4,4,4],
+    edges: 13,
+    stored: 7,
+    mode: 'vertex',
+    selection: [],
+    edgeExists: true,
+  });
 });
 
 test('RMB Bevel mutates the default Cube through the real worker path', async ({ page }) => {
