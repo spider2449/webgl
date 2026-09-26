@@ -4,6 +4,7 @@ import './style.css';
 import * as THREE from 'three';
 import { createIcons, Box, ChevronDown, ChevronRight, Plus, MousePointer2, Move, Rotate3d, Scaling, Magnet, Grid2x2, Scan, Eye, EyeOff, Search, SlidersHorizontal, Layers, Diamond, Play, Pause, SkipBack, SkipForward, ChevronFirst, ChevronLast, Undo2, Redo2, Copy, Trash2, X, HelpCircle, Download, Upload, Camera, Check, Circle, Triangle, Hexagon, FolderOpen, FolderPlus, LogOut, Save, FilePlus2, Maximize, Globe, Settings2, Crosshair, Sun, Moon, Activity, PanelRightClose } from 'lucide';
 import { mountModelingUI } from './modeling/modeling-ui';
+import { validateLogicalFaceInteriorKnifeLeg } from './modeling/modeling';
 import { Editor, type AnimationTrackMap, type Primitive, type Project, type KeyInterpolation, type KeyTangentMode, type ScalarAnimationChannel, type TransformOrientation } from './editor';
 import { RigSystem, rigBones } from './rig/rig';
 import { addSomaPreview, createSomaRig, RIG_SOURCE } from './rig/soma77';
@@ -1448,6 +1449,20 @@ function planKnifeSegment(target: KnifeTarget): { plan: KnifeSegmentPlan | null;
     ) < 1e-5) {
       return { plan: null, reason: 'Knife bend endpoints must be distinct.' };
     }
+    if (!(editor.selected instanceof THREE.Mesh)) {
+      return { plan: null, reason: 'Knife requires an active editable mesh.' };
+    }
+    try {
+      validateLogicalFaceInteriorKnifeLeg(
+        editor.selected.geometry,
+        topology,
+        knifeInterior.face,
+        endPosition,
+        knifeInterior.position,
+      );
+    } catch (error) {
+      return { plan: null, reason: (error as Error).message };
+    }
     return {
       plan: {
         kind: 'face-bend',
@@ -1464,6 +1479,20 @@ function planKnifeSegment(target: KnifeTarget): { plan: KnifeSegmentPlan | null;
     const start = knifeAnchorBoundaryOnFace(anchor, target.face);
     if (!start) {
       return { plan: null, reason: 'Interior Knife point must lie on a logical face incident to the current anchor.' };
+    }
+    if (!(editor.selected instanceof THREE.Mesh)) {
+      return { plan: null, reason: 'Knife requires an active editable mesh.' };
+    }
+    try {
+      validateLogicalFaceInteriorKnifeLeg(
+        editor.selected.geometry,
+        topology,
+        target.face,
+        anchor.position,
+        target.position,
+      );
+    } catch (error) {
+      return { plan: null, reason: (error as Error).message };
     }
     return {
       plan: { kind: 'set-interior', face: target.face, position: [...target.position] },

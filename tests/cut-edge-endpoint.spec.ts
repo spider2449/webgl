@@ -119,7 +119,7 @@ test('interior Knife bend inserts two edge endpoints before splitting the logica
   plane.dispose();
 });
 
-test('interior Knife bend rejects a concave logical face instead of creating invalid topology', () => {
+test('interior Knife bend supports a concave logical face when both legs stay inside', () => {
   const geometry = new THREE.BufferGeometry();
   const points = [
     [0, 0, 0],
@@ -142,15 +142,76 @@ test('interior Knife bend rejects a concave logical face instead of creating inv
     geometry.index?.array,
     groups,
   );
-  const boundary = topology.polygons[0];
-  expect(boundary).toHaveLength(5);
+  const findVertex = (expected: [number, number, number]) =>
+    topology.logicalVertices.find(vertex =>
+      point(geometry, topology, vertex).distanceToSquared(new THREE.Vector3(...expected)) < 1e-12
+    );
+  const start = findVertex([2, 0, 0]);
+  const end = findVertex([2, 2, 0]);
+  expect(start).toBeDefined();
+  expect(end).toBeDefined();
+
+  const result = cutLogicalFaceViaPoint(geometry, {
+    face: 0,
+    start: { kind: 'vertex', vertex: start! },
+    interior: [0.5, 1, 0],
+    end: { kind: 'vertex', vertex: end! },
+  }, groups);
+
+  const output = buildTopology(
+    result.geometry.getAttribute('position').array,
+    result.geometry.index?.array,
+    result.polygonTriangles,
+  );
+  expect(output.polygons).toHaveLength(2);
+  expect(output.logicalVertices).toHaveLength(6);
+  expect(output.polygonEdges).toHaveLength(7);
+  expect(output.logicalVertices.some(vertex =>
+    point(result.geometry, output, vertex).distanceToSquared(new THREE.Vector3(0.5, 1, 0)) < 1e-12
+  )).toBe(true);
+
+  result.geometry.dispose();
+  geometry.dispose();
+});
+
+test('interior Knife bend rejects a concave path leg that exits through the notch', () => {
+  const geometry = new THREE.BufferGeometry();
+  const points = [
+    [0, 0, 0],
+    [2, 0, 0],
+    [1, 1, 0],
+    [2, 2, 0],
+    [0, 2, 0],
+  ];
+  const triangles = [
+    points[0], points[1], points[2],
+    points[0], points[2], points[4],
+    points[2], points[3], points[4],
+  ].flat();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(triangles, 3));
+  geometry.computeVertexNormals();
+
+  const groups = [[0, 1, 2]];
+  const topology = buildTopology(
+    geometry.getAttribute('position').array,
+    geometry.index?.array,
+    groups,
+  );
+  const findVertex = (expected: [number, number, number]) =>
+    topology.logicalVertices.find(vertex =>
+      point(geometry, topology, vertex).distanceToSquared(new THREE.Vector3(...expected)) < 1e-12
+    );
+  const start = findVertex([2, 0, 0]);
+  const end = findVertex([2, 2, 0]);
+  expect(start).toBeDefined();
+  expect(end).toBeDefined();
 
   expect(() => cutLogicalFaceViaPoint(geometry, {
     face: 0,
-    start: { kind: 'vertex', vertex: boundary[0] },
-    interior: [0.5, 1, 0],
-    end: { kind: 'vertex', vertex: boundary[3] },
-  }, groups)).toThrow(/convex logical face/);
+    start: { kind: 'vertex', vertex: start! },
+    interior: [0.9, 0.1, 0],
+    end: { kind: 'vertex', vertex: end! },
+  }, groups)).toThrow(/leave the logical face boundary/);
 
   geometry.dispose();
 });

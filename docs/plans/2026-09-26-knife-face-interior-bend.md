@@ -71,11 +71,28 @@ If either Knife boundary endpoint lies inside a logical edge:
 
 This prevents T-junctions and handles edge-id changes caused by the first insertion.
 
+## Concave planar faces
+
+Concave logical N-gons are supported when both Knife legs remain completely inside the polygon.
+
+Before either leg is accepted, Forge projects the planar logical face onto the most stable 2D axis pair and checks the boundary-to-interior segment against every logical boundary edge.
+
+The leg is rejected when it:
+
+- crosses a non-endpoint boundary edge;
+- touches a non-incident boundary vertex;
+- overlaps a logical boundary segment;
+- starts from a point that is no longer on the selected logical face boundary.
+
+This same validator is used by the live preview/click planner and by the final modeling operation, so a concave path that would leave the polygon is marked invalid before commit instead of failing only in the worker.
+
+The resulting polygons are retessellated by the existing ear-clipping N-gon triangulator, so safe concave child polygons remain logical polygons and renderer diagonals stay non-editable.
+
 ## Deliberate limits
 
 - exactly one pending interior bend point;
 - both boundary endpoints must belong to the same logical face;
-- the logical face must currently be planar and convex;
+- the logical face must currently be planar;
 - starting Knife directly from a face interior is not supported;
 - clicking a second face-interior point while one is pending is rejected;
 - multi-face traversal still happens through committed boundary endpoints, using the existing continuous Knife behavior.
@@ -99,7 +116,8 @@ Manual checks:
 5. Click it; the mesh must remain unchanged, the interior marker must stay visible, and the first boundary-to-interior line must stay visible.
 6. Move the mouse; the persistent first leg remains while the live second-leg preview follows the cursor.
 7. Hover a vertex or edge point on the same face boundary; preview should become valid.
-7. Click it; the face should split through the interior bend.
-8. Verify the interior bend is a selectable logical vertex and both cut segments are selectable logical edges.
-9. Continue Knife without pressing `K` again.
-10. Repeat with `Knife Snap = Edge only`; nearby vertices must not proximity-snap.
+8. Click it; the face should split through the interior bend.
+9. Verify the interior bend is a selectable logical vertex and both cut segments are selectable logical edges.
+10. Continue Knife without pressing `K` again.
+11. On a concave planar N-gon, verify an inside-only bend is accepted while a leg that crosses the notch is previewed invalid.
+12. Repeat with `Knife Snap = Edge only`; nearby vertices must not proximity-snap.
