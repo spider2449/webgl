@@ -1275,7 +1275,11 @@ test('viewport Knife keeps a face bend pending until a same-face boundary endpoi
     expect(value).toBeCloseTo(target.end.local[index], 4)
   );
 
-  await page.keyboard.press('Escape');
+  await page.getByLabel('Mesh component').focus();
+  await expect(page.getByLabel('Mesh component')).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect(page.locator('#toast')).toContainText('Knife finished');
+  expect(await page.evaluate(() => (window as any).__forge.snapTargetPending)).toBe(false);
 });
 
 
@@ -1378,6 +1382,11 @@ test('viewport Knife keeps multiple interior bends pending and commits the full 
   await expect(page.locator('#toast')).toContainText('Knife bend point added');
   await page.mouse.click(target.bend2.x, target.bend2.y);
   await expect(page.locator('#toast')).toContainText('Knife bend point added');
+
+  await page.keyboard.press('Enter');
+  await expect(page.locator('#toast')).toContainText('Finish the pending Knife path on the face boundary');
+  expect(await page.evaluate(() => (window as any).__forge.snapTargetPending)).toBe(true);
+  expect((await page.evaluate(() => (window as any).__forge.knifePreviewState)).pendingPath).toHaveLength(3);
 
   await page.mouse.move(target.end.x, target.end.y);
   expect((await page.evaluate(() => (window as any).__forge.knifePreviewState)).validity).toBe('valid');
