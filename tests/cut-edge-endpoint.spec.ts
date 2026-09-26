@@ -472,3 +472,89 @@ test('Knife snaps directly to a logical vertex and continues cutting without pre
   expect(undo.afterOneUndo).toBe(afterFirst.snapshot);
   expect(undo.afterTwoUndo).toBe(target.before);
 });
+
+
+test('Knife hover preview follows the edge, snaps to logical vertices, and shows the pending segment before click', async ({ page }) => {
+  await page.goto('/');
+  await page.waitForFunction(() => (window as any).__forge?.selected);
+  await page.evaluate(() => (window as any).__forge.view('front'));
+  await page.locator('#mode').selectOption('edit');
+  await page.getByLabel('Mesh component').selectOption('vertex');
+
+  const target = await page.evaluate(() => {
+    const e = (window as any).__forge;
+    const topology = e.meshTopology;
+    const mesh = e.selected;
+    const position = mesh.geometry.getAttribute('position');
+    const face = topology.polygons.findIndex((polygon: number[]) =>
+      polygon.every((vertex: number) => position.getZ(topology.vertices[vertex][0]) === 1)
+    );
+    if (face < 0) throw new Error('Expected a front logical quad.');
+    const boundary = topology.polygons[face];
+    const edge = topology.polygonEdges.findIndex((candidate: number[]) =>
+      candidate.length === 2 &&
+      ((candidate[0] === boundary[1] && candidate[1] === boundary[2]) ||
+       (candidate[0] === boundary[2] && candidate[1] === boundary[1]))
+    );
+    if (edge < 0) throw new Error('Expected a logical preview edge.');
+
+    const rect = e.host.getBoundingClientRect();
+    const vertexPoint = (vertex: number) =>
+      mesh.position.clone().fromBufferAttribute(position, topology.vertices[vertex][0]);
+    const screenLocal = (local: any) => {
+      mesh.updateWorldMatrix(true, true);
+      e.camera.updateMatrixWorld(true);
+      const projected = mesh.localToWorld(local.clone()).project(e.camera);
+      return {
+        local: local.toArray(),
+        x: rect.left + (projected.x + 1) * rect.width / 2,
+        y: rect.top + (1 - projected.y) * rect.height / 2,
+      };
+    };
+    const [edgeA, edgeB] = topology.polygonEdges[edge];
+    return {
+      before: e.snapshot(),
+      startVertex: screenLocal(vertexPoint(boundary[0])),
+      snapVertex: screenLocal(vertexPoint(boundary[1])),
+      edgePoint: screenLocal(vertexPoint(edgeA).lerp(vertexPoint(edgeB), 0.42)),
+    };
+  });
+
+  await page.keyboard.press('k');
+
+  // Before the start click, hovering an edge shows the exact candidate point.
+  await page.mouse.move(target.edgePoint.x, target.edgePoint.y);
+  let preview = await page.evaluate(() => (window as any).__forge.knifePreviewState);
+  expect(preview.pointVisible).toBe(true);
+  expect(preview.lineVisible).toBe(false);
+  expect(preview.target.kind).toBe('edge');
+  expect(preview.point).toEqual(expect.arrayContaining(target.edgePoint.local.map((value: number) => expect.closeTo(value, 5))));
+
+  // Moving onto a logical vertex must stop/snap the preview exactly at that vertex.
+  await page.mouse.move(target.snapVertex.x, target.snapVertex.y);
+  preview = await page.evaluate(() => (window as any).__forge.knifePreviewState);
+  expect(preview.pointVisible).toBe(true);
+  expect(preview.lineVisible).toBe(false);
+  expect(preview.target.kind).toBe('vertex');
+  preview.point.forEach((value: number, index: number) => expect(value).toBeCloseTo(target.snapVertex.local[index], 5));
+  expect(await page.evaluate(() => (window as any).__forge.snapshot())).toBe(target.before);
+
+  // Pick a start vertex, then hover the destination: the uncommitted segment is visible.
+  await page.mouse.click(target.startVertex.x, target.startVertex.y);
+  await expect(page.locator('#toast')).toContainText('Knife start set');
+  await page.mouse.move(target.edgePoint.x, target.edgePoint.y);
+  preview = await page.evaluate(() => (window as any).__forge.knifePreviewState);
+  expect(preview.pointVisible).toBe(true);
+  expect(preview.lineVisible).toBe(true);
+  expect(preview.target.kind).toBe('edge');
+  preview.anchor.forEach((value: number, index: number) => expect(value).toBeCloseTo(target.startVertex.local[index], 5));
+  preview.point.forEach((value: number, index: number) => expect(value).toBeCloseTo(target.edgePoint.local[index], 5));
+  expect(await page.evaluate(() => (window as any).__forge.snapshot())).toBe(target.before);
+
+  await page.keyboard.press('Escape');
+  const ended = await page.evaluate(() => (window as any).__forge.knifePreviewState);
+  expect(ended.pointVisible).toBe(false);
+  expect(ended.lineVisible).toBe(false);
+  expect(ended.anchor).toBeNull();
+  expect(ended.target).toBeNull();
+});
