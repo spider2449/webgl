@@ -128,7 +128,8 @@ export class Editor extends EventTarget {
   private faceDisplay: 'front' | 'double' = 'double';
   private originalMaterialSides = new WeakMap<THREE.Material, THREE.Side>();
   private solid = new THREE.MeshStandardMaterial({ color: 0x666a70, roughness: 0.9, metalness: 0, side: THREE.DoubleSide });
-  private wire = new THREE.MeshBasicMaterial({
+  private wire = new THREE.MeshBasicMaterial({ color: 0x555a62, wireframe: true, side: THREE.DoubleSide });
+  private wireEditSurface = new THREE.MeshBasicMaterial({
     color: 0x555a62,
     wireframe: false,
     transparent: true,
@@ -527,6 +528,7 @@ export class Editor extends EventTarget {
     const side = this.faceDisplay === 'double' ? THREE.DoubleSide : THREE.FrontSide;
     if (this.solid.side !== side) { this.solid.side = side; this.solid.needsUpdate = true; }
     if (this.wire.side !== side) { this.wire.side = side; this.wire.needsUpdate = true; }
+    if (this.wireEditSurface.side !== side) { this.wireEditSurface.side = side; this.wireEditSurface.needsUpdate = true; }
     this.content.traverse(object => {
       if (!(object instanceof THREE.Mesh) || object.userData.forgeEditorHelper === true) return;
       for (const material of Array.isArray(object.material) ? object.material : [object.material]) {
@@ -566,7 +568,9 @@ export class Editor extends EventTarget {
     if (this.viewStyle !== 'material') this.content.traverse(o => {
       if (o instanceof THREE.Mesh && o.userData.forgeEditorHelper !== true) {
         originals.set(o, o.material);
-        o.material = this.viewStyle === 'wire' ? this.wire : this.solid;
+        o.material = this.viewStyle === 'wire'
+          ? (this.editMode ? this.wireEditSurface : this.wire)
+          : this.solid;
       }
     });
     this.renderer.render(this.scene, this.camera);
