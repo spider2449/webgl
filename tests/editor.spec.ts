@@ -49,6 +49,65 @@ test('default mesh shading uses neutral gray while preserving custom material ed
   expect(await page.evaluate(() => (window as any).__forge.selected.material.color.getHex())).toBe(0x336699);
 });
 
+test('viewport face display toggles Front Only and Double-Sided without changing project data', async ({ page }) => {
+  const faceDisplay = page.getByLabel('Face display');
+  await expect(faceDisplay).toHaveValue('double');
+
+  const before = await page.evaluate(() => {
+    const e = (window as any).__forge;
+    return {
+      snapshot: e.snapshot(),
+      mode: e.faceDisplayMode,
+      material: e.selected.material.side,
+      solid: e.solid.side,
+      wire: e.wire.side,
+    };
+  });
+  expect(before.mode).toBe('double');
+  expect(before.material).toBe(2);
+  expect(before.solid).toBe(2);
+  expect(before.wire).toBe(2);
+
+  await faceDisplay.selectOption('front');
+  const front = await page.evaluate(() => {
+    const e = (window as any).__forge;
+    return {
+      snapshot: e.snapshot(),
+      mode: e.faceDisplayMode,
+      material: e.selected.material.side,
+      solid: e.solid.side,
+      wire: e.wire.side,
+    };
+  });
+  expect(front.mode).toBe('front');
+  expect(front.material).toBe(0);
+  expect(front.solid).toBe(0);
+  expect(front.wire).toBe(0);
+  expect(front.snapshot).toBe(before.snapshot);
+
+  await page.locator('#shading-solid').click();
+  expect(await page.evaluate(() => (window as any).__forge.solid.side)).toBe(0);
+  await page.locator('#shading-wire').click();
+  expect(await page.evaluate(() => (window as any).__forge.wire.side)).toBe(0);
+
+  await faceDisplay.selectOption('double');
+  const doubleSided = await page.evaluate(() => {
+    const e = (window as any).__forge;
+    return {
+      snapshot: e.snapshot(),
+      mode: e.faceDisplayMode,
+      material: e.selected.material.side,
+      solid: e.solid.side,
+      wire: e.wire.side,
+    };
+  });
+  expect(doubleSided.mode).toBe('double');
+  expect(doubleSided.material).toBe(2);
+  expect(doubleSided.solid).toBe(2);
+  expect(doubleSided.wire).toBe(2);
+  expect(doubleSided.snapshot).toBe(before.snapshot);
+});
+
 test('legacy default primitive material migrates to neutral gray on project load', async ({ page }) => {
   const result = await page.evaluate(() => {
     const e = (window as any).__forge;
