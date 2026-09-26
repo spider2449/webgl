@@ -121,15 +121,29 @@ test('Vertex context keeps Snap target beside Snap Selection and Enter starts th
   }))).toEqual({ pending: true, kind: 'surface' });
 });
 
-test('Vertex context enables Knife with no selected start vertex for edge-to-edge cuts', async ({ page }) => {
+test('Vertex context exposes Knife snap control and allows Knife without a preselected start vertex', async ({ page }) => {
   await page.locator('#mode').selectOption('edit');
   await page.getByLabel('Mesh component').selectOption('vertex');
   expect(await page.evaluate(() => (window as any).__forge.componentSelection)).toEqual([]);
 
   await rightClickViewport(page);
   const menu = page.locator('#viewport-context-menu');
+  const knifeSnap = menu.getByLabel('Context Knife snap', { exact: true });
+  await expect(knifeSnap).toHaveValue('vertex-edge');
   await expect(menu.getByRole('menuitem', { name: 'Knife K' })).toBeVisible();
   await expect(menu.getByRole('menuitem', { name: 'Knife K' })).toBeEnabled();
+
+  await knifeSnap.selectOption('edge-only');
+  expect(await page.evaluate(() => (window as any).__forgeModelingSettings.knifeSnap)).toBe('edge-only');
+  await knifeSnap.press('Enter');
+  await expect(menu).toBeHidden();
+  expect(await page.evaluate(() => ({
+    pending: (window as any).__forge.snapTargetPending,
+    kind: (window as any).__forge.snapTargetKind,
+  }))).toEqual({ pending: true, kind: 'knife' });
+  await page.keyboard.press('Escape');
+
+  await page.evaluate(() => { (window as any).__forgeModelingSettings.knifeSnap = 'vertex-edge'; });
 });
 
 test('Edit Mode RMB menu changes with Vertex, Edge and Face component mode', async ({ page }) => {
