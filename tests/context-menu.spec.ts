@@ -296,17 +296,21 @@ test('Delete key removes selected Edit Mode faces without deleting the object', 
   expect(await page.evaluate(() => (window as any).__forge.snapshot())).toBe(before.snapshot);
 });
 
-test('RMB Delete Edges removes one modeling edge while preserving the renderer surface', async ({ page }) => {
+test('RMB Delete Edges merges adjacent faces and retessellates the affected surface', async ({ page }) => {
   await page.locator('#mode').selectOption('edit');
   await page.getByLabel('Mesh component').selectOption('edge');
   const before = await page.evaluate(() => {
-    const e = (window as any).__forge;
+    const e = (window as any).__forge, t = e.meshTopology;
+    const edge = t.polygonEdges[0];
+    const position = e.selected.geometry.getAttribute('position');
+    const point = (vertex: number) => {
+      const index = t.vertices[vertex][0];
+      return [position.getX(index), position.getY(index), position.getZ(index)];
+    };
     e.selectComponent(0);
     return {
-      positions: Array.from(e.selected.geometry.getAttribute('position').array),
-      indices: Array.from(e.selected.geometry.index.array),
-      triangles: e.meshTopology.faces.length,
-      rendererVertices: e.meshTopology.vertices.length,
+      edge: [point(edge[0]), point(edge[1])],
+      triangles: t.faces.length,
     };
   });
 
@@ -315,48 +319,51 @@ test('RMB Delete Edges removes one modeling edge while preserving the renderer s
   await page.waitForFunction(() => !(window as any).__forge.modelingBusy);
   await expect(page.locator('#toast')).toContainText('Edges deleted; adjacent faces merged');
 
-  expect(await page.evaluate(() => {
+  expect(await page.evaluate(edge => {
     const e = (window as any).__forge, t = e.meshTopology;
+    const position = e.selected.geometry.getAttribute('position');
+    const key = (point: number[]) => point.join(',');
+    const deleted = new Set(edge.map(key));
+    const rendererStillUsesDeletedEdge = t.edges.some(([a,b]: [number,number]) => {
+      const read = (vertex: number) => {
+        const index = t.vertices[vertex][0];
+        return key([position.getX(index), position.getY(index), position.getZ(index)]);
+      };
+      return deleted.has(read(a)) && deleted.has(read(b));
+    });
     return {
-      positions: Array.from(e.selected.geometry.getAttribute('position').array),
-      indices: Array.from(e.selected.geometry.index.array),
       polygons: t.polygons.length,
       triangles: t.faces.length,
-      rendererVertices: t.vertices.length,
       logicalVertices: t.logicalVertices.length,
       edges: t.polygonEdges.length,
       sizes: t.polygons.map((polygon: number[]) => polygon.length).sort((a:number,b:number)=>a-b),
+      rendererStillUsesDeletedEdge,
       selection: e.componentSelection,
       stored: e.selected.userData.forgePolygonTriangles?.length,
     };
-  })).toEqual({
-    positions: before.positions,
-    indices: before.indices,
+  }, before.edge)).toEqual({
     polygons: 5,
     triangles: before.triangles,
-    rendererVertices: before.rendererVertices,
     logicalVertices: 8,
     edges: 11,
     sizes: [4,4,4,4,6],
+    rendererStillUsesDeletedEdge: false,
     selection: [],
     stored: 5,
   });
 });
 
-test('RMB Delete Vertices removes one modeling vertex without deleting its incident renderer faces', async ({ page }) => {
+test('RMB Delete Vertices removes the point and retessellates every affected face', async ({ page }) => {
   await page.locator('#mode').selectOption('edit');
   await page.getByLabel('Mesh component').selectOption('vertex');
   const before = await page.evaluate(() => {
     const e = (window as any).__forge, t = e.meshTopology;
     const vertex = t.logicalVertices[0];
+    const position = e.selected.geometry.getAttribute('position');
+    const index = t.vertices[vertex][0];
+    const point = [position.getX(index), position.getY(index), position.getZ(index)];
     e.selectComponent(vertex);
-    return {
-      vertex,
-      positions: Array.from(e.selected.geometry.getAttribute('position').array),
-      indices: Array.from(e.selected.geometry.index.array),
-      triangles: t.faces.length,
-      rendererVertices: t.vertices.length,
-    };
+    return { vertex, point };
   });
 
   await rightClickViewport(page);
@@ -364,35 +371,34 @@ test('RMB Delete Vertices removes one modeling vertex without deleting its incid
   await page.waitForFunction(() => !(window as any).__forge.modelingBusy);
   await expect(page.locator('#toast')).toContainText('Vertices deleted; surrounding faces reconnected');
 
-  expect(await page.evaluate(vertex => {
+  expect(await page.evaluate(({ point }) => {
     const e = (window as any).__forge, t = e.meshTopology;
+    const position = e.selected.geometry.getAttribute('position');
+    const stillExists = t.vertices.some((copies: number[]) => {
+      const index = copies[0];
+      return position.getX(index) === point[0] && position.getY(index) === point[1] && position.getZ(index) === point[2];
+    });
     return {
-      positions: Array.from(e.selected.geometry.getAttribute('position').array),
-      indices: Array.from(e.selected.geometry.index.array),
       polygons: t.polygons.length,
       triangles: t.faces.length,
-      rendererVertices: t.vertices.length,
       logicalVertices: t.logicalVertices.length,
-      removedStillLogical: t.logicalVertices.includes(vertex),
       edges: t.polygonEdges.length,
       sizes: t.polygons.map((polygon: number[]) => polygon.length).sort((a:number,b:number)=>a-b),
+      stillExists,
       helperPointCount: e.vertexPoints.geometry.index?.count ?? e.vertexPoints.geometry.getAttribute('position').count,
       selection: e.componentSelection,
       stored: e.selected.userData.forgePolygonTriangles?.length,
     };
-  }, before.vertex)).toEqual({
-    positions: before.positions,
-    indices: before.indices,
-    polygons: 4,
-    triangles: before.triangles,
-    rendererVertices: before.rendererVertices,
+  }, before)).toEqual({
+    polygons: 6,
+    triangles: 9,
     logicalVertices: 7,
-    removedStillLogical: false,
-    edges: 9,
-    sizes: [4,4,4,6],
+    edges: 12,
+    sizes: [3,3,3,4,4,4],
+    stillExists: false,
     helperPointCount: 7,
     selection: [],
-    stored: 4,
+    stored: 6,
   });
 });
 
