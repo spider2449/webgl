@@ -512,97 +512,139 @@ export function loopCutLogicalEdge(
   return finishDetailed([...output, ...extras]);
 }
 
-function mergeLogicalPolygonRegions(
+type EditedPolygon = { polygon: Polygon; sourceFace?: number };
+
+function finishEditedSurface(
   source: THREE.BufferGeometry,
-  polygonTriangles: number[][],
-  unions: number[][],
+  inspection: ReturnType<typeof inspectGeometry>,
+  entries: EditedPolygon[],
 ) {
-  const parent = polygonTriangles.map((_, face) => face);
+  const { topology, indices, materials } = inspection;
+  const values: Record<string, number[]> = {};
+  const sizes: Record<string, number> = {};
+  const groups: { start: number; count: number; material: number }[] = [];
+  const polygonTriangles: number[][] = [];
+  let count = 0;
+
+  const rawCorner = (index: number): Corner => Object.fromEntries(
+    Object.entries(source.attributes)
+      .filter(([name]) => name !== 'normal')
+      .map(([name, attribute]) => [
+        name,
+        Array.from({ length: attribute.itemSize }, (_, component) => attribute.getComponent(index, component)),
+      ]),
+  );
+  const appendTriangle = (triangle: Corner[], material: number, ids: number[]) => {
+    const [a, b, d] = triangle.map(vector);
+    if (b.sub(a).cross(d.sub(a)).lengthSq() < 1e-16) throw new Error('Result collapses at mesh coordinate precision.');
+    if (count + 3 > 600_000) throw new Error('Result exceeds 600,000 rendering vertices.');
+    ids.push(count / 3);
+    const last = groups.at(-1);
+    if (last?.material === material) last.count += 3;
+    else groups.push({ start: count, count: 3, material });
+    for (const corner of triangle) for (const [name, data] of Object.entries(corner)) {
+      sizes[name] = data.length;
+      (values[name] ??= []).push(...data);
+    }
+    count += 3;
+  };
+
+  for (const entry of entries) {
+    const triangleIds: number[] = [];
+    if (entry.sourceFace !== undefined) {
+      for (const triangle of topology.polygonTriangles[entry.sourceFace]) {
+        const raw = indices.slice(triangle * 3, triangle * 3 + 3);
+        appendTriangle(raw.map(rawCorner), materials[triangle], triangleIds);
+      }
+    } else {
+      const triangles = triangulateBoundary(entry.polygon.corners, entry.polygon.referenceNormals);
+      for (const triangle of triangles) appendTriangle(triangle, entry.polygon.material, triangleIds);
+    }
+    polygonTriangles.push(triangleIds);
+  }
+
+  if (!count) throw new Error('Operation would remove the mesh.');
+  const geometry = new THREE.BufferGeometry();
+  for (const [name, data] of Object.entries(values)) {
+    if (data.some(value => !Number.isFinite(Math.fround(value)))) throw new Error('Result exceeds coordinate precision.');
+    geometry.setAttribute(name, new THREE.Float32BufferAttribute(data, sizes[name]));
+  }
+  groups.forEach(group => geometry.addGroup(group.start, group.count, group.material));
+  geometry.computeVertexNormals();
+  geometry.computeBoundingBox();
+  geometry.computeBoundingSphere();
+  inspectGeometry(geometry, polygonTriangles);
+  return { geometry, polygonTriangles };
+}
+
+function polygonFromTriangleGroup(
+  source: THREE.BufferGeometry,
+  inspection: ReturnType<typeof inspectGeometry>,
+  polygonId: number,
+): Polygon {
+  const { topology, indices, materials, normals } = inspection;
+  const triangles = topology.polygonTriangles[polygonId];
+  const vertices = topology.polygons[polygonId];
+  const rawCorner = (index: number): Corner => Object.fromEntries(
+    Object.entries(source.attributes)
+      .filter(([name]) => name !== 'normal')
+      .map(([name, attribute]) => [
+        name,
+        Array.from({ length: attribute.itemSize }, (_, component) => attribute.getComponent(index, component)),
+      ]),
+  );
+  const corners = vertices.map(vertex => {
+    for (const triangle of triangles) {
+      for (let corner = 0; corner < 3; corner++) {
+        if (topology.faces[triangle][corner] === vertex) return rawCorner(indices[triangle * 3 + corner]);
+      }
+    }
+    throw new Error('Logical polygon corner is missing from its renderer triangles.');
+  });
+  const referenceNormals = vertices.map(vertex => {
+    const normal = new THREE.Vector3();
+    for (const triangle of triangles) {
+      if (topology.faces[triangle]?.includes(vertex)) normal.add(normals[triangle]);
+    }
+    return normal.lengthSq() > 1e-16 ? normal.normalize() : new THREE.Vector3();
+  });
+  return {
+    corners,
+    referenceNormals,
+    material: materials[triangles[0]] ?? 0,
+  };
+}
+
+function mergedPolygonGroups(
+  topology: ReturnType<typeof buildTopology>,
+  selectedEdges: number[],
+) {
+  const parent = topology.polygons.map((_, face) => face);
   const find = (face: number): number => parent[face] === face ? face : (parent[face] = find(parent[face]));
   const join = (a: number, b: number) => {
     const rootA = find(a), rootB = find(b);
     if (rootA !== rootB) parent[rootB] = rootA;
   };
-  for (const region of unions) {
-    if (!region.length) continue;
-    const first = region[0];
-    for (let i = 1; i < region.length; i++) join(first, region[i]);
+
+  for (const edge of selectedEdges) {
+    if (!Number.isInteger(edge) || !topology.polygonEdges[edge]) throw new Error('Invalid logical edge selection.');
+    const [a, b] = topology.polygonEdges[edge];
+    const key = edgeKey(a, b);
+    const faces = topology.polygons.flatMap((polygon, face) =>
+      polygon.some((vertex, index) => edgeKey(vertex, polygon[(index + 1) % polygon.length]) === key) ? [face] : []
+    );
+    if (faces.length !== 2) throw new Error('Delete Edge requires a manifold edge shared by exactly two faces.');
+    join(faces[0], faces[1]);
   }
 
   const regions = new Map<number, number[]>();
-  for (let face = 0; face < polygonTriangles.length; face++) {
+  for (let face = 0; face < topology.polygons.length; face++) {
     const root = find(face);
     const region = regions.get(root) ?? [];
     region.push(face);
     regions.set(root, region);
   }
-  const groups = [...regions.values()].map(region =>
-    region.flatMap(face => polygonTriangles[face])
-  );
-  const topology = inspectGeometry(source, groups).topology;
-  const geometry = source.clone();
-  geometry.computeBoundingBox();
-  geometry.computeBoundingSphere();
-  return { geometry, polygonTriangles: groups, topology };
-}
-
-function deleteLogicalFaces(
-  source: THREE.BufferGeometry,
-  inspection: ReturnType<typeof inspectGeometry>,
-  removedFaces: Set<number>,
-) {
-  const { topology, indices, materials } = inspection;
-  if (removedFaces.size === topology.polygons.length) {
-    throw new Error('Delete would remove the entire mesh; delete the object in Object Mode instead.');
-  }
-
-  const removedTriangles = new Set<number>(
-    [...removedFaces].flatMap(face => topology.polygonTriangles[face] ?? [])
-  );
-  const values: Record<string, number[]> = {};
-  const sizes: Record<string, number> = {};
-  const groups: { start: number; count: number; material: number }[] = [];
-  const triangleMap = new Map<number, number>();
-  let count = 0;
-  let nextTriangle = 0;
-
-  for (let face = 0; face < topology.faces.length; face++) {
-    if (removedTriangles.has(face)) continue;
-    triangleMap.set(face, nextTriangle++);
-    const material = materials[face];
-    const last = groups.at(-1);
-    if (last?.material === material) last.count += 3;
-    else groups.push({ start: count, count: 3, material });
-
-    for (const rawIndex of indices.slice(face * 3, face * 3 + 3)) {
-      for (const [name, attribute] of Object.entries(source.attributes)) {
-        sizes[name] = attribute.itemSize;
-        const target = values[name] ??= [];
-        for (let component = 0; component < attribute.itemSize; component++) {
-          target.push(attribute.getComponent(rawIndex, component));
-        }
-      }
-      count++;
-    }
-  }
-
-  const geometry = new THREE.BufferGeometry();
-  for (const [name, data] of Object.entries(values)) {
-    geometry.setAttribute(name, new THREE.Float32BufferAttribute(data, sizes[name]));
-  }
-  groups.forEach(group => geometry.addGroup(group.start, group.count, group.material));
-  geometry.computeBoundingBox();
-  geometry.computeBoundingSphere();
-
-  const polygonTriangles = topology.polygonTriangles
-    .filter((_, face) => !removedFaces.has(face))
-    .map(group => group.map(triangle => {
-      const mapped = triangleMap.get(triangle);
-      if (mapped === undefined) throw new Error('Deleted face triangle mapping is inconsistent.');
-      return mapped;
-    }));
-  inspectGeometry(geometry, polygonTriangles);
-  return { geometry, polygonTriangles };
+  return [...regions.values()].sort((a, b) => Math.min(...a) - Math.min(...b));
 }
 
 export function deleteLogicalComponents(
@@ -613,6 +655,7 @@ export function deleteLogicalComponents(
 ) {
   const inspection = inspectGeometry(source, polygonTriangles ?? false);
   const { topology } = inspection;
+  const surface = logicalSurface(source, inspection);
   const selected = [...new Set(components)];
   if (!selected.length) throw new Error('Select mesh components to delete.');
 
@@ -620,47 +663,52 @@ export function deleteLogicalComponents(
     if (selected.some(vertex => !Number.isInteger(vertex) || !topology.logicalVertices.includes(vertex))) {
       throw new Error('Invalid logical vertex selection.');
     }
-    const unions = selected.map(vertex =>
-      topology.polygons.flatMap((polygon, face) => polygon.includes(vertex) ? [face] : [])
-    );
-    if (unions.some(region => region.length < 2)) {
-      throw new Error('Boundary vertices that belong to only one face cannot be dissolved yet.');
+    const selectedVertices = new Set(selected);
+    const entries: EditedPolygon[] = [];
+    for (let face = 0; face < topology.polygons.length; face++) {
+      const boundary = topology.polygons[face];
+      const keep = boundary.map((vertex, index) => ({ vertex, index })).filter(item => !selectedVertices.has(item.vertex));
+      if (keep.length === boundary.length) {
+        entries.push({ polygon: surface.polygons[face], sourceFace: face });
+        continue;
+      }
+      if (keep.length < 3) continue;
+      entries.push({
+        polygon: {
+          material: surface.polygons[face].material,
+          corners: keep.map(item => surface.polygons[face].corners[item.index]),
+          referenceNormals: keep.map(item => surface.polygons[face].referenceNormals![item.index]),
+        },
+      });
     }
-    const result = mergeLogicalPolygonRegions(source, topology.polygonTriangles, unions);
-    if (selected.some(vertex => result.topology.logicalVertices.includes(vertex))) {
-      result.geometry.dispose();
-      throw new Error('Selected vertex remains on the logical boundary and cannot be dissolved without changing the surface.');
-    }
-    return { geometry: result.geometry, polygonTriangles: result.polygonTriangles };
+    if (!entries.length) throw new Error('Delete Vertex would remove the entire mesh.');
+    return finishEditedSurface(source, inspection, entries);
   }
 
   if (mode === 'edge') {
-    if (selected.some(edge => !Number.isInteger(edge) || !topology.polygonEdges[edge])) {
-      throw new Error('Invalid logical edge selection.');
-    }
-    const unions = selected.map(edge => {
-      const [a, b] = topology.polygonEdges[edge];
-      const faces = topology.polygons.flatMap((polygon, face) =>
-        polygon.some((vertex, i) => edgeKey(vertex, polygon[(i + 1) % polygon.length]) === edgeKey(a, b)) ? [face] : []
-      );
-      if (faces.length !== 2) throw new Error('Delete Edge requires a manifold edge shared by exactly two faces.');
-      return faces;
-    });
-    const dissolvedKeys = new Set(selected.map(edge => edgeKey(...topology.polygonEdges[edge])));
-    const result = mergeLogicalPolygonRegions(source, topology.polygonTriangles, unions);
-    if (result.topology.polygonEdges.some(([a, b]) => dissolvedKeys.has(edgeKey(a, b)))) {
-      result.geometry.dispose();
-      throw new Error('Selected edge remains on the logical boundary and cannot be dissolved.');
-    }
-    return { geometry: result.geometry, polygonTriangles: result.polygonTriangles };
+    const regions = mergedPolygonGroups(topology, selected);
+    const groups = regions.map(region => region.flatMap(face => topology.polygonTriangles[face]));
+    const mergedInspection = inspectGeometry(source, groups);
+    const entries: EditedPolygon[] = regions.map((region, polygonId) =>
+      region.length === 1
+        ? { polygon: surface.polygons[region[0]], sourceFace: region[0] }
+        : { polygon: polygonFromTriangleGroup(source, mergedInspection, polygonId) },
+    );
+    return finishEditedSurface(source, inspection, entries);
   }
 
   if (selected.some(face => !Number.isInteger(face) || !topology.polygons[face])) {
     throw new Error('Invalid logical face selection.');
   }
-  return deleteLogicalFaces(source, inspection, new Set(selected));
+  const removed = new Set(selected);
+  if (removed.size === topology.polygons.length) {
+    throw new Error('Delete would remove the entire mesh; delete the object in Object Mode instead.');
+  }
+  const entries = topology.polygons.flatMap((_, face) =>
+    removed.has(face) ? [] : [{ polygon: surface.polygons[face], sourceFace: face }]
+  );
+  return finishEditedSurface(source, inspection, entries);
 }
-
 
 export function bevelLogicalEdges(source: THREE.BufferGeometry, edges: number[], width: number, polygonTriangles?: number[][]) {
   if (!Number.isFinite(width) || width < 0.0001 || width > 1000) throw new Error('Bevel width must be between 0.0001 and 1000.');
