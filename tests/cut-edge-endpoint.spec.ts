@@ -271,6 +271,56 @@ test('multi-bend Knife path creates true logical vertices and edges for every in
   plane.dispose();
 });
 
+test('edge-to-edge multi-bend Knife path preserves inserted boundary endpoints', () => {
+  const plane = new THREE.PlaneGeometry(2, 2, 1, 1);
+  const input = buildTopology(plane.getAttribute('position').array, plane.index?.array, true);
+  const face = 0;
+  const boundary = input.polygons[face];
+  const edgeId = (a: number, b: number) => input.polygonEdges.findIndex(([x, y]) =>
+    (x === a && y === b) || (x === b && y === a)
+  );
+  const startEdge = edgeId(boundary[0], boundary[1]);
+  const endEdge = edgeId(boundary[2], boundary[3]);
+  expect(startEdge).toBeGreaterThanOrEqual(0);
+  expect(endEdge).toBeGreaterThanOrEqual(0);
+
+  const edgePoint = (edge: number, t: number) => {
+    const [a, b] = input.polygonEdges[edge];
+    return point(plane, input, a).lerp(point(plane, input, b), t);
+  };
+  const startExpected = edgePoint(startEdge, 0.25);
+  const endExpected = edgePoint(endEdge, 0.7);
+  const first = startExpected.clone().lerp(endExpected, 0.35).add(new THREE.Vector3(0.12, 0.08, 0));
+  const second = startExpected.clone().lerp(endExpected, 0.68).add(new THREE.Vector3(-0.08, -0.1, 0));
+
+  const result = cutLogicalFaceViaPath(plane, {
+    face,
+    start: { kind: 'edge', edge: startEdge, t: 0.25 },
+    interiors: [
+      first.toArray() as [number, number, number],
+      second.toArray() as [number, number, number],
+    ],
+    end: { kind: 'edge', edge: endEdge, t: 0.7 },
+  }, input.polygonTriangles);
+
+  const output = buildTopology(
+    result.geometry.getAttribute('position').array,
+    result.geometry.index?.array,
+    result.polygonTriangles,
+  );
+  expect(output.polygons).toHaveLength(2);
+  expect(output.logicalVertices).toHaveLength(8);
+  expect(output.polygonEdges).toHaveLength(9);
+  for (const expected of [startExpected, first, second, endExpected]) {
+    expect(output.logicalVertices.some(vertex =>
+      point(result.geometry, output, vertex).distanceToSquared(expected) < 1e-12
+    )).toBe(true);
+  }
+
+  result.geometry.dispose();
+  plane.dispose();
+});
+
 test('multi-bend Knife path rejects self-intersection', () => {
   const plane = new THREE.PlaneGeometry(2, 2, 1, 1);
   const input = buildTopology(plane.getAttribute('position').array, plane.index?.array, true);
