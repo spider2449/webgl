@@ -715,7 +715,7 @@ test('Knife vertex snap stays locked until the cursor leaves the larger release 
 });
 
 
-test('Edge-only Knife keeps endpoint preview visible instead of dropping the candidate', async ({ page }) => {
+test('Edge-only Knife does not proximity-snap near vertices but accepts an intentional vertex click', async ({ page }) => {
   await page.goto('/');
   await page.waitForFunction(() => (window as any).__forge?.selected);
   await page.evaluate(() => (window as any).__forge.view('front'));
@@ -755,38 +755,55 @@ test('Edge-only Knife keeps endpoint preview visible instead of dropping the can
     };
     const [aVertex, bVertex] = topology.polygonEdges[edge];
     const a = local(aVertex), b = local(bVertex);
+    const worldA = mesh.localToWorld(a.clone());
+    const worldB = mesh.localToWorld(b.clone());
+    const threshold = e.camera.position.distanceTo(e.orbit.target) * 0.012;
+    const edgeLength = worldA.distanceTo(worldB);
+    const nearT = Math.min(0.08, Math.max(0.015, threshold * 0.45 / edgeLength));
+
     return {
       before: e.snapshot(),
       endpoint: screen(a),
+      near: screen(a.clone().lerp(b, nearT)),
       interior: screen(a.clone().lerp(b, 0.25)),
     };
   });
 
   await page.keyboard.press('k');
 
-  await page.mouse.move(target.endpoint.x, target.endpoint.y);
+  // Even inside the normal Vertex + Edge acquire radius, Edge only must keep
+  // following the edge instead of snapping/sticking to the logical vertex.
+  await page.mouse.move(target.near.x, target.near.y);
   let preview = await page.evaluate(() => (window as any).__forge.knifePreviewState);
   expect(preview.pointVisible).toBe(true);
   expect(preview.target.kind).toBe('edge');
-  expect([0, 1]).toContain(preview.target.t);
+  expect(preview.target.t).toBeGreaterThan(0);
   expect(preview.lockedVertex).toBeNull();
-  preview.point.forEach((value: number, index: number) => expect(value).toBeCloseTo(target.endpoint.local[index], 5));
+  preview.point.forEach((value: number, index: number) => expect(value).toBeCloseTo(target.near.local[index], 4));
 
-  // Clicking the endpoint must not create topology or end Knife.
+  // An intentional click directly on the visible logical point is still
+  // accepted as a vertex start; this is a click hit, not proximity snapping.
   await page.mouse.click(target.endpoint.x, target.endpoint.y);
+  await expect(page.locator('#toast')).toContainText('Knife start set');
   expect(await page.evaluate(() => ({
     snapshot: (window as any).__forge.snapshot(),
     pending: (window as any).__forge.snapTargetPending,
-  }))).toEqual({ snapshot: target.before, pending: true });
+    anchor: (window as any).__forge.knifePreviewState.anchor,
+  }))).toEqual({
+    snapshot: target.before,
+    pending: true,
+    anchor: target.endpoint.local,
+  });
 
-  // Moving back inside the edge restores a commit-capable edge candidate.
+  // Edge-only hover continues tracking interior edge positions after that click.
   await page.mouse.move(target.interior.x, target.interior.y);
   preview = await page.evaluate(() => (window as any).__forge.knifePreviewState);
   expect(preview.pointVisible).toBe(true);
   expect(preview.target.kind).toBe('edge');
   expect(preview.target.t).toBeGreaterThan(0);
   expect(preview.target.t).toBeLessThan(1);
-  preview.point.forEach((value: number, index: number) => expect(value).toBeCloseTo(target.interior.local[index], 5));
+  expect(preview.lockedVertex).toBeNull();
+  preview.point.forEach((value: number, index: number) => expect(value).toBeCloseTo(target.interior.local[index], 4));
 
   await page.keyboard.press('Escape');
   await page.evaluate(() => { (window as any).__forgeModelingSettings.knifeSnap = 'vertex-edge'; });
