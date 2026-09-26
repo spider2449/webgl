@@ -1380,6 +1380,9 @@ function planKnifeSegment(target: KnifeTarget): { plan: KnifeSegmentPlan | null;
   const anchor = knifeAnchor;
   const topology = editor.meshTopology;
   if (!anchor || !topology) return { plan: null, reason: 'Knife needs a start point first.' };
+  if (target.kind === 'edge' && (!Number.isFinite(target.t) || target.t <= 1e-5 || target.t >= 1 - 1e-5)) {
+    return { plan: null, reason: 'Edge-only Knife endpoints cannot be committed on a logical vertex. Move inside the edge or enable Vertex + Edge.' };
+  }
 
   if (anchor.kind === 'vertex') {
     const startVertex = knifeVertexAtPosition(anchor.position);
