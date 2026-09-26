@@ -1560,7 +1560,7 @@ export class Editor extends EventTarget {
       meshes.forEach((mesh, i) => {
         if (operation.kind === 'uv') {
           this.markPrimitiveApplied(mesh);
-        } else if ((operation.kind === 'bevel' || operation.kind === 'extrude' || operation.kind === 'inset' || operation.kind === 'loop' || operation.kind === 'delete-components' || operation.kind === 'cut-face' || operation.kind === 'cut-face' || operation.kind === 'cut-face') && topologies[i]) {
+        } else if ((operation.kind === 'bevel' || operation.kind === 'extrude' || operation.kind === 'inset' || operation.kind === 'loop' || operation.kind === 'delete-components' || operation.kind === 'cut-face') && topologies[i]) {
           this.markPrimitiveApplied(mesh);
           if (mesh.userData.forgeLogicalQuads !== undefined) delete mesh.userData.forgeLogicalQuads;
           mesh.userData.forgePolygonTriangles = topologies[i]!.polygonTriangles.map(group => [...group]);
@@ -1575,13 +1575,13 @@ export class Editor extends EventTarget {
         // main thread. This keeps raycast faceIndex -> logical polygon mapping
         // aligned with the parsed BufferGeometry rather than trusting a
         // transient worker-side triangle numbering.
-        const rebuildFromStoredPolygons = operation.kind === 'bevel' || operation.kind === 'extrude' || operation.kind === 'inset' || operation.kind === 'loop' || operation.kind === 'delete-components';
+        const rebuildFromStoredPolygons = operation.kind === 'bevel' || operation.kind === 'extrude' || operation.kind === 'inset' || operation.kind === 'loop' || operation.kind === 'delete-components' || operation.kind === 'cut-face';
         this.setEditMode(true, operation.kind === 'uv' || rebuildFromStoredPolygons ? undefined : topologies[0]);
         if (operation.kind === 'subdivide') {
           this.restoreSubdivisionSelection(oldMode, oldEdges, midpoint);
         } else if (operation.kind === 'subdivide-all') {
           this.setComponentMode(oldMode);
-        } else if (operation.kind === 'loop' || operation.kind === 'delete-components') {
+        } else if (operation.kind === 'loop' || operation.kind === 'delete-components' || operation.kind === 'cut-face') {
           this.setComponentMode(oldMode);
         } else if (['uv', 'inset', 'extrude', 'region'].includes(operation.kind)) {
           const restoredFaces =
