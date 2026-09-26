@@ -558,3 +558,82 @@ test('Knife hover preview follows the edge, snaps to logical vertices, and shows
   expect(ended.anchor).toBeNull();
   expect(ended.target).toBeNull();
 });
+
+
+test('Knife preview marks invalid endpoints before click and uses the same validity for commit', async ({ page }) => {
+  await page.goto('/');
+  await page.waitForFunction(() => (window as any).__forge?.selected);
+  await page.evaluate(() => (window as any).__forge.view('front'));
+  await page.locator('#mode').selectOption('edit');
+  await page.getByLabel('Mesh component').selectOption('vertex');
+
+  const target = await page.evaluate(() => {
+    const e = (window as any).__forge;
+    const topology = e.meshTopology;
+    const mesh = e.selected;
+    const position = mesh.geometry.getAttribute('position');
+    const face = topology.polygons.findIndex((polygon: number[]) =>
+      polygon.every((vertex: number) => position.getZ(topology.vertices[vertex][0]) === 1)
+    );
+    if (face < 0) throw new Error('Expected a front logical quad.');
+    const boundary = topology.polygons[face];
+    const edgeId = (a: number, b: number) => topology.polygonEdges.findIndex((candidate: number[]) =>
+      candidate.length === 2 && ((candidate[0] === a && candidate[1] === b) || (candidate[0] === b && candidate[1] === a))
+    );
+    const invalidEdge = edgeId(boundary[0], boundary[1]);
+    const validEdge = edgeId(boundary[1], boundary[2]);
+    if (invalidEdge < 0 || validEdge < 0) throw new Error('Expected logical target edges.');
+
+    const rect = e.host.getBoundingClientRect();
+    const vertexPoint = (vertex: number) =>
+      mesh.position.clone().fromBufferAttribute(position, topology.vertices[vertex][0]);
+    const screenLocal = (local: any) => {
+      mesh.updateWorldMatrix(true, true);
+      e.camera.updateMatrixWorld(true);
+      const projected = mesh.localToWorld(local.clone()).project(e.camera);
+      return {
+        x: rect.left + (projected.x + 1) * rect.width / 2,
+        y: rect.top + (1 - projected.y) * rect.height / 2,
+      };
+    };
+    const edgePoint = (edge: number, t: number) => {
+      const [aVertex, bVertex] = topology.polygonEdges[edge];
+      return vertexPoint(aVertex).lerp(vertexPoint(bVertex), t);
+    };
+
+    return {
+      before: e.snapshot(),
+      start: screenLocal(vertexPoint(boundary[0])),
+      invalid: screenLocal(edgePoint(invalidEdge, 0.5)),
+      valid: screenLocal(edgePoint(validEdge, 0.5)),
+    };
+  });
+
+  await page.keyboard.press('k');
+  await page.mouse.click(target.start.x, target.start.y);
+  await expect(page.locator('#toast')).toContainText('Knife start set');
+
+  await page.mouse.move(target.invalid.x, target.invalid.y);
+  let preview = await page.evaluate(() => (window as any).__forge.knifePreviewState);
+  expect(preview.lineVisible).toBe(true);
+  expect(preview.validity).toBe('invalid');
+
+  await page.mouse.click(target.invalid.x, target.invalid.y);
+  await expect(page.locator('#toast')).toContainText('Choose a non-incident edge');
+  expect(await page.evaluate(() => ({
+    snapshot: (window as any).__forge.snapshot(),
+    pending: (window as any).__forge.snapTargetPending,
+  }))).toEqual({ snapshot: target.before, pending: true });
+
+  await page.mouse.move(target.valid.x, target.valid.y);
+  preview = await page.evaluate(() => (window as any).__forge.knifePreviewState);
+  expect(preview.lineVisible).toBe(true);
+  expect(preview.validity).toBe('valid');
+
+  await page.mouse.click(target.valid.x, target.valid.y);
+  await page.waitForFunction(() => !(window as any).__forge.modelingBusy && (window as any).__forge.snapTargetPending);
+  await expect(page.locator('#toast')).toContainText('Knife segment complete');
+  expect(await page.evaluate(() => (window as any).__forge.snapshot())).not.toBe(target.before);
+
+  await page.keyboard.press('Escape');
+});
