@@ -1323,6 +1323,7 @@ function armKnife(message: string) {
   } catch (error) {
     knifeActive = false;
     knifeAnchor = null;
+    editor.setKnifePreviewAnchor(null);
     toast((error as Error).message);
   }
 }
@@ -1330,6 +1331,7 @@ function armKnife(message: string) {
 function cancelKnife() {
   knifeActive = false;
   knifeAnchor = null;
+  editor.setKnifePreviewAnchor(null);
   if (editor.snapTargetPending && editor.snapTargetKind === 'knife') editor.cancelVertexSnap();
 }
 
@@ -1344,6 +1346,7 @@ function startKnifeCut() {
     if (editor.componentSelection.length === 1) {
       knifeAnchor = { kind: 'vertex', position: knifePositionForTarget({ kind: 'vertex', vertex: editor.componentSelection[0] }) };
     }
+    editor.setKnifePreviewAnchor(knifeAnchor?.position ?? null);
     armKnife(
       knifeAnchor
         ? 'Knife: choose the next vertex or edge point. Continue clicking; Escape ends Knife.'
@@ -1433,6 +1436,7 @@ async function finishKnifeSegment(target: KnifeTarget, targetPosition: [number, 
     }
 
     knifeAnchor = { kind: 'vertex', position: targetPosition };
+    editor.setKnifePreviewAnchor(targetPosition);
     armKnife('Knife segment complete. Choose the next vertex or edge point; Escape ends Knife.');
   } catch (error) {
     armKnife(`${(error as Error).message} Choose another vertex or edge point, or press Escape to end.`);
@@ -1454,6 +1458,7 @@ editor.addEventListener('knife-target', event => {
     knifeAnchor = target.kind === 'vertex'
       ? { kind: 'vertex', position }
       : { kind: 'edge', edge: target.edge, t: target.t, position };
+    editor.setKnifePreviewAnchor(position);
     armKnife('Knife start set. Choose the next vertex or edge point; Escape ends Knife.');
     return;
   }
