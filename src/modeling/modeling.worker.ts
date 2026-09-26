@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { bevelLogicalEdges, cutLogicalFace, deleteLogicalComponents, extrudeLogicalFace, insetLogicalFace, loopCutLogicalEdge, editUV, inspectGeometry } from './modeling';
-import { cutLogicalFaceBetweenEdges, cutLogicalFaceToEdge, cutLogicalSegmentByPositions } from './cut-edge-endpoint';
+import { cutLogicalFaceBetweenEdges, cutLogicalFaceToEdge } from './cut-edge-endpoint';
 import { evaluateModifiers } from './modifiers';
 import { extrudeRegion } from './extrude-region';
 import { subdivideEdges } from './subdivide';
@@ -14,25 +14,6 @@ self.onmessage = (event: MessageEvent<{ source: ReturnType<THREE.BufferGeometry[
     source = new THREE.BufferGeometryLoader().parse(event.data.source);
     const op = event.data.operation;
     switch (op.kind) {
-      case 'knife-session': {
-        if (!op.segments.length) throw new Error('Knife session requires at least one segment.');
-        let current = source;
-        let groups = op.polygonTriangles;
-        try {
-          for (const segment of op.segments) {
-            const cut = cutLogicalSegmentByPositions(current, segment, groups);
-            if (current !== source) current.dispose();
-            current = cut.geometry;
-            groups = cut.polygonTriangles;
-          }
-          result = current;
-          logicalGroups = groups;
-        } catch (error) {
-          if (current !== source) current.dispose();
-          throw error;
-        }
-        break;
-      }
       case 'topology': self.postMessage({ topology: inspectGeometry(source, op.polygonTriangles ?? op.pairTriangles ?? false).topology, milliseconds: performance.now() - start }); return;
       case 'bevel': {
         const bevel = bevelLogicalEdges(source, op.edges, op.width, op.polygonTriangles);
