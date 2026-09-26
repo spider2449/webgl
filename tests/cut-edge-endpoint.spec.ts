@@ -94,3 +94,89 @@ test('edge endpoint cut rejects endpoints and edges outside the selected face', 
   expect(() => cutLogicalFaceToEdge(box, { face: 0, vertex: boundary[0], edge: outside, t: 0.5 }, input.polygonTriangles)).toThrow(/must bound/);
   expect(() => cutLogicalFaceToEdge(box, { face: 0, vertex: boundary[0], edge: outside, t: 0 }, input.polygonTriangles)).toThrow(/strictly inside/);
 });
+
+
+test('viewport Knife cuts from one selected logical vertex to a clicked point on an existing logical edge', async ({ page }) => {
+  await page.goto('/');
+  await page.waitForFunction(() => (window as any).__forge?.selected);
+  await page.evaluate(() => {
+    const e = (window as any).__forge;
+    e.view('front');
+  });
+  await page.locator('#mode').selectOption('edit');
+  await page.getByLabel('Mesh component').selectOption('vertex');
+
+  const target = await page.evaluate(() => {
+    const e = (window as any).__forge;
+    const topology = e.meshTopology;
+    const mesh = e.selected;
+    const position = mesh.geometry.getAttribute('position');
+    const face = topology.polygons.findIndex((polygon: number[]) =>
+      polygon.every((vertex: number) => position.getZ(topology.vertices[vertex][0]) === 1)
+    );
+    if (face < 0) throw new Error('Expected a front logical quad.');
+    const boundary = topology.polygons[face];
+    const vertex = boundary[0];
+    const wanted = new Set([boundary[1], boundary[2]]);
+    const edge = topology.polygonEdges.findIndex((candidate: number[]) =>
+      candidate.length === 2 && wanted.has(candidate[0]) && wanted.has(candidate[1])
+    );
+    if (edge < 0) throw new Error('Expected an opposite logical edge.');
+    e.selectComponent(vertex);
+
+    const [edgeA, edgeB] = topology.polygonEdges[edge];
+    const a = new THREE.Vector3().fromBufferAttribute(position, topology.vertices[edgeA][0]);
+    const b = new THREE.Vector3().fromBufferAttribute(position, topology.vertices[edgeB][0]);
+    const local = a.clone().lerp(b, 0.35);
+    mesh.updateWorldMatrix(true, true);
+    e.camera.updateMatrixWorld(true);
+    const projected = mesh.localToWorld(local.clone()).project(e.camera);
+    const rect = e.host.getBoundingClientRect();
+    return {
+      before: e.snapshot(),
+      local: local.toArray(),
+      x: rect.left + (projected.x + 1) * rect.width / 2,
+      y: rect.top + (1 - projected.y) * rect.height / 2,
+    };
+  });
+
+  await page.keyboard.press('k');
+  expect(await page.evaluate(() => ({
+    pending: (window as any).__forge.snapTargetPending,
+    kind: (window as any).__forge.snapTargetKind,
+    guides: (window as any).__forge.componentEdges.visible,
+  }))).toEqual({ pending: true, kind: 'knife-edge', guides: true });
+
+  await page.mouse.click(target.x, target.y);
+  await page.waitForFunction(() => !(window as any).__forge.modelingBusy && !(window as any).__forge.snapTargetPending);
+  await expect(page.locator('#toast')).toContainText('Knife cut complete');
+
+  const result = await page.evaluate(expected => {
+    const e = (window as any).__forge;
+    const topology = e.meshTopology;
+    const position = e.selected.geometry.getAttribute('position');
+    const found = topology.logicalVertices.some((vertex: number) => {
+      const raw = topology.vertices[vertex][0];
+      return Math.hypot(
+        position.getX(raw) - expected[0],
+        position.getY(raw) - expected[1],
+        position.getZ(raw) - expected[2],
+      ) < 1e-5;
+    });
+    const after = e.snapshot();
+    e.undo();
+    return {
+      polygons: topology.polygons.length,
+      logicalVertices: topology.logicalVertices.length,
+      found,
+      after,
+      undone: e.snapshot(),
+    };
+  }, target.local);
+
+  expect(result.polygons).toBe(7);
+  expect(result.logicalVertices).toBe(9);
+  expect(result.found).toBe(true);
+  expect(result.after).not.toBe(target.before);
+  expect(result.undone).toBe(target.before);
+});
