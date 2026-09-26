@@ -8,6 +8,7 @@ export type ModelingOperation =
   | { kind: 'extrude'; face: number; distance: number; polygonTriangles?: number[][] }
   | { kind: 'inset'; face: number; distance: number; polygonTriangles?: number[][] }
   | { kind: 'delete-components'; mode: 'vertex' | 'edge' | 'face'; components: number[]; polygonTriangles?: number[][] }
+  | { kind: 'cut-face'; face: number; vertices: [number, number]; polygonTriangles?: number[][] }
   | { kind: 'region'; faces: number[]; distance: number }
   | { kind: 'subdivide'; edges: [number, number][] }
   | { kind: 'subdivide-all' }
