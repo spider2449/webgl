@@ -528,7 +528,7 @@ test('Knife hover preview follows the edge, snaps to logical vertices, and shows
   expect(preview.pointVisible).toBe(true);
   expect(preview.lineVisible).toBe(false);
   expect(preview.target.kind).toBe('edge');
-  expect(preview.point).toEqual(expect.arrayContaining(target.edgePoint.local.map((value: number) => expect.closeTo(value, 5))));
+  preview.point.forEach((value: number, index: number) => expect(value).toBeCloseTo(target.edgePoint.local[index], 5));
 
   // Moving onto a logical vertex must stop/snap the preview exactly at that vertex.
   await page.mouse.move(target.snapVertex.x, target.snapVertex.y);
