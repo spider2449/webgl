@@ -1315,9 +1315,6 @@ const knifeEdgeFaces = (edge: number) => {
   );
 };
 
-const knifeVertexFaces = (vertex: number) =>
-  editor.meshTopology?.polygons.flatMap((polygon, face) => polygon.includes(vertex) ? [face] : []) ?? [];
-
 function armKnife(message: string) {
   if (!knifeActive) return;
   try {
