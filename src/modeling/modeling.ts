@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { buildTopology } from './topology';
+import { buildTopology, type MeshTopology } from './topology';
 
 type Corner = Record<string, number[]>;
 type Polygon = {
@@ -540,22 +540,15 @@ export function cutLogicalFace(
   return finishEditedSurface(source, inspection, entries);
 }
 
-function validateInteriorKnifeLegWithInspection(
+function validateInteriorKnifeLegWithTopology(
   source: THREE.BufferGeometry,
-  inspection: ReturnType<typeof inspectGeometry>,
+  topology: MeshTopology,
   face: number,
   boundaryPoint: THREE.Vector3,
   interiorPoint: THREE.Vector3,
 ) {
-  const { topology, indices } = inspection;
   if (!Number.isInteger(face) || !topology.polygons[face]) {
     throw new Error('Select one valid logical face for the Knife bend.');
-  }
-
-  const triangleIds = topology.polygonTriangles[face];
-  const reference = inspection.normals[triangleIds[0]];
-  if (!reference || triangleIds.some(triangle => inspection.normals[triangle].dot(reference) < 0.999999)) {
-    throw new Error('Interior Knife bend currently requires one planar logical face.');
   }
 
   const position = source.getAttribute('position');
@@ -563,6 +556,25 @@ function validateInteriorKnifeLegWithInspection(
   const boundaryPoints = boundary.map(vertex =>
     new THREE.Vector3().fromBufferAttribute(position, topology.vertices[vertex][0])
   );
+  const triangleIds = topology.polygonTriangles[face];
+
+  const triangleNormal = (triangle: number) => {
+    const logical = topology.faces[triangle];
+    if (!logical || logical.length !== 3) return null;
+    const points = logical.map(vertex =>
+      new THREE.Vector3().fromBufferAttribute(position, topology.vertices[vertex][0])
+    );
+    const normal = points[1].clone().sub(points[0]).cross(points[2].clone().sub(points[0]));
+    if (normal.lengthSq() < 1e-16) return null;
+    return normal.normalize();
+  };
+  const reference = triangleNormal(triangleIds[0]);
+  if (!reference || triangleIds.some(triangle => {
+    const normal = triangleNormal(triangle);
+    return !normal || normal.dot(reference) < 0.999999;
+  })) {
+    throw new Error('Interior Knife bend currently requires one planar logical face.');
+  }
 
   const allowedEdges = new Set<number>();
   for (let index = 0; index < boundaryPoints.length; index++) {
@@ -581,8 +593,11 @@ function validateInteriorKnifeLegWithInspection(
 
   let insideFace = false;
   for (const triangle of triangleIds) {
-    const raw = indices.slice(triangle * 3, triangle * 3 + 3);
-    const points = raw.map(index => new THREE.Vector3().fromBufferAttribute(position, index));
+    const logical = topology.faces[triangle];
+    if (!logical || logical.length !== 3) continue;
+    const points = logical.map(vertex =>
+      new THREE.Vector3().fromBufferAttribute(position, topology.vertices[vertex][0])
+    );
     const closest = new THREE.Triangle(points[0], points[1], points[2])
       .closestPointToPoint(interiorPoint, new THREE.Vector3());
     if (closest.distanceToSquared(interiorPoint) <= 1e-10) {
@@ -656,18 +671,17 @@ function validateInteriorKnifeLegWithInspection(
 
 export function validateLogicalFaceInteriorKnifeLeg(
   source: THREE.BufferGeometry,
+  topology: MeshTopology,
   face: number,
   boundaryPoint: [number, number, number],
   interior: [number, number, number],
-  polygonTriangles?: number[][],
 ) {
   if (boundaryPoint.some(value => !Number.isFinite(value)) || interior.some(value => !Number.isFinite(value))) {
     throw new Error('Knife bend points must contain finite local coordinates.');
   }
-  const inspection = inspectGeometry(source, polygonTriangles ?? false);
-  validateInteriorKnifeLegWithInspection(
+  validateInteriorKnifeLegWithTopology(
     source,
-    inspection,
+    topology,
     face,
     new THREE.Vector3(...boundaryPoint),
     new THREE.Vector3(...interior),
@@ -709,8 +723,8 @@ export function cutLogicalFaceViaInteriorPoint(
   const boundaryPoints = boundary.map(vertex =>
     new THREE.Vector3().fromBufferAttribute(position, topology.vertices[vertex][0])
   );
-  validateInteriorKnifeLegWithInspection(source, inspection, face, boundaryPoints[start], expected);
-  validateInteriorKnifeLegWithInspection(source, inspection, face, boundaryPoints[end], expected);
+  validateInteriorKnifeLegWithTopology(source, topology, face, boundaryPoints[start], expected);
+  validateInteriorKnifeLegWithTopology(source, topology, face, boundaryPoints[end], expected);
 
   const readCorner = (raw: number): Corner => Object.fromEntries(
     Object.entries(source.attributes)
