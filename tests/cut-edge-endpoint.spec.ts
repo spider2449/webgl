@@ -119,6 +119,42 @@ test('interior Knife bend inserts two edge endpoints before splitting the logica
   plane.dispose();
 });
 
+test('interior Knife bend rejects a concave logical face instead of creating invalid topology', () => {
+  const geometry = new THREE.BufferGeometry();
+  const points = [
+    [0, 0, 0],
+    [2, 0, 0],
+    [1, 1, 0],
+    [2, 2, 0],
+    [0, 2, 0],
+  ];
+  const triangles = [
+    points[0], points[1], points[2],
+    points[0], points[2], points[4],
+    points[2], points[3], points[4],
+  ].flat();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(triangles, 3));
+  geometry.computeVertexNormals();
+
+  const groups = [[0, 1, 2]];
+  const topology = buildTopology(
+    geometry.getAttribute('position').array,
+    geometry.index?.array,
+    groups,
+  );
+  const boundary = topology.polygons[0];
+  expect(boundary).toHaveLength(5);
+
+  expect(() => cutLogicalFaceViaPoint(geometry, {
+    face: 0,
+    start: { kind: 'vertex', vertex: boundary[0] },
+    interior: [0.5, 1, 0],
+    end: { kind: 'vertex', vertex: boundary[3] },
+  }, groups)).toThrow(/convex logical face/);
+
+  geometry.dispose();
+});
+
 test('edge endpoint cut inserts one logical midpoint and splits only the selected face', () => {
   const box = new THREE.BoxGeometry(2, 2, 2);
   const before = JSON.stringify(box.toJSON());
