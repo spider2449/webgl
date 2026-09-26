@@ -578,6 +578,20 @@ export function cutLogicalFaceViaInteriorPoint(
   const expected = new THREE.Vector3(...interior);
   const position = source.getAttribute('position');
   const boundaryPoints = boundary.map(vertex => new THREE.Vector3().fromBufferAttribute(position, topology.vertices[vertex][0]));
+  let winding = 0;
+  for (let index = 0; index < boundaryPoints.length; index++) {
+    const a = boundaryPoints[index];
+    const b = boundaryPoints[(index + 1) % boundaryPoints.length];
+    const c = boundaryPoints[(index + 2) % boundaryPoints.length];
+    const turn = b.clone().sub(a).cross(c.clone().sub(b)).dot(reference);
+    if (Math.abs(turn) < 1e-10) continue;
+    const sign = Math.sign(turn);
+    if (winding && sign !== winding) {
+      throw new Error('Interior Knife bend currently requires one convex logical face.');
+    }
+    winding = sign;
+  }
+  if (!winding) throw new Error('Interior Knife bend requires a non-degenerate logical face.');
   for (let index = 0; index < boundaryPoints.length; index++) {
     const nearest = new THREE.Line3(
       boundaryPoints[index],
