@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { cutLogicalFace, cutLogicalFaceViaInteriorPath, cutLogicalFaceViaInteriorPoint } from './modeling';
+import { cutLogicalFace, cutLogicalFaceViaInteriorPath } from './modeling';
 import { buildTopology } from './topology';
 
 const edgeKey = (a: number, b: number) => `${Math.min(a, b)}:${Math.max(a, b)}`;
