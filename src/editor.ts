@@ -40,7 +40,7 @@ const MAX_ANIMATION_FRAME = 100_000;
 type KnifePickTarget =
   | { kind: 'vertex'; vertex: number }
   | { kind: 'edge'; edge: number; t: number };
-type KnifePick = { detail: KnifePickTarget; point: THREE.Vector3 };
+type KnifePick = { detail: KnifePickTarget; point: THREE.Vector3; commit?: boolean };
 const cloneScalarKey = (key: ScalarKey): ScalarKey => ({
   frame: key.frame,
   value: key.value,
@@ -303,8 +303,10 @@ export class Editor extends EventTarget {
               const pick = this.pickKnifeTarget(threshold);
               if (pick) {
                 this.setKnifePreview(pick);
-                this.cancelVertexSnap();
-                this.dispatchEvent(new CustomEvent('knife-target', { detail: pick.detail }));
+                if (pick.commit !== false) {
+                  this.cancelVertexSnap();
+                  this.dispatchEvent(new CustomEvent('knife-target', { detail: pick.detail }));
+                }
               }
             } else if (this.snapTargetKind === 'edge' && this.componentEdges) {
               this.raycaster.params.Line.threshold = threshold;
@@ -1611,7 +1613,21 @@ export class Editor extends EventTarget {
     if (lengthSq < 1e-16) return null;
     const localPoint = this.selected.worldToLocal(hit.point.clone());
     const t = localPoint.sub(a).dot(direction) / lengthSq;
-    if (!Number.isFinite(t) || t <= 1e-5 || t >= 1 - 1e-5) return null;
+    if (!Number.isFinite(t)) return null;
+    if (t <= 1e-5) {
+      return {
+        detail: { kind: 'edge', edge, t: 0 },
+        point: a.clone(),
+        commit: false,
+      };
+    }
+    if (t >= 1 - 1e-5) {
+      return {
+        detail: { kind: 'edge', edge, t: 1 },
+        point: b.clone(),
+        commit: false,
+      };
+    }
     return {
       detail: { kind: 'edge', edge, t },
       point: a.clone().lerp(b, t),
