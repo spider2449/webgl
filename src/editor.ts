@@ -103,6 +103,7 @@ export class Editor extends EventTarget {
   private knifePreviewHover: THREE.Vector3 | null = null;
   private knifePreviewTarget: KnifePickTarget | null = null;
   private knifePreviewValidity: 'neutral' | 'valid' | 'invalid' = 'neutral';
+  private knifeLockedVertex: number | null = null;
   private componentCenter = new THREE.Vector3();
   private proportionalEnabled = false;
   private proportionalRadius = 2;
@@ -1170,6 +1171,7 @@ export class Editor extends EventTarget {
       this.knifePreviewHover = null;
       this.knifePreviewTarget = null;
       this.knifePreviewValidity = 'neutral';
+      this.knifeLockedVertex = null;
       this.topology = null;
       this.vertexPoints.geometry.dispose();
       (this.vertexPoints.material as THREE.Material).dispose();
@@ -1537,6 +1539,7 @@ export class Editor extends EventTarget {
   cancelVertexSnap() {
     if (!this.snapTargetPending) return;
     this.snapTargetPending = false;
+    this.knifeLockedVertex = null;
     this.setKnifePreview(null);
     this.refreshComponents();
     this.invalidate();
@@ -1555,6 +1558,7 @@ export class Editor extends EventTarget {
       throw new Error('Knife requires Vertex mode with zero or one selected logical vertex.');
     }
     this.knifeSnapToVertex = snapToVertex;
+    if (!snapToVertex) this.knifeLockedVertex = null;
     this.snapTargetKind = 'knife';
     this.snapTargetPending = true;
     this.setKnifePreview(null);
@@ -1565,20 +1569,33 @@ export class Editor extends EventTarget {
   private pickKnifeTarget(threshold: number): KnifePick | null {
     if (!this.componentEdges || !this.selected || !(this.selected instanceof THREE.Mesh) || !this.topology) return null;
     const position = this.selected.geometry.getAttribute('position');
+    const vertexPick = (vertex: number): KnifePick => {
+      const raw = this.topology!.vertices[vertex][0];
+      return {
+        detail: { kind: 'vertex', vertex },
+        point: new THREE.Vector3().fromBufferAttribute(position, raw),
+      };
+    };
 
     if (this.knifeSnapToVertex && this.vertexPoints) {
+      if (this.knifeLockedVertex !== null && this.topology.logicalVertices.includes(this.knifeLockedVertex)) {
+        const locked = vertexPick(this.knifeLockedVertex);
+        const world = this.selected.localToWorld(locked.point.clone());
+        if (this.raycaster.ray.distanceToPoint(world) <= threshold * 2) return locked;
+        this.knifeLockedVertex = null;
+      }
+
       this.raycaster.params.Points.threshold = threshold;
       const vertexHit = this.raycaster.intersectObject(this.vertexPoints, false)[0];
       if (vertexHit?.index !== undefined) {
         const vertex = this.topology.bufferToVertex[vertexHit.index];
         if (this.topology.logicalVertices.includes(vertex)) {
-          const raw = this.topology.vertices[vertex][0];
-          return {
-            detail: { kind: 'vertex', vertex },
-            point: new THREE.Vector3().fromBufferAttribute(position, raw),
-          };
+          this.knifeLockedVertex = vertex;
+          return vertexPick(vertex);
         }
       }
+    } else {
+      this.knifeLockedVertex = null;
     }
 
     this.raycaster.params.Line.threshold = threshold;
@@ -1662,6 +1679,7 @@ export class Editor extends EventTarget {
       anchor: this.knifePreviewAnchor?.toArray() ?? null,
       target: this.knifePreviewTarget ? { ...this.knifePreviewTarget } : null,
       validity: this.knifePreviewValidity,
+      lockedVertex: this.knifeLockedVertex,
     };
   }
 
