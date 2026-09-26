@@ -68,7 +68,7 @@ This prevents T-junctions and handles edge-id changes caused by the first insert
 
 - exactly one pending interior bend point;
 - both boundary endpoints must belong to the same logical face;
-- the logical face must currently be planar;
+- the logical face must currently be planar and convex;
 - starting Knife directly from a face interior is not supported;
 - clicking a second face-interior point while one is pending is rejected;
 - multi-face traversal still happens through committed boundary endpoints, using the existing continuous Knife behavior.
