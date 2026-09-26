@@ -540,6 +540,203 @@ export function cutLogicalFace(
   return finishEditedSurface(source, inspection, entries);
 }
 
+export type KnifeFaceEndpoint = { edge: number; t: number };
+
+export function knifeLogicalFace(
+  source: THREE.BufferGeometry,
+  face: number,
+  endpoints: [KnifeFaceEndpoint, KnifeFaceEndpoint],
+  polygonTriangles?: number[][],
+) {
+  const inspection = inspectGeometry(source, polygonTriangles ?? false);
+  const { topology, read } = inspection;
+  const surface = logicalSurface(source, inspection);
+  if (!Number.isInteger(face) || face < 0 || face >= topology.polygons.length || !surface.polygons[face]) {
+    throw new Error('Select one valid logical face for Knife.');
+  }
+  if (!Array.isArray(endpoints) || endpoints.length !== 2) {
+    throw new Error('Knife requires exactly two boundary points.');
+  }
+
+  const targetBoundary = topology.polygons[face];
+  const targetEdgeKeys = new Set(
+    targetBoundary.map((vertex, index) => edgeKey(vertex, targetBoundary[(index + 1) % targetBoundary.length])),
+  );
+  const normalized = endpoints.map((endpoint, endpointIndex) => {
+    if (
+      !endpoint ||
+      !Number.isInteger(endpoint.edge) ||
+      !topology.polygonEdges[endpoint.edge] ||
+      !Number.isFinite(endpoint.t) ||
+      endpoint.t < 0 ||
+      endpoint.t > 1
+    ) throw new Error('Knife point must lie on a valid logical edge.');
+
+    const vertices = topology.polygonEdges[endpoint.edge];
+    if (!targetEdgeKeys.has(edgeKey(vertices[0], vertices[1]))) {
+      throw new Error('Both Knife points must lie on the selected face boundary.');
+    }
+
+    let t = endpoint.t;
+    const snap = 1e-6;
+    if (t <= snap) t = 0;
+    else if (t >= 1 - snap) t = 1;
+
+    const point = read(vertices[0]).lerp(read(vertices[1]), t);
+    return {
+      id: endpointIndex,
+      edge: endpoint.edge,
+      vertices,
+      t,
+      point: [Math.fround(point.x), Math.fround(point.y), Math.fround(point.z)] as [number, number, number],
+    };
+  });
+
+  const samePoint = normalized[0].point.every((value, index) => value === normalized[1].point[index]);
+  if (samePoint) throw new Error('Knife points must be distinct.');
+
+  const interpolateReferenceNormal = (
+    normals: THREE.Vector3[] | undefined,
+    a: number,
+    b: number,
+    t: number,
+  ) => {
+    if (!normals) return undefined;
+    const normal = normals[a].clone().lerp(normals[b], t);
+    if (normal.lengthSq() < 1e-16) normal.copy(normals[a]);
+    return normal.normalize();
+  };
+
+  type Augmented = {
+    polygon: Polygon;
+    changed: boolean;
+    endpointNodes: Map<number, number>;
+  };
+
+  const augment = (polygonId: number): Augmented => {
+    const boundary = topology.polygons[polygonId];
+    const polygon = surface.polygons[polygonId];
+    const corners: Corner[] = [];
+    const referenceNormals: THREE.Vector3[] | undefined = polygon.referenceNormals ? [] : undefined;
+    const endpointNodes = new Map<number, number>();
+    let changed = false;
+
+    const pushCorner = (corner: Corner, normal?: THREE.Vector3) => {
+      const index = corners.length;
+      corners.push(corner);
+      if (referenceNormals) referenceNormals.push(normal?.clone() ?? new THREE.Vector3());
+      return index;
+    };
+
+    for (let local = 0; local < boundary.length; local++) {
+      const a = boundary[local];
+      const b = boundary[(local + 1) % boundary.length];
+      const originalIndex = pushCorner(polygon.corners[local], polygon.referenceNormals?.[local]);
+
+      for (const endpoint of normalized) {
+        if (endpoint.t === 0 && a === endpoint.vertices[0]) endpointNodes.set(endpoint.id, originalIndex);
+        else if (endpoint.t === 1 && a === endpoint.vertices[1]) endpointNodes.set(endpoint.id, originalIndex);
+      }
+
+      const matching = normalized.flatMap(endpoint => {
+        const same = a === endpoint.vertices[0] && b === endpoint.vertices[1];
+        const reverse = a === endpoint.vertices[1] && b === endpoint.vertices[0];
+        if ((!same && !reverse) || endpoint.t === 0 || endpoint.t === 1) return [];
+        return [{ endpoint, localT: same ? endpoint.t : 1 - endpoint.t }];
+      }).sort((left, right) => left.localT - right.localT);
+
+      for (const { endpoint, localT } of matching) {
+        const corner = interpolate(polygon.corners[local], polygon.corners[(local + 1) % boundary.length], localT);
+        corner.position = [...endpoint.point];
+        const normal = interpolateReferenceNormal(
+          polygon.referenceNormals,
+          local,
+          (local + 1) % boundary.length,
+          localT,
+        );
+        const index = pushCorner(corner, normal);
+        endpointNodes.set(endpoint.id, index);
+        changed = true;
+      }
+    }
+
+    // Endpoint t=1 belongs to the second vertex of the canonical global edge.
+    // If that vertex was not the current face's traversal start, resolve it now.
+    for (const endpoint of normalized) {
+      if (endpointNodes.has(endpoint.id)) continue;
+      const vertex = endpoint.t === 0 ? endpoint.vertices[0] : endpoint.t === 1 ? endpoint.vertices[1] : undefined;
+      if (vertex === undefined) continue;
+      const local = boundary.indexOf(vertex);
+      if (local < 0) continue;
+      // Count inserted points on all preceding local edges to recover the augmented node index.
+      let node = 0;
+      for (let i = 0; i < local; i++) {
+        node++;
+        const a = boundary[i], b = boundary[(i + 1) % boundary.length];
+        node += normalized.filter(candidate => {
+          if (candidate.t === 0 || candidate.t === 1) return false;
+          return edgeKey(a, b) === edgeKey(candidate.vertices[0], candidate.vertices[1]);
+        }).length;
+      }
+      endpointNodes.set(endpoint.id, node);
+    }
+
+    return {
+      polygon: {
+        material: polygon.material,
+        corners,
+        referenceNormals,
+      },
+      changed,
+      endpointNodes,
+    };
+  };
+
+  const augmented = topology.polygons.map((_, polygonId) => augment(polygonId));
+  const target = augmented[face];
+  const start = target.endpointNodes.get(0);
+  const end = target.endpointNodes.get(1);
+  if (start === undefined || end === undefined || start === end) {
+    throw new Error('Knife could not resolve both cut points on the selected face.');
+  }
+
+  const size = target.polygon.corners.length;
+  const walk = (from: number, to: number) => {
+    const indices: number[] = [];
+    for (let index = from; ; index = (index + 1) % size) {
+      indices.push(index);
+      if (index === to) break;
+      if (indices.length > size) throw new Error('Knife boundary traversal failed.');
+    }
+    return indices;
+  };
+  const firstPath = walk(start, end);
+  const secondPath = walk(end, start);
+  if (firstPath.length < 3 || secondPath.length < 3) {
+    throw new Error('Knife cut would create a face with fewer than three boundary points.');
+  }
+
+  const split = (indices: number[]): Polygon => ({
+    material: target.polygon.material,
+    corners: indices.map(index => target.polygon.corners[index]),
+    referenceNormals: target.polygon.referenceNormals
+      ? indices.map(index => target.polygon.referenceNormals![index])
+      : undefined,
+  });
+
+  const entries: EditedPolygon[] = [];
+  for (let polygonId = 0; polygonId < topology.polygons.length; polygonId++) {
+    if (polygonId === face) {
+      entries.push({ polygon: split(firstPath) }, { polygon: split(secondPath) });
+      continue;
+    }
+    const item = augmented[polygonId];
+    entries.push(item.changed ? { polygon: item.polygon } : { polygon: item.polygon, sourceFace: polygonId });
+  }
+
+  return finishEditedSurface(source, inspection, entries);
+}
+
 export function loopCutLogicalEdge(
   source: THREE.BufferGeometry,
   edge: number,
