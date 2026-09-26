@@ -23,74 +23,6 @@ type CutBetweenEdges = {
   secondT: number;
 };
 
-export type LogicalFacePoint = {
-  face: number;
-  position: [number, number, number];
-  /** Barycentric coordinates are interpolation data, never a persistent triangle id. */
-  barycentric?: [number, number, number];
-};
-
-/**
- * Adds an interior point to a logical polygon's rendering tessellation.  The
- * containing renderer triangle is deliberately rediscovered from the local
- * position; callers therefore never persist renderer triangle ids.
- */
-export function insertLogicalFacePoint(source: THREE.BufferGeometry, point: LogicalFacePoint, polygonTriangles?: number[][]) {
-  const position = source.getAttribute('position');
-  if (!position || position.itemSize !== 3) throw new Error('Face insertion requires position data.');
-  const topology = buildTopology(position.array, source.index?.array, polygonTriangles ?? false);
-  const triangles = topology.polygonTriangles[point.face];
-  if (!triangles || point.position.some(value => !Number.isFinite(value))) throw new Error('Face insertion requires a valid logical face and local position.');
-  const expected = new THREE.Vector3(...point.position);
-  const indices = Array.from({ length: source.index?.count ?? position.count }, (_, index) => source.index?.getX(index) ?? index);
-  let containing: number | undefined;
-  let weights = new THREE.Vector3();
-  for (const triangle of triangles) {
-    const raw = indices.slice(triangle * 3, triangle * 3 + 3);
-    const corners = raw.map(index => new THREE.Vector3().fromBufferAttribute(position, index));
-    const candidate = THREE.Triangle.getBarycoord(expected, corners[0], corners[1], corners[2], new THREE.Vector3());
-    if (candidate && Math.min(candidate.x, candidate.y, candidate.z) > 1e-7 && Math.abs(candidate.x + candidate.y + candidate.z - 1) < 1e-5) {
-      containing = triangle; weights = candidate; break;
-    }
-  }
-  if (containing === undefined) throw new Error('Face point must lie strictly inside the logical polygon.');
-
-  const attributes = Object.entries(source.attributes);
-  for (const [name, attribute] of attributes) if (!(attribute instanceof THREE.BufferAttribute) || attribute.count !== position.count) throw new Error(`Unsupported attribute: ${name}.`);
-  const values: Record<string, number[]> = Object.fromEntries(attributes.map(([name]) => [name, []]));
-  const groups: { start: number; count: number; material: number }[] = [];
-  const materials = new Array(indices.length / 3).fill(0);
-  for (const group of source.groups) for (let triangle = group.start / 3; triangle < (group.start + group.count) / 3; triangle++) materials[triangle] = group.materialIndex ?? 0;
-  const outputMap = new Map<number, number[]>();
-  let outputTriangle = 0;
-  const append = (rawCorners: number[], inserted = false, material = materials[containing!]) => {
-    const last = groups.at(-1);
-    if (last && last.material === material) last.count += 3; else groups.push({ start: outputTriangle * 3, count: 3, material });
-    for (const [name, attribute] of attributes) for (const raw of rawCorners) {
-      if (inserted && raw === -1) {
-        for (let component = 0; component < attribute.itemSize; component++) values[name].push(Math.fround(
-          attribute.getComponent(indices[containing! * 3], component) * weights.x +
-          attribute.getComponent(indices[containing! * 3 + 1], component) * weights.y +
-          attribute.getComponent(indices[containing! * 3 + 2], component) * weights.z,
-        ));
-      } else for (let component = 0; component < attribute.itemSize; component++) values[name].push(attribute.getComponent(raw, component));
-    }
-    outputTriangle++;
-  };
-  for (let triangle = 0; triangle < indices.length / 3; triangle++) {
-    const raw = indices.slice(triangle * 3, triangle * 3 + 3);
-    if (triangle !== containing) { append(raw, false, materials[triangle]); outputMap.set(triangle, [outputTriangle - 1]); continue; }
-    const created: number[] = [];
-    for (let corner = 0; corner < 3; corner++) { append([raw[corner], raw[(corner + 1) % 3], -1], true); created.push(outputTriangle - 1); }
-    outputMap.set(triangle, created);
-  }
-  const geometry = new THREE.BufferGeometry();
-  for (const [name, attribute] of attributes) geometry.setAttribute(name, new THREE.Float32BufferAttribute(values[name], attribute.itemSize));
-  groups.forEach(group => geometry.addGroup(group.start, group.count, group.material));
-  geometry.computeVertexNormals(); geometry.computeBoundingBox(); geometry.computeBoundingSphere();
-  return { geometry, polygonTriangles: topology.polygonTriangles.map(group => group.flatMap(triangle => outputMap.get(triangle) ?? [])), position: expected };
-}
-
 function vertexPosition(
   topology: ReturnType<typeof buildTopology>,
   position: THREE.BufferAttribute | THREE.InterleavedBufferAttribute,
@@ -335,4 +267,134 @@ export function cutLogicalFaceBetweenEdges(
   } finally {
     first.geometry.dispose();
   }
+}
+
+
+type StableKnifePoint =
+  | { kind: 'vertex'; vertex: number }
+  | { kind: 'edge'; edge: number; t: number };
+
+export type StableKnifeSegment = {
+  start: [number, number, number];
+  end: [number, number, number];
+};
+
+function resolveStableKnifePoint(
+  topology: ReturnType<typeof buildTopology>,
+  position: THREE.BufferAttribute | THREE.InterleavedBufferAttribute,
+  expected: THREE.Vector3,
+): StableKnifePoint {
+  for (const vertex of topology.logicalVertices) {
+    if (samePosition(vertexPosition(topology, position, vertex), expected)) return { kind: 'vertex', vertex };
+  }
+
+  const candidates: { edge: number; t: number; distanceSq: number }[] = [];
+  for (let edge = 0; edge < topology.polygonEdges.length; edge++) {
+    const [aVertex, bVertex] = topology.polygonEdges[edge];
+    const a = vertexPosition(topology, position, aVertex);
+    const b = vertexPosition(topology, position, bVertex);
+    const direction = b.clone().sub(a);
+    const lengthSq = direction.lengthSq();
+    if (lengthSq < 1e-16) continue;
+    const t = expected.clone().sub(a).dot(direction) / lengthSq;
+    if (!Number.isFinite(t) || t <= 1e-5 || t >= 1 - 1e-5) continue;
+    const projected = a.clone().lerp(b, t);
+    const distanceSq = projected.distanceToSquared(expected);
+    if (distanceSq < POSITION_EPSILON_SQ) candidates.push({ edge, t, distanceSq });
+  }
+
+  if (!candidates.length) throw new Error('Knife session point is no longer on a logical vertex or edge.');
+  candidates.sort((a, b) => a.distanceSq - b.distanceSq || a.edge - b.edge);
+  const best = candidates[0];
+  const ambiguous = candidates.find(candidate =>
+    candidate.edge !== best.edge &&
+    Math.abs(candidate.distanceSq - best.distanceSq) < POSITION_EPSILON_SQ
+  );
+  if (ambiguous) throw new Error('Knife session point resolves to multiple logical edges.');
+  return { kind: 'edge', edge: best.edge, t: best.t };
+}
+
+function edgeFaces(topology: ReturnType<typeof buildTopology>, edge: number) {
+  const target = topology.polygonEdges[edge];
+  if (!target) return [];
+  return topology.polygons.flatMap((polygon, face) =>
+    boundaryHasEdge(polygon, target[0], target[1]) ? [face] : []
+  );
+}
+
+function nonAdjacentVertexFaces(topology: ReturnType<typeof buildTopology>, a: number, b: number) {
+  return topology.polygons.flatMap((polygon, face) => {
+    const first = polygon.indexOf(a);
+    const second = polygon.indexOf(b);
+    if (first < 0 || second < 0 || first === second) return [];
+    const distance = Math.abs(first - second);
+    return distance === 1 || distance === polygon.length - 1 ? [] : [face];
+  });
+}
+
+/**
+ * Apply one Knife segment using stable local-space positions rather than
+ * renderer/logical ids. The endpoints are re-resolved against the current
+ * topology each time, so a deferred multi-segment session remains valid after
+ * earlier segments retessellate the mesh and reorder ids.
+ */
+export function cutLogicalSegmentByPositions(
+  source: THREE.BufferGeometry,
+  segment: StableKnifeSegment,
+  polygonTriangles?: number[][],
+) {
+  const position = source.getAttribute('position');
+  if (!position || position.itemSize !== 3) throw new Error('Knife session requires position data.');
+  const topology = buildTopology(position.array, source.index?.array, polygonTriangles ?? false);
+  const startPosition = new THREE.Vector3(...segment.start);
+  const endPosition = new THREE.Vector3(...segment.end);
+  if (samePosition(startPosition, endPosition)) throw new Error('Knife segment endpoints must be distinct.');
+
+  const start = resolveStableKnifePoint(topology, position, startPosition);
+  const end = resolveStableKnifePoint(topology, position, endPosition);
+
+  if (start.kind === 'vertex' && end.kind === 'vertex') {
+    const candidates = nonAdjacentVertexFaces(topology, start.vertex, end.vertex);
+    if (candidates.length !== 1) throw new Error('Knife vertices must define one unambiguous non-adjacent face cut.');
+    return cutLogicalFace(source, candidates[0], [start.vertex, end.vertex], polygonTriangles);
+  }
+
+  if (start.kind === 'vertex' && end.kind === 'edge') {
+    const edgeVertices = topology.polygonEdges[end.edge];
+    if (!edgeVertices || edgeVertices.includes(start.vertex)) throw new Error('Knife vertex and edge must define a non-incident face cut.');
+    const candidates = edgeFaces(topology, end.edge).filter(face => topology.polygons[face].includes(start.vertex));
+    if (candidates.length !== 1) throw new Error('Knife vertex and edge must define one unambiguous logical face.');
+    return cutLogicalFaceToEdge(source, {
+      face: candidates[0],
+      vertex: start.vertex,
+      edge: end.edge,
+      t: end.t,
+    }, polygonTriangles);
+  }
+
+  if (start.kind === 'edge' && end.kind === 'vertex') {
+    const edgeVertices = topology.polygonEdges[start.edge];
+    if (!edgeVertices || edgeVertices.includes(end.vertex)) throw new Error('Knife edge and vertex must define a non-incident face cut.');
+    const candidates = edgeFaces(topology, start.edge).filter(face => topology.polygons[face].includes(end.vertex));
+    if (candidates.length !== 1) throw new Error('Knife edge and vertex must define one unambiguous logical face.');
+    return cutLogicalFaceToEdge(source, {
+      face: candidates[0],
+      vertex: end.vertex,
+      edge: start.edge,
+      t: start.t,
+    }, polygonTriangles);
+  }
+
+  if (start.kind !== 'edge' || end.kind !== 'edge') throw new Error('Unsupported Knife session endpoints.');
+  if (start.edge === end.edge) throw new Error('Knife edge endpoints must lie on different logical edges.');
+  const endFaces = new Set(edgeFaces(topology, end.edge));
+  const candidates = edgeFaces(topology, start.edge).filter(face => endFaces.has(face));
+  if (candidates.length !== 1) throw new Error('Knife edges must define one unambiguous logical face.');
+  return cutLogicalFaceBetweenEdges(source, {
+    face: candidates[0],
+    firstEdge: start.edge,
+    firstT: start.t,
+    secondEdge: end.edge,
+    secondT: end.t,
+  }, polygonTriangles);
 }
