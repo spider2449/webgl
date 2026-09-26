@@ -56,12 +56,14 @@ function resolveBoundaryVertex(
 function resolveEdgeByPositions(
   topology: ReturnType<typeof buildTopology>,
   position: THREE.BufferAttribute | THREE.InterleavedBufferAttribute,
+  face: number,
   expectedA: THREE.Vector3,
   expectedB: THREE.Vector3,
   t: number,
 ) {
   for (let edge = 0; edge < topology.polygonEdges.length; edge++) {
     const [a, b] = topology.polygonEdges[edge];
+    if (!boundaryHasEdge(topology.polygons[face], a, b)) continue;
     const actualA = vertexPosition(topology, position, a);
     const actualB = vertexPosition(topology, position, b);
     if (samePosition(actualA, expectedA) && samePosition(actualB, expectedB)) return { edge, t };
@@ -246,7 +248,7 @@ export function cutLogicalFaceBetweenEdges(
   try {
     const firstPosition = first.geometry.getAttribute('position');
     const firstTopology = buildTopology(firstPosition.array, first.geometry.index?.array, first.polygonTriangles);
-    const remappedSecond = resolveEdgeByPositions(firstTopology, firstPosition, secondAExpected, secondBExpected, secondT);
+    const remappedSecond = resolveEdgeByPositions(firstTopology, firstPosition, face, secondAExpected, secondBExpected, secondT);
     const second = insertLogicalEdgePoint(
       first.geometry,
       { face, edge: remappedSecond.edge, t: remappedSecond.t },
