@@ -1379,6 +1379,31 @@ function cancelKnife() {
   if (editor.snapTargetPending && editor.snapTargetKind === 'knife') editor.cancelVertexSnap();
 }
 
+function undoKnifePendingBend() {
+  if (!knifeActive) return false;
+  if (!knifeAnchor || !knifeInteriorPath?.points.length) {
+    toast('Knife has no pending bend point to remove.');
+    return true;
+  }
+
+  knifeInteriorPath.points.pop();
+  if (!knifeInteriorPath.points.length) {
+    knifeInteriorPath = null;
+    editor.setKnifePendingPath([]);
+    editor.setKnifePreviewAnchor(knifeAnchor.position);
+    armKnife('Last Knife bend removed. Choose a face point or boundary target.');
+    return true;
+  }
+
+  editor.setKnifePendingPath([
+    [...knifeAnchor.position],
+    ...knifeInteriorPath.points.map(point => [...point] as [number, number, number]),
+  ]);
+  editor.setKnifePreviewAnchor(knifeInteriorPath.points.at(-1)!);
+  armKnife('Last Knife bend removed. Continue the pending path or finish on the face boundary.');
+  return true;
+}
+
 function startKnifeCut() {
   try {
     if (editor.snapTargetPending) editor.cancelVertexSnap();
@@ -3063,6 +3088,11 @@ document.addEventListener('keydown', e => {
     }
   }
   if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement || e.target instanceof HTMLSelectElement || dialogOpen) return;
+  if (key === 'backspace' && knifeActive) {
+    e.preventDefault();
+    undoKnifePendingBend();
+    return;
+  }
   if (e.ctrlKey || e.metaKey) {
     if (['s','o','z','y','n'].includes(key)) e.preventDefault();
     if (key === 's') showSaveDialog(); else if (key === 'o') $('#project-input').click(); else if (key === 'z') e.shiftKey ? editor.redo() : editor.undo(); else if (key === 'y') editor.redo(); else if (key === 'n') $<HTMLDialogElement>('#new-dialog').showModal();
