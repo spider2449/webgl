@@ -121,6 +121,17 @@ test('Vertex context keeps Snap target beside Snap Selection and Enter starts th
   }))).toEqual({ pending: true, kind: 'surface' });
 });
 
+test('Vertex context enables Knife with no selected start vertex for edge-to-edge cuts', async ({ page }) => {
+  await page.locator('#mode').selectOption('edit');
+  await page.getByLabel('Mesh component').selectOption('vertex');
+  expect(await page.evaluate(() => (window as any).__forge.componentSelection)).toEqual([]);
+
+  await rightClickViewport(page);
+  const menu = page.locator('#viewport-context-menu');
+  await expect(menu.getByRole('menuitem', { name: 'Knife K' })).toBeVisible();
+  await expect(menu.getByRole('menuitem', { name: 'Knife K' })).toBeEnabled();
+});
+
 test('Edit Mode RMB menu changes with Vertex, Edge and Face component mode', async ({ page }) => {
   await page.locator('#mode').selectOption('edit');
 
