@@ -218,9 +218,17 @@ test('viewport Knife cuts from one selected logical vertex to a clicked point on
   }))).toEqual({ pending: true, kind: 'knife', guides: true });
 
   await page.mouse.click(target.x, target.y);
+  await expect(page.locator('#toast')).toContainText('Knife segment added');
+  expect(await page.evaluate(() => ({
+    snapshot: (window as any).__forge.snapshot(),
+    pending: (window as any).__forge.snapTargetPending,
+    pathVisible: (window as any).__forge.knifePreviewState.pathVisible,
+    pathLength: (window as any).__forge.knifePreviewState.path.length,
+  }))).toEqual({ snapshot: target.before, pending: true, pathVisible: true, pathLength: 2 });
+
+  await page.keyboard.press('Enter');
   await page.waitForFunction(() => !(window as any).__forge.modelingBusy && (window as any).__forge.snapTargetPending);
-  await expect(page.locator('#toast')).toContainText('Knife segment complete');
-  expect(await page.evaluate(() => (window as any).__forge.snapTargetPending)).toBe(true);
+  await expect(page.locator('#toast')).toContainText('Knife committed');
   await page.keyboard.press('Escape');
   expect(await page.evaluate(() => (window as any).__forge.snapTargetPending)).toBe(false);
 
@@ -315,9 +323,17 @@ test('viewport Knife cuts edge-to-edge with two clicks when no start vertex is s
   expect(await page.evaluate(() => (window as any).__forge.snapTargetPending)).toBe(true);
 
   await page.mouse.click(target.second.x, target.second.y);
+  await expect(page.locator('#toast')).toContainText('Knife segment added');
+  expect(await page.evaluate(() => ({
+    snapshot: (window as any).__forge.snapshot(),
+    pending: (window as any).__forge.snapTargetPending,
+    pathVisible: (window as any).__forge.knifePreviewState.pathVisible,
+    pathLength: (window as any).__forge.knifePreviewState.path.length,
+  }))).toEqual({ snapshot: target.before, pending: true, pathVisible: true, pathLength: 2 });
+
+  await page.keyboard.press('Enter');
   await page.waitForFunction(() => !(window as any).__forge.modelingBusy && (window as any).__forge.snapTargetPending);
-  await expect(page.locator('#toast')).toContainText('Knife segment complete');
-  expect(await page.evaluate(() => (window as any).__forge.snapTargetPending)).toBe(true);
+  await expect(page.locator('#toast')).toContainText('Knife committed');
   await page.keyboard.press('Escape');
   expect(await page.evaluate(() => (window as any).__forge.snapTargetPending)).toBe(false);
 
@@ -412,24 +428,25 @@ test('Knife snaps directly to a logical vertex and continues cutting without pre
   expect(await page.evaluate(() => (window as any).__forge.snapshot())).toBe(target.before);
 
   await page.mouse.click(target.first.x, target.first.y);
-  await page.waitForFunction(() => !(window as any).__forge.modelingBusy && (window as any).__forge.snapTargetPending);
-  await expect(page.locator('#toast')).toContainText('Knife segment complete');
+  await expect(page.locator('#toast')).toContainText('Knife segment added');
+  expect(await page.evaluate(() => ({
+    snapshot: (window as any).__forge.snapshot(),
+    pathLength: (window as any).__forge.knifePreviewState.path.length,
+    pathVisible: (window as any).__forge.knifePreviewState.pathVisible,
+  }))).toEqual({ snapshot: target.before, pathLength: 2, pathVisible: true });
 
-  const afterFirst = await page.evaluate(() => {
-    const e = (window as any).__forge;
-    return {
-      snapshot: e.snapshot(),
-      polygons: e.meshTopology.polygons.length,
-      logicalVertices: e.meshTopology.logicalVertices.length,
-    };
-  });
-  expect(afterFirst.polygons).toBe(7);
-  expect(afterFirst.logicalVertices).toBe(9);
-
-  // No second K: the first cut endpoint is automatically the next start point.
+  // No second K: the queued endpoint is automatically the next start point.
   await page.mouse.click(target.second.x, target.second.y);
+  await expect(page.locator('#toast')).toContainText('Knife segment added');
+  expect(await page.evaluate(() => ({
+    snapshot: (window as any).__forge.snapshot(),
+    pathLength: (window as any).__forge.knifePreviewState.path.length,
+    pathVisible: (window as any).__forge.knifePreviewState.pathVisible,
+  }))).toEqual({ snapshot: target.before, pathLength: 3, pathVisible: true });
+
+  await page.keyboard.press('Enter');
   await page.waitForFunction(() => !(window as any).__forge.modelingBusy && (window as any).__forge.snapTargetPending);
-  await expect(page.locator('#toast')).toContainText('Knife segment complete');
+  await expect(page.locator('#toast')).toContainText('Knife committed');
 
   const result = await page.evaluate(expected => {
     const e = (window as any).__forge;
@@ -462,15 +479,12 @@ test('Knife snaps directly to a logical vertex and continues cutting without pre
   await page.keyboard.press('Escape');
   expect(await page.evaluate(() => (window as any).__forge.snapTargetPending)).toBe(false);
 
-  const undo = await page.evaluate(() => {
+  const undone = await page.evaluate(() => {
     const e = (window as any).__forge;
     e.undo();
-    const afterOneUndo = e.snapshot();
-    e.undo();
-    return { afterOneUndo, afterTwoUndo: e.snapshot() };
+    return e.snapshot();
   });
-  expect(undo.afterOneUndo).toBe(afterFirst.snapshot);
-  expect(undo.afterTwoUndo).toBe(target.before);
+  expect(undone).toBe(target.before);
 });
 
 
@@ -631,8 +645,12 @@ test('Knife preview marks invalid endpoints before click and uses the same valid
   expect(preview.validity).toBe('valid');
 
   await page.mouse.click(target.valid.x, target.valid.y);
+  await expect(page.locator('#toast')).toContainText('Knife segment added');
+  expect(await page.evaluate(() => (window as any).__forge.snapshot())).toBe(target.before);
+
+  await page.keyboard.press('Enter');
   await page.waitForFunction(() => !(window as any).__forge.modelingBusy && (window as any).__forge.snapTargetPending);
-  await expect(page.locator('#toast')).toContainText('Knife segment complete');
+  await expect(page.locator('#toast')).toContainText('Knife committed');
   expect(await page.evaluate(() => (window as any).__forge.snapshot())).not.toBe(target.before);
 
   await page.keyboard.press('Escape');
