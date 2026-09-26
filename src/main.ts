@@ -1363,6 +1363,7 @@ function armKnife(message: string) {
     knifeActive = false;
     knifeAnchor = null;
     knifeInterior = null;
+    editor.setKnifePendingBend(null, null);
     editor.setKnifePreviewAnchor(null);
     toast((error as Error).message);
   }
@@ -1372,6 +1373,7 @@ function cancelKnife() {
   knifeActive = false;
   knifeAnchor = null;
   knifeInterior = null;
+  editor.setKnifePendingBend(null, null);
   editor.setKnifePreviewAnchor(null);
   if (editor.snapTargetPending && editor.snapTargetKind === 'knife') editor.cancelVertexSnap();
 }
@@ -1382,6 +1384,7 @@ function startKnifeCut() {
     knifeActive = true;
     knifeAnchor = null;
     knifeInterior = null;
+    editor.setKnifePendingBend(null, null);
     if (!editor.editMode || editor.componentMode !== 'vertex' || editor.componentSelection.length > 1 || !(editor.selected instanceof THREE.Mesh) || !editor.meshTopology) {
       throw new Error('Knife requires Vertex mode with zero or one selected logical vertex.');
     }
@@ -1522,7 +1525,9 @@ async function finishKnifeSegment(target: KnifeTarget, targetPosition: [number, 
     if (!plan) throw new Error(reason ?? 'Invalid Knife segment.');
 
     if (plan.kind === 'set-interior') {
+      const start = [...knifeAnchor.position] as [number, number, number];
       knifeInterior = { face: plan.face, position: [...plan.position] };
+      editor.setKnifePendingBend(start, plan.position);
       editor.setKnifePreviewAnchor(plan.position);
       armKnife('Knife bend point set. Choose a logical vertex or edge point on the same face boundary.');
       return;
@@ -1566,6 +1571,7 @@ async function finishKnifeSegment(target: KnifeTarget, targetPosition: [number, 
     }
 
     knifeInterior = null;
+    editor.setKnifePendingBend(null, null);
     knifeAnchor = { kind: 'vertex', position: targetPosition };
     editor.setKnifePreviewAnchor(targetPosition);
     armKnife('Knife segment complete. Choose the next vertex, edge point, or face bend point; Escape ends Knife.');
