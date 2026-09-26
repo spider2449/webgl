@@ -125,8 +125,10 @@ export class Editor extends EventTarget {
   transformOrientation: TransformOrientation = 'world';
   private transformTool: 'select' | 'translate' | 'rotate' | 'scale' = 'translate';
   private viewStyle = 'material';
-  private solid = new THREE.MeshStandardMaterial({ color: 0x666a70, roughness: 0.9, metalness: 0 });
-  private wire = new THREE.MeshBasicMaterial({ color: 0x555a62, wireframe: true });
+  private faceDisplay: 'front' | 'double' = 'double';
+  private originalMaterialSides = new WeakMap<THREE.Material, THREE.Side>();
+  private solid = new THREE.MeshStandardMaterial({ color: 0x666a70, roughness: 0.9, metalness: 0, side: THREE.DoubleSide });
+  private wire = new THREE.MeshBasicMaterial({ color: 0x555a62, wireframe: true, side: THREE.DoubleSide });
   private resizeObserver: ResizeObserver;
 
   constructor(readonly host: HTMLElement) {
@@ -514,9 +516,45 @@ export class Editor extends EventTarget {
       if (this.playing) this.invalidate();
     });
   }
+  private syncFaceDisplay() {
+    const side = this.faceDisplay === 'double' ? THREE.DoubleSide : THREE.FrontSide;
+    if (this.solid.side !== side) { this.solid.side = side; this.solid.needsUpdate = true; }
+    if (this.wire.side !== side) { this.wire.side = side; this.wire.needsUpdate = true; }
+    this.content.traverse(object => {
+      if (!(object instanceof THREE.Mesh) || object.userData.forgeEditorHelper === true) return;
+      for (const material of Array.isArray(object.material) ? object.material : [object.material]) {
+        if (!this.originalMaterialSides.has(material)) this.originalMaterialSides.set(material, material.side);
+        if (material.side !== side) {
+          material.side = side;
+          material.needsUpdate = true;
+        }
+      }
+    });
+  }
+  private restoreAuthoredMaterialSides() {
+    this.content.traverse(object => {
+      if (!(object instanceof THREE.Mesh) || object.userData.forgeEditorHelper === true) return;
+      for (const material of Array.isArray(object.material) ? object.material : [object.material]) {
+        const side = this.originalMaterialSides.get(material);
+        if (side !== undefined && material.side !== side) {
+          material.side = side;
+          material.needsUpdate = true;
+        }
+      }
+    });
+  }
+  get faceDisplayMode() { return this.faceDisplay; }
+  setFaceDisplayMode(value: 'front' | 'double') {
+    if (value !== 'front' && value !== 'double') throw new Error('Invalid face display mode.');
+    this.faceDisplay = value;
+    this.syncFaceDisplay();
+    this.invalidate();
+    this.emit('view');
+  }
   render() {
     this.beforeRender?.();
     this.gimbal.update();
+    this.syncFaceDisplay();
     const originals = new Map<THREE.Mesh, THREE.Material | THREE.Material[]>();
     if (this.viewStyle !== 'material') this.content.traverse(o => {
       if (o instanceof THREE.Mesh && o.userData.forgeEditorHelper !== true) {
@@ -1692,6 +1730,7 @@ export class Editor extends EventTarget {
     this.content.traverse(o => { if (o instanceof THREE.Mesh && !o.geometry.boundingSphere) o.geometry.computeBoundingSphere(); });
     const points = this.vertexPoints;
     points?.removeFromParent();
+    this.restoreAuthoredMaterialSides();
     try { return JSON.stringify({
       format: 'forge-studio',
       version: 1,
@@ -1700,7 +1739,10 @@ export class Editor extends EventTarget {
       ...(this.previewRange ? { previewRange: this.previewRange } : {}),
       scene: this.content.toJSON(),
     } satisfies Project); }
-    finally { if (points && this.selected) this.selected.add(points); }
+    finally {
+      this.syncFaceDisplay();
+      if (points && this.selected) this.selected.add(points);
+    }
   }
   commit() {
     const snapshot = this.snapshot();
