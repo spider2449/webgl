@@ -15,6 +15,7 @@ export type ModelingOperation =
   | { kind: 'cut-face-edge'; face: number; vertex: number; edge: number; t: number; polygonTriangles?: number[][] }
   | { kind: 'cut-face-edges'; face: number; firstEdge: number; firstT: number; secondEdge: number; secondT: number; polygonTriangles?: number[][] }
   | { kind: 'cut-face-via-point'; face: number; start: KnifeBoundaryTarget; interior: [number, number, number]; end: KnifeBoundaryTarget; polygonTriangles?: number[][] }
+  | { kind: 'cut-face-via-path'; face: number; start: KnifeBoundaryTarget; interiors: [number, number, number][]; end: KnifeBoundaryTarget; polygonTriangles?: number[][] }
   | { kind: 'region'; faces: number[]; distance: number }
   | { kind: 'subdivide'; edges: [number, number][] }
   | { kind: 'subdivide-all' }
