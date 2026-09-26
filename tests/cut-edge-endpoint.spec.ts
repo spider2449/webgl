@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import * as THREE from 'three';
-import { cutLogicalFaceBetweenEdges, cutLogicalFaceToEdge } from '../src/modeling/cut-edge-endpoint';
+import { cutLogicalFaceBetweenEdges, cutLogicalFaceToEdge, cutLogicalFaceViaPoint } from '../src/modeling/cut-edge-endpoint';
 import { buildTopology } from '../src/modeling/topology';
 
 function point(geometry: THREE.BufferGeometry, topology: ReturnType<typeof buildTopology>, vertex: number) {
@@ -8,6 +8,152 @@ function point(geometry: THREE.BufferGeometry, topology: ReturnType<typeof build
   const raw = topology.vertices[vertex][0];
   return new THREE.Vector3(position.getX(raw), position.getY(raw), position.getZ(raw));
 }
+
+test('interior Knife bend creates one true logical interior vertex and two cut edges', () => {
+  const plane = new THREE.PlaneGeometry(2, 2, 1, 1);
+  const before = JSON.stringify(plane.toJSON());
+  const input = buildTopology(plane.getAttribute('position').array, plane.index?.array, true);
+  const face = 0;
+  const boundary = input.polygons[face];
+  const start = boundary[0];
+  const end = boundary[2];
+  const center = boundary
+    .map(vertex => point(plane, input, vertex))
+    .reduce((sum, value) => sum.add(value), new THREE.Vector3())
+    .multiplyScalar(1 / boundary.length);
+  const interior = center.clone().lerp(point(plane, input, boundary[1]), 0.2);
+
+  const result = cutLogicalFaceViaPoint(plane, {
+    face,
+    start: { kind: 'vertex', vertex: start },
+    interior: interior.toArray() as [number, number, number],
+    end: { kind: 'vertex', vertex: end },
+  }, input.polygonTriangles);
+
+  expect(JSON.stringify(plane.toJSON())).toBe(before);
+  const output = buildTopology(
+    result.geometry.getAttribute('position').array,
+    result.geometry.index?.array,
+    result.polygonTriangles,
+  );
+
+  expect(output.polygons).toHaveLength(2);
+  expect(output.logicalVertices).toHaveLength(5);
+  expect(output.polygonEdges).toHaveLength(6);
+
+  const interiorVertex = output.logicalVertices.find(vertex =>
+    point(result.geometry, output, vertex).distanceToSquared(interior) < 1e-12
+  );
+  expect(interiorVertex).toBeDefined();
+  expect(output.polygons.filter(polygon => polygon.includes(interiorVertex!))).toHaveLength(2);
+
+  const startPosition = point(plane, input, start);
+  const endPosition = point(plane, input, end);
+  const remappedStart = output.logicalVertices.find(vertex =>
+    point(result.geometry, output, vertex).distanceToSquared(startPosition) < 1e-12
+  );
+  const remappedEnd = output.logicalVertices.find(vertex =>
+    point(result.geometry, output, vertex).distanceToSquared(endPosition) < 1e-12
+  );
+  expect(remappedStart).toBeDefined();
+  expect(remappedEnd).toBeDefined();
+  expect(output.polygonEdges.some(([a, b]) =>
+    (a === remappedStart && b === interiorVertex) || (a === interiorVertex && b === remappedStart)
+  )).toBe(true);
+  expect(output.polygonEdges.some(([a, b]) =>
+    (a === remappedEnd && b === interiorVertex) || (a === interiorVertex && b === remappedEnd)
+  )).toBe(true);
+
+  result.geometry.dispose();
+  plane.dispose();
+});
+
+test('interior Knife bend inserts two edge endpoints before splitting the logical face', () => {
+  const plane = new THREE.PlaneGeometry(2, 2, 1, 1);
+  const input = buildTopology(plane.getAttribute('position').array, plane.index?.array, true);
+  const face = 0;
+  const boundary = input.polygons[face];
+  const edgeId = (a: number, b: number) => input.polygonEdges.findIndex(([x, y]) =>
+    (x === a && y === b) || (x === b && y === a)
+  );
+  const startEdge = edgeId(boundary[0], boundary[1]);
+  const endEdge = edgeId(boundary[2], boundary[3]);
+  expect(startEdge).toBeGreaterThanOrEqual(0);
+  expect(endEdge).toBeGreaterThanOrEqual(0);
+
+  const edgePoint = (edge: number, t: number) => {
+    const [a, b] = input.polygonEdges[edge];
+    return point(plane, input, a).lerp(point(plane, input, b), t);
+  };
+  const startExpected = edgePoint(startEdge, 0.3);
+  const endExpected = edgePoint(endEdge, 0.65);
+  const center = boundary
+    .map(vertex => point(plane, input, vertex))
+    .reduce((sum, value) => sum.add(value), new THREE.Vector3())
+    .multiplyScalar(1 / boundary.length);
+  const interior = center.clone().lerp(point(plane, input, boundary[1]), 0.15);
+
+  const result = cutLogicalFaceViaPoint(plane, {
+    face,
+    start: { kind: 'edge', edge: startEdge, t: 0.3 },
+    interior: interior.toArray() as [number, number, number],
+    end: { kind: 'edge', edge: endEdge, t: 0.65 },
+  }, input.polygonTriangles);
+
+  const output = buildTopology(
+    result.geometry.getAttribute('position').array,
+    result.geometry.index?.array,
+    result.polygonTriangles,
+  );
+  expect(output.polygons).toHaveLength(2);
+  expect(output.logicalVertices).toHaveLength(7);
+  expect(output.polygonEdges).toHaveLength(8);
+
+  for (const expected of [startExpected, interior, endExpected]) {
+    expect(output.logicalVertices.some(vertex =>
+      point(result.geometry, output, vertex).distanceToSquared(expected) < 1e-12
+    )).toBe(true);
+  }
+
+  result.geometry.dispose();
+  plane.dispose();
+});
+
+test('interior Knife bend rejects a concave logical face instead of creating invalid topology', () => {
+  const geometry = new THREE.BufferGeometry();
+  const points = [
+    [0, 0, 0],
+    [2, 0, 0],
+    [1, 1, 0],
+    [2, 2, 0],
+    [0, 2, 0],
+  ];
+  const triangles = [
+    points[0], points[1], points[2],
+    points[0], points[2], points[4],
+    points[2], points[3], points[4],
+  ].flat();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(triangles, 3));
+  geometry.computeVertexNormals();
+
+  const groups = [[0, 1, 2]];
+  const topology = buildTopology(
+    geometry.getAttribute('position').array,
+    geometry.index?.array,
+    groups,
+  );
+  const boundary = topology.polygons[0];
+  expect(boundary).toHaveLength(5);
+
+  expect(() => cutLogicalFaceViaPoint(geometry, {
+    face: 0,
+    start: { kind: 'vertex', vertex: boundary[0] },
+    interior: [0.5, 1, 0],
+    end: { kind: 'vertex', vertex: boundary[3] },
+  }, groups)).toThrow(/convex logical face/);
+
+  geometry.dispose();
+});
 
 test('edge endpoint cut inserts one logical midpoint and splits only the selected face', () => {
   const box = new THREE.BoxGeometry(2, 2, 2);
@@ -807,4 +953,137 @@ test('Edge-only Knife does not proximity-snap near vertices but accepts an inten
 
   await page.keyboard.press('Escape');
   await page.evaluate(() => { (window as any).__forgeModelingSettings.knifeSnap = 'vertex-edge'; });
+});
+
+
+test('viewport Knife keeps a face bend pending until a same-face boundary endpoint completes it', async ({ page }) => {
+  await page.goto('/');
+  await page.waitForFunction(() => (window as any).__forge?.selected);
+  await page.evaluate(() => (window as any).__forge.view('front'));
+  await page.locator('#mode').selectOption('edit');
+  await page.getByLabel('Mesh component').selectOption('vertex');
+
+  const target = await page.evaluate(() => {
+    const e = (window as any).__forge;
+    const topology = e.meshTopology;
+    const mesh = e.selected;
+    const position = mesh.geometry.getAttribute('position');
+    const face = topology.polygons.findIndex((polygon: number[]) =>
+      polygon.every((vertex: number) => position.getZ(topology.vertices[vertex][0]) === 1)
+    );
+    if (face < 0) throw new Error('Expected a front logical quad.');
+
+    const boundary = topology.polygons[face];
+    const local = (vertex: number) =>
+      mesh.position.clone().fromBufferAttribute(position, topology.vertices[vertex][0]);
+    const boundaryPoints = boundary.map(local);
+    const center = boundaryPoints
+      .reduce((sum: any, value: any) => sum.add(value), mesh.position.clone().set(0, 0, 0))
+      .multiplyScalar(1 / boundaryPoints.length);
+    const interior = center.clone().lerp(boundaryPoints[1], 0.2);
+
+    const rect = e.host.getBoundingClientRect();
+    const screen = (point: any) => {
+      mesh.updateWorldMatrix(true, true);
+      e.camera.updateMatrixWorld(true);
+      const projected = mesh.localToWorld(point.clone()).project(e.camera);
+      return {
+        local: point.toArray(),
+        x: rect.left + (projected.x + 1) * rect.width / 2,
+        y: rect.top + (1 - projected.y) * rect.height / 2,
+      };
+    };
+
+    return {
+      before: e.snapshot(),
+      face,
+      start: screen(boundaryPoints[0]),
+      interior: screen(interior),
+      end: screen(boundaryPoints[2]),
+    };
+  });
+
+  await page.keyboard.press('k');
+  await page.mouse.click(target.start.x, target.start.y);
+  await expect(page.locator('#toast')).toContainText('Knife start set');
+
+  await page.mouse.move(target.interior.x, target.interior.y);
+  let preview = await page.evaluate(() => (window as any).__forge.knifePreviewState);
+  expect(preview.target.kind).toBe('face');
+  expect(preview.target.face).toBe(target.face);
+  expect(preview.validity).toBe('valid');
+
+  await page.mouse.click(target.interior.x, target.interior.y);
+  await expect(page.locator('#toast')).toContainText('Knife bend point set');
+  expect(await page.evaluate(() => (window as any).__forge.snapshot())).toBe(target.before);
+
+  preview = await page.evaluate(() => (window as any).__forge.knifePreviewState);
+  expect(preview.anchor).not.toBeNull();
+  preview.anchor.forEach((value: number, index: number) =>
+    expect(value).toBeCloseTo(target.interior.local[index], 4)
+  );
+  expect(preview.pendingPointVisible).toBe(true);
+  expect(preview.pendingLineVisible).toBe(true);
+  preview.pendingStart.forEach((value: number, index: number) =>
+    expect(value).toBeCloseTo(target.start.local[index], 4)
+  );
+  preview.pendingBend.forEach((value: number, index: number) =>
+    expect(value).toBeCloseTo(target.interior.local[index], 4)
+  );
+
+  await page.mouse.move(target.end.x, target.end.y);
+  preview = await page.evaluate(() => (window as any).__forge.knifePreviewState);
+  expect(preview.target.kind).toBe('vertex');
+  expect(preview.validity).toBe('valid');
+
+  await page.mouse.click(target.end.x, target.end.y);
+  await page.waitForFunction(() => !(window as any).__forge.modelingBusy && (window as any).__forge.snapTargetPending);
+  await expect(page.locator('#toast')).toContainText('Knife segment complete');
+
+  const result = await page.evaluate(expected => {
+    const e = (window as any).__forge;
+    const topology = e.meshTopology;
+    const position = e.selected.geometry.getAttribute('position');
+    const findVertex = (point: number[]) => topology.logicalVertices.find((vertex: number) => {
+      const raw = topology.vertices[vertex][0];
+      return Math.hypot(
+        position.getX(raw) - point[0],
+        position.getY(raw) - point[1],
+        position.getZ(raw) - point[2],
+      ) < 1e-5;
+    });
+    const interiorVertex = findVertex(expected.interior);
+    const endVertex = findVertex(expected.end);
+    return {
+      snapshot: e.snapshot(),
+      polygons: topology.polygons.length,
+      logicalVertices: topology.logicalVertices.length,
+      polygonEdges: topology.polygonEdges.length,
+      interiorFound: interiorVertex !== undefined,
+      interiorUses: interiorVertex === undefined
+        ? 0
+        : topology.polygons.filter((polygon: number[]) => polygon.includes(interiorVertex)).length,
+      endFound: endVertex !== undefined,
+      pending: e.snapTargetPending,
+      anchor: e.knifePreviewState.anchor,
+      pendingPointVisible: e.knifePreviewState.pendingPointVisible,
+      pendingLineVisible: e.knifePreviewState.pendingLineVisible,
+    };
+  }, { interior: target.interior.local, end: target.end.local });
+
+  expect(result.snapshot).not.toBe(target.before);
+  expect(result.polygons).toBe(7);
+  expect(result.logicalVertices).toBe(9);
+  expect(result.polygonEdges).toBe(14);
+  expect(result.interiorFound).toBe(true);
+  expect(result.interiorUses).toBe(2);
+  expect(result.endFound).toBe(true);
+  expect(result.pending).toBe(true);
+  expect(result.pendingPointVisible).toBe(false);
+  expect(result.pendingLineVisible).toBe(false);
+  result.anchor.forEach((value: number, index: number) =>
+    expect(value).toBeCloseTo(target.end.local[index], 4)
+  );
+
+  await page.keyboard.press('Escape');
 });

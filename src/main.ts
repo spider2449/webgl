@@ -1262,18 +1262,26 @@ async function cutFaceBetweenSelectedVertices() {
 }
 type KnifeTarget =
   | { kind: 'vertex'; vertex: number }
-  | { kind: 'edge'; edge: number; t: number };
+  | { kind: 'edge'; edge: number; t: number }
+  | { kind: 'face'; face: number; position: [number, number, number] };
 type KnifeAnchor =
   | { kind: 'vertex'; position: [number, number, number] }
   | { kind: 'edge'; edge: number; t: number; position: [number, number, number] };
 
 let knifeActive = false;
 let knifeAnchor: KnifeAnchor | null = null;
+let knifeInterior: { face: number; position: [number, number, number] } | null = null;
 
 function knifePositionForTarget(target: KnifeTarget): [number, number, number] {
   if (!(editor.selected instanceof THREE.Mesh) || !editor.meshTopology) throw new Error('Knife requires an active editable mesh.');
   const topology = editor.meshTopology;
   const position = editor.selected.geometry.getAttribute('position');
+  if (target.kind === 'face') {
+    if (!topology.polygons[target.face] || target.position.some(value => !Number.isFinite(value))) {
+      throw new Error('Knife face target is no longer valid.');
+    }
+    return [...target.position];
+  }
   if (target.kind === 'vertex') {
     const copies = topology.vertices[target.vertex];
     if (!copies || !topology.logicalVertices.includes(target.vertex)) throw new Error('Knife target is not a logical vertex.');
@@ -1315,6 +1323,37 @@ const knifeEdgeFaces = (edge: number) => {
   );
 };
 
+type KnifeBoundaryPlan =
+  | { kind: 'vertex'; vertex: number }
+  | { kind: 'edge'; edge: number; t: number };
+
+function knifeAnchorBoundaryOnFace(anchor: KnifeAnchor, face: number): KnifeBoundaryPlan | null {
+  const topology = editor.meshTopology;
+  if (!topology?.polygons[face]) return null;
+  if (anchor.kind === 'vertex') {
+    const vertex = knifeVertexAtPosition(anchor.position);
+    return vertex !== undefined && topology.polygons[face].includes(vertex)
+      ? { kind: 'vertex', vertex }
+      : null;
+  }
+  return knifeEdgeFaces(anchor.edge).includes(face)
+    ? { kind: 'edge', edge: anchor.edge, t: anchor.t }
+    : null;
+}
+
+function knifeTargetBoundaryOnFace(target: KnifeTarget, face: number): KnifeBoundaryPlan | null {
+  const topology = editor.meshTopology;
+  if (!topology?.polygons[face] || target.kind === 'face') return null;
+  if (target.kind === 'vertex') {
+    return topology.polygons[face].includes(target.vertex)
+      ? { kind: 'vertex', vertex: target.vertex }
+      : null;
+  }
+  return knifeEdgeFaces(target.edge).includes(face)
+    ? { kind: 'edge', edge: target.edge, t: target.t }
+    : null;
+}
+
 function armKnife(message: string) {
   if (!knifeActive) return;
   try {
@@ -1323,6 +1362,8 @@ function armKnife(message: string) {
   } catch (error) {
     knifeActive = false;
     knifeAnchor = null;
+    knifeInterior = null;
+    editor.setKnifePendingBend(null, null);
     editor.setKnifePreviewAnchor(null);
     toast((error as Error).message);
   }
@@ -1331,6 +1372,8 @@ function armKnife(message: string) {
 function cancelKnife() {
   knifeActive = false;
   knifeAnchor = null;
+  knifeInterior = null;
+  editor.setKnifePendingBend(null, null);
   editor.setKnifePreviewAnchor(null);
   if (editor.snapTargetPending && editor.snapTargetKind === 'knife') editor.cancelVertexSnap();
 }
@@ -1340,6 +1383,8 @@ function startKnifeCut() {
     if (editor.snapTargetPending) editor.cancelVertexSnap();
     knifeActive = true;
     knifeAnchor = null;
+    knifeInterior = null;
+    editor.setKnifePendingBend(null, null);
     if (!editor.editMode || editor.componentMode !== 'vertex' || editor.componentSelection.length > 1 || !(editor.selected instanceof THREE.Mesh) || !editor.meshTopology) {
       throw new Error('Knife requires Vertex mode with zero or one selected logical vertex.');
     }
@@ -1374,7 +1419,9 @@ type KnifeSegmentPlan =
   | { kind: 'vertex-vertex'; face: number; first: number; second: number }
   | { kind: 'vertex-edge'; face: number; vertex: number; edge: number; t: number }
   | { kind: 'edge-vertex'; face: number; vertex: number; edge: number; t: number }
-  | { kind: 'edge-edge'; face: number; firstEdge: number; firstT: number; secondEdge: number; secondT: number };
+  | { kind: 'edge-edge'; face: number; firstEdge: number; firstT: number; secondEdge: number; secondT: number }
+  | { kind: 'set-interior'; face: number; position: [number, number, number] }
+  | { kind: 'face-bend'; face: number; start: KnifeBoundaryPlan; interior: [number, number, number]; end: KnifeBoundaryPlan };
 
 function planKnifeSegment(target: KnifeTarget): { plan: KnifeSegmentPlan | null; reason: string | null } {
   const anchor = knifeAnchor;
@@ -1382,6 +1429,46 @@ function planKnifeSegment(target: KnifeTarget): { plan: KnifeSegmentPlan | null;
   if (!anchor || !topology) return { plan: null, reason: 'Knife needs a start point first.' };
   if (target.kind === 'edge' && (!Number.isFinite(target.t) || target.t <= 1e-5 || target.t >= 1 - 1e-5)) {
     return { plan: null, reason: 'Edge-only Knife endpoints cannot be committed on a logical vertex. Move inside the edge or enable Vertex + Edge.' };
+  }
+
+  if (knifeInterior) {
+    if (target.kind === 'face') {
+      return { plan: null, reason: 'Choose a logical vertex or edge point to finish the interior Knife bend.' };
+    }
+    const start = knifeAnchorBoundaryOnFace(anchor, knifeInterior.face);
+    const end = knifeTargetBoundaryOnFace(target, knifeInterior.face);
+    if (!start || !end) {
+      return { plan: null, reason: 'The Knife bend must finish on the same logical face boundary.' };
+    }
+    const endPosition = knifePositionForTarget(target);
+    if (Math.hypot(
+      endPosition[0] - anchor.position[0],
+      endPosition[1] - anchor.position[1],
+      endPosition[2] - anchor.position[2],
+    ) < 1e-5) {
+      return { plan: null, reason: 'Knife bend endpoints must be distinct.' };
+    }
+    return {
+      plan: {
+        kind: 'face-bend',
+        face: knifeInterior.face,
+        start,
+        interior: [...knifeInterior.position],
+        end,
+      },
+      reason: null,
+    };
+  }
+
+  if (target.kind === 'face') {
+    const start = knifeAnchorBoundaryOnFace(anchor, target.face);
+    if (!start) {
+      return { plan: null, reason: 'Interior Knife point must lie on a logical face incident to the current anchor.' };
+    }
+    return {
+      plan: { kind: 'set-interior', face: target.face, position: [...target.position] },
+      reason: null,
+    };
   }
 
   if (anchor.kind === 'vertex') {
@@ -1437,7 +1524,25 @@ async function finishKnifeSegment(target: KnifeTarget, targetPosition: [number, 
     const { plan, reason } = planKnifeSegment(target);
     if (!plan) throw new Error(reason ?? 'Invalid Knife segment.');
 
-    if (plan.kind === 'vertex-vertex') {
+    if (plan.kind === 'set-interior') {
+      const start = [...knifeAnchor.position] as [number, number, number];
+      knifeInterior = { face: plan.face, position: [...plan.position] };
+      editor.setKnifePendingBend(start, plan.position);
+      editor.setKnifePreviewAnchor(plan.position);
+      armKnife('Knife bend point set. Choose a logical vertex or edge point on the same face boundary.');
+      return;
+    }
+
+    if (plan.kind === 'face-bend') {
+      await editor.runModeling({
+        kind: 'cut-face-via-point',
+        face: plan.face,
+        start: plan.start,
+        interior: plan.interior,
+        end: plan.end,
+        polygonTriangles: topology.polygonTriangles.map(group => [...group]),
+      });
+    } else if (plan.kind === 'vertex-vertex') {
       await editor.runModeling({
         kind: 'cut-face',
         face: plan.face,
@@ -1465,9 +1570,11 @@ async function finishKnifeSegment(target: KnifeTarget, targetPosition: [number, 
       });
     }
 
+    knifeInterior = null;
+    editor.setKnifePendingBend(null, null);
     knifeAnchor = { kind: 'vertex', position: targetPosition };
     editor.setKnifePreviewAnchor(targetPosition);
-    armKnife('Knife segment complete. Choose the next vertex or edge point; Escape ends Knife.');
+    armKnife('Knife segment complete. Choose the next vertex, edge point, or face bend point; Escape ends Knife.');
   } catch (error) {
     armKnife(`${(error as Error).message} Choose another vertex or edge point, or press Escape to end.`);
   }
@@ -1494,11 +1601,15 @@ editor.addEventListener('knife-target', event => {
   }
 
   if (!knifeAnchor) {
+    if (target.kind === 'face') {
+      armKnife('Choose a logical vertex or edge point before placing an interior Knife bend point.');
+      return;
+    }
     knifeAnchor = target.kind === 'vertex'
       ? { kind: 'vertex', position }
       : { kind: 'edge', edge: target.edge, t: target.t, position };
     editor.setKnifePreviewAnchor(position);
-    armKnife('Knife start set. Choose the next vertex or edge point; Escape ends Knife.');
+    armKnife('Knife start set. Choose the next vertex, edge point, or face bend point; Escape ends Knife.');
     return;
   }
 

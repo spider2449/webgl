@@ -1,5 +1,8 @@
 import * as THREE from 'three';
 import type { Modifier } from './modifiers';
+export type KnifeBoundaryTarget =
+  | { kind: 'vertex'; vertex: number }
+  | { kind: 'edge'; edge: number; t: number };
 export type ModelingOperation =
   | { kind: 'bevel'; edges: number[]; width: number; polygonTriangles?: number[][] }
   | { kind: 'loop'; edge: number; polygonTriangles?: number[][] }
@@ -11,6 +14,7 @@ export type ModelingOperation =
   | { kind: 'cut-face'; face: number; vertices: [number, number]; polygonTriangles?: number[][] }
   | { kind: 'cut-face-edge'; face: number; vertex: number; edge: number; t: number; polygonTriangles?: number[][] }
   | { kind: 'cut-face-edges'; face: number; firstEdge: number; firstT: number; secondEdge: number; secondT: number; polygonTriangles?: number[][] }
+  | { kind: 'cut-face-via-point'; face: number; start: KnifeBoundaryTarget; interior: [number, number, number]; end: KnifeBoundaryTarget; polygonTriangles?: number[][] }
   | { kind: 'region'; faces: number[]; distance: number }
   | { kind: 'subdivide'; edges: [number, number][] }
   | { kind: 'subdivide-all' }
