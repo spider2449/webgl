@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { cutLogicalFace } from './modeling';
+import { cutLogicalFace, cutLogicalFaceViaInteriorPoint } from './modeling';
 import { buildTopology } from './topology';
 
 const edgeKey = (a: number, b: number) => `${Math.min(a, b)}:${Math.max(a, b)}`;
@@ -266,5 +266,132 @@ export function cutLogicalFaceBetweenEdges(
     }
   } finally {
     first.geometry.dispose();
+  }
+}
+
+
+export type KnifeBoundaryEndpoint =
+  | { kind: 'vertex'; vertex: number }
+  | { kind: 'edge'; edge: number; t: number };
+
+export type CutViaInteriorPoint = {
+  face: number;
+  start: KnifeBoundaryEndpoint;
+  interior: [number, number, number];
+  end: KnifeBoundaryEndpoint;
+};
+
+function endpointPosition(
+  topology: ReturnType<typeof buildTopology>,
+  position: THREE.BufferAttribute | THREE.InterleavedBufferAttribute,
+  endpoint: KnifeBoundaryEndpoint,
+) {
+  if (endpoint.kind === 'vertex') {
+    if (!Number.isInteger(endpoint.vertex) || !topology.logicalVertices.includes(endpoint.vertex)) {
+      throw new Error('Knife endpoint must be a logical vertex.');
+    }
+    return vertexPosition(topology, position, endpoint.vertex);
+  }
+
+  if (!Number.isInteger(endpoint.edge) || !topology.polygonEdges[endpoint.edge]) {
+    throw new Error('Knife endpoint must lie on a logical edge.');
+  }
+  validateInteriorT(endpoint.t);
+  const [a, b] = topology.polygonEdges[endpoint.edge];
+  return vertexPosition(topology, position, a).lerp(vertexPosition(topology, position, b), endpoint.t);
+}
+
+function resolveBoundaryEdgeAtPosition(
+  topology: ReturnType<typeof buildTopology>,
+  position: THREE.BufferAttribute | THREE.InterleavedBufferAttribute,
+  face: number,
+  expected: THREE.Vector3,
+) {
+  const boundary = topology.polygons[face];
+  if (!boundary) throw new Error('Knife face is no longer available.');
+
+  const candidates: { edge: number; t: number; distanceSq: number }[] = [];
+  for (let edge = 0; edge < topology.polygonEdges.length; edge++) {
+    const [aVertex, bVertex] = topology.polygonEdges[edge];
+    if (!boundaryHasEdge(boundary, aVertex, bVertex)) continue;
+    const a = vertexPosition(topology, position, aVertex);
+    const b = vertexPosition(topology, position, bVertex);
+    const direction = b.clone().sub(a);
+    const lengthSq = direction.lengthSq();
+    if (lengthSq < 1e-16) continue;
+    const t = expected.clone().sub(a).dot(direction) / lengthSq;
+    if (!Number.isFinite(t) || t <= 1e-6 || t >= 1 - 1e-6) continue;
+    const projected = a.clone().lerp(b, t);
+    const distanceSq = projected.distanceToSquared(expected);
+    if (distanceSq < POSITION_EPSILON_SQ) candidates.push({ edge, t, distanceSq });
+  }
+  if (!candidates.length) throw new Error('Knife boundary point is no longer inside a logical edge.');
+  candidates.sort((a, b) => a.distanceSq - b.distanceSq || a.edge - b.edge);
+  return candidates[0];
+}
+
+/**
+ * Commit one valid boundary -> interior -> boundary Knife bend as two modeling
+ * edges that split one logical face. Interior points are never committed as a
+ * dangling endpoint: they only become topology when both boundary endpoints
+ * are known.
+ */
+export function cutLogicalFaceViaPoint(
+  source: THREE.BufferGeometry,
+  cut: CutViaInteriorPoint,
+  polygonTriangles?: number[][],
+) {
+  const position = source.getAttribute('position');
+  if (!position || position.itemSize !== 3) throw new Error('Interior Knife bend requires position data.');
+  const topology = buildTopology(position.array, source.index?.array, polygonTriangles ?? false);
+  if (!Number.isInteger(cut.face) || !topology.polygons[cut.face]) {
+    throw new Error('Select one valid logical face for the Knife bend.');
+  }
+
+  const startExpected = endpointPosition(topology, position, cut.start);
+  const endExpected = endpointPosition(topology, position, cut.end);
+  if (samePosition(startExpected, endExpected)) throw new Error('Knife bend endpoints must be distinct.');
+
+  let current = source;
+  let groups = polygonTriangles;
+  let ownsCurrent = false;
+
+  const insertEndpointIfNeeded = (endpoint: KnifeBoundaryEndpoint, expected: THREE.Vector3) => {
+    if (endpoint.kind === 'vertex') return;
+    const currentPosition = current.getAttribute('position');
+    const currentTopology = buildTopology(currentPosition.array, current.index?.array, groups ?? false);
+    const remapped = resolveBoundaryEdgeAtPosition(currentTopology, currentPosition, cut.face, expected);
+    const inserted = insertLogicalEdgePoint(
+      current,
+      { face: cut.face, edge: remapped.edge, t: remapped.t },
+      groups,
+    );
+    if (ownsCurrent) current.dispose();
+    current = inserted.geometry;
+    groups = inserted.polygonTriangles;
+    ownsCurrent = true;
+  };
+
+  try {
+    insertEndpointIfNeeded(cut.start, startExpected);
+    insertEndpointIfNeeded(cut.end, endExpected);
+
+    const currentPosition = current.getAttribute('position');
+    const currentTopology = buildTopology(currentPosition.array, current.index?.array, groups ?? false);
+    const startVertex = resolveBoundaryVertex(currentTopology, currentPosition, cut.face, startExpected);
+    const endVertex = resolveBoundaryVertex(currentTopology, currentPosition, cut.face, endExpected);
+    if (startVertex === undefined || endVertex === undefined) {
+      throw new Error('Knife bend endpoints were not preserved on the logical face boundary.');
+    }
+
+    return cutLogicalFaceViaInteriorPoint(
+      current,
+      cut.face,
+      [startVertex, endVertex],
+      cut.interior,
+      groups,
+    );
+  } finally {
+    if (ownsCurrent) current.dispose();
   }
 }
