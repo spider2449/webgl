@@ -39,8 +39,7 @@ const MAX_HISTORY_BYTES = 24 * 1024 * 1024;
 const MAX_ANIMATION_FRAME = 100_000;
 type KnifePickTarget =
   | { kind: 'vertex'; vertex: number }
-  | { kind: 'edge'; edge: number; t: number }
-  | { kind: 'face'; face: number; position: [number, number, number]; barycentric: [number, number, number] };
+  | { kind: 'edge'; edge: number; t: number };
 type KnifePick = { detail: KnifePickTarget; point: THREE.Vector3; commit?: boolean };
 const cloneScalarKey = (key: ScalarKey): ScalarKey => ({
   frame: key.frame,
@@ -1615,23 +1614,7 @@ export class Editor extends EventTarget {
 
     this.raycaster.params.Line.threshold = threshold;
     const hit = this.raycaster.intersectObject(this.componentEdges, false)[0];
-    if (hit?.index === undefined) {
-      const surfaceHit = this.raycaster.intersectObject(this.selected, false)[0];
-      if (surfaceHit?.faceIndex == null || !surfaceHit.point) return null;
-      const triangleIndex = surfaceHit.faceIndex;
-      const mesh = this.selected;
-      const face = this.topology.triangleToPolygon[triangleIndex];
-      if (face === undefined) return null;
-      const local = this.selected.worldToLocal(surfaceHit.point.clone());
-      const indices = Array.from({ length: 3 }, (_, corner) => mesh.geometry.index?.getX(triangleIndex * 3 + corner) ?? triangleIndex * 3 + corner);
-      const triangle = indices.map(index => new THREE.Vector3().fromBufferAttribute(position, index));
-      const barycentric = THREE.Triangle.getBarycoord(local, triangle[0], triangle[1], triangle[2], new THREE.Vector3());
-      if (!barycentric || Math.min(barycentric.x, barycentric.y, barycentric.z) <= 1e-5) return null;
-      return {
-        detail: { kind: 'face', face, position: local.toArray(), barycentric: barycentric.toArray() },
-        point: local,
-      };
-    }
+    if (hit?.index === undefined) return null;
     const edge = Math.floor(hit.index / 2);
     const logicalEdge = this.topology.polygonEdges[edge];
     if (!logicalEdge) return null;
