@@ -37,6 +37,10 @@ export type AnimationRange = { start: number; end: number };
 export type Project = { format: 'forge-studio'; version: 1; name: string; animationRange?: AnimationRange; previewRange?: AnimationRange; scene: ReturnType<THREE.Group['toJSON']> };
 const MAX_HISTORY_BYTES = 24 * 1024 * 1024;
 const MAX_ANIMATION_FRAME = 100_000;
+type KnifePickTarget =
+  | { kind: 'vertex'; vertex: number }
+  | { kind: 'edge'; edge: number; t: number };
+type KnifePick = { detail: KnifePickTarget; point: THREE.Vector3 };
 const cloneScalarKey = (key: ScalarKey): ScalarKey => ({
   frame: key.frame,
   value: key.value,
@@ -93,6 +97,11 @@ export class Editor extends EventTarget {
   private selectedEdgeOverlay: LineSegments2 | null = null;
   private activeEdgeOverlay: LineSegments2 | null = null;
   private selectedFaceOverlay: THREE.Mesh | null = null;
+  private knifePreviewPoint: THREE.Points | null = null;
+  private knifePreviewLine: LineSegments2 | null = null;
+  private knifePreviewAnchor: THREE.Vector3 | null = null;
+  private knifePreviewHover: THREE.Vector3 | null = null;
+  private knifePreviewTarget: KnifePickTarget | null = null;
   private componentCenter = new THREE.Vector3();
   private proportionalEnabled = false;
   private proportionalRadius = 2;
@@ -242,6 +251,22 @@ export class Editor extends EventTarget {
       }
       if (drag.active) this.updateBoxSelectOverlay(drag.start, drag.current);
     });
+    this.renderer.domElement.addEventListener('pointermove', e => {
+      if (!this.snapTargetPending || this.snapTargetKind !== 'knife' || this.modelingBusy || this.transform.dragging) return;
+      const rect = host.getBoundingClientRect();
+      this.raycaster.setFromCamera(
+        new THREE.Vector2(
+          (e.clientX - rect.left) / rect.width * 2 - 1,
+          -(e.clientY - rect.top) / rect.height * 2 + 1,
+        ),
+        this.camera,
+      );
+      const threshold = this.camera.position.distanceTo(this.orbit.target) * 0.012;
+      this.setKnifePreview(this.pickKnifeTarget(threshold));
+    });
+    this.renderer.domElement.addEventListener('pointerleave', () => {
+      if (this.snapTargetPending && this.snapTargetKind === 'knife') this.setKnifePreview(null);
+    });
     this.renderer.domElement.addEventListener('pointerup', e => {
       const box = this.boxSelectDrag;
       if (box && box.pointerId === e.pointerId && box.active) {
@@ -272,36 +297,12 @@ export class Editor extends EventTarget {
                 if (!weights) throw new Error('Cannot snap to a collapsed surface.');
                 this.snapSelectionToSurface(hit.faceIndex, weights.toArray());
               }
-            } else if (this.snapTargetKind === 'knife' && this.componentEdges && this.selected instanceof THREE.Mesh && this.topology) {
-              if (this.knifeSnapToVertex && this.vertexPoints) {
-                this.raycaster.params.Points.threshold = threshold;
-                const vertexHit = this.raycaster.intersectObject(this.vertexPoints, false)[0];
-                if (vertexHit?.index !== undefined) {
-                  const vertex = this.topology.bufferToVertex[vertexHit.index];
-                  if (this.topology.logicalVertices.includes(vertex)) {
-                    this.cancelVertexSnap();
-                    this.dispatchEvent(new CustomEvent('knife-target', { detail: { kind: 'vertex', vertex } }));
-                    return;
-                  }
-                }
-              }
-              this.raycaster.params.Line.threshold = threshold;
-              const hit = this.raycaster.intersectObject(this.componentEdges, false)[0];
-              if (hit?.index !== undefined) {
-                const edge = Math.floor(hit.index / 2);
-                const logicalEdge = this.topology.polygonEdges[edge];
-                if (!logicalEdge) throw new Error('Click a logical edge.');
-                const attribute = this.selected.geometry.getAttribute('position');
-                const a = new THREE.Vector3().fromBufferAttribute(attribute, this.topology.vertices[logicalEdge[0]][0]);
-                const b = new THREE.Vector3().fromBufferAttribute(attribute, this.topology.vertices[logicalEdge[1]][0]);
-                const direction = b.clone().sub(a);
-                const lengthSq = direction.lengthSq();
-                if (lengthSq < 1e-16) throw new Error('Knife cannot target a collapsed edge.');
-                const localPoint = this.selected.worldToLocal(hit.point.clone());
-                const t = localPoint.sub(a).dot(direction) / lengthSq;
-                if (!Number.isFinite(t) || t <= 1e-5 || t >= 1 - 1e-5) throw new Error('Click inside the edge, away from its vertices.');
+            } else if (this.snapTargetKind === 'knife') {
+              const pick = this.pickKnifeTarget(threshold);
+              if (pick) {
+                this.setKnifePreview(pick);
                 this.cancelVertexSnap();
-                this.dispatchEvent(new CustomEvent('knife-target', { detail: { kind: 'edge', edge, t } }));
+                this.dispatchEvent(new CustomEvent('knife-target', { detail: pick.detail }));
               }
             } else if (this.snapTargetKind === 'edge' && this.componentEdges) {
               this.raycaster.params.Line.threshold = threshold;
@@ -1153,7 +1154,7 @@ export class Editor extends EventTarget {
       this.componentEdges?.geometry.dispose();
       if (this.componentEdges) (this.componentEdges.material as THREE.Material).dispose();
       this.componentEdges = null;
-      for (const overlay of [this.selectedVertexOverlay, this.selectedEdgeOverlay, this.activeEdgeOverlay, this.selectedFaceOverlay]) {
+      for (const overlay of [this.selectedVertexOverlay, this.selectedEdgeOverlay, this.activeEdgeOverlay, this.selectedFaceOverlay, this.knifePreviewPoint, this.knifePreviewLine]) {
         overlay?.geometry.dispose();
         if (overlay) (overlay.material as THREE.Material).dispose();
       }
@@ -1161,6 +1162,11 @@ export class Editor extends EventTarget {
       this.selectedEdgeOverlay = null;
       this.activeEdgeOverlay = null;
       this.selectedFaceOverlay = null;
+      this.knifePreviewPoint = null;
+      this.knifePreviewLine = null;
+      this.knifePreviewAnchor = null;
+      this.knifePreviewHover = null;
+      this.knifePreviewTarget = null;
       this.topology = null;
       this.vertexPoints.geometry.dispose();
       (this.vertexPoints.material as THREE.Material).dispose();
@@ -1203,7 +1209,32 @@ export class Editor extends EventTarget {
       this.selectedFaceOverlay = new THREE.Mesh(new THREE.BufferGeometry(), new THREE.MeshBasicMaterial({ color: 0xffb95f, transparent: true, opacity: 0.32, depthTest: false, depthWrite: false, side: THREE.DoubleSide }));
       this.selectedFaceOverlay.userData.forgeEditorHelper = true;
       this.selectedFaceOverlay.renderOrder = 11;
-      this.vertexPoints.add(this.componentEdges, this.selectedVertexOverlay, this.selectedEdgeOverlay, this.activeEdgeOverlay, this.selectedFaceOverlay);
+
+      this.knifePreviewPoint = new THREE.Points(
+        new THREE.BufferGeometry(),
+        new THREE.PointsMaterial({ color: 0xffe08a, size: 12, sizeAttenuation: false, depthTest: false, depthWrite: false }),
+      );
+      this.knifePreviewPoint.userData.forgeEditorHelper = true;
+      this.knifePreviewPoint.renderOrder = 16;
+      this.knifePreviewPoint.visible = false;
+
+      const knifePreviewMaterial = new LineMaterial({ color: 0xffd060, linewidth: 3, worldUnits: false, depthTest: false, depthWrite: false });
+      knifePreviewMaterial.resolution.copy(this.renderer.getSize(new THREE.Vector2()));
+      this.knifePreviewLine = new LineSegments2(new LineSegmentsGeometry(), knifePreviewMaterial);
+      this.knifePreviewLine.userData.forgeEditorHelper = true;
+      this.knifePreviewLine.renderOrder = 15;
+      this.knifePreviewLine.frustumCulled = false;
+      this.knifePreviewLine.visible = false;
+
+      this.vertexPoints.add(
+        this.componentEdges,
+        this.selectedVertexOverlay,
+        this.selectedEdgeOverlay,
+        this.activeEdgeOverlay,
+        this.selectedFaceOverlay,
+        this.knifePreviewLine,
+        this.knifePreviewPoint,
+      );
       this.refreshComponents();
     } else {
       this.syncTransformControls();
@@ -1503,6 +1534,7 @@ export class Editor extends EventTarget {
   cancelVertexSnap() {
     if (!this.snapTargetPending) return;
     this.snapTargetPending = false;
+    this.setKnifePreview(null);
     this.refreshComponents();
     this.invalidate();
     this.emit('snap-target');
@@ -1522,10 +1554,102 @@ export class Editor extends EventTarget {
     this.knifeSnapToVertex = snapToVertex;
     this.snapTargetKind = 'knife';
     this.snapTargetPending = true;
+    this.setKnifePreview(null);
     this.refreshComponents();
     this.invalidate();
     this.emit('snap-target');
   }
+  private pickKnifeTarget(threshold: number): KnifePick | null {
+    if (!this.componentEdges || !this.selected || !(this.selected instanceof THREE.Mesh) || !this.topology) return null;
+    const position = this.selected.geometry.getAttribute('position');
+
+    if (this.knifeSnapToVertex && this.vertexPoints) {
+      this.raycaster.params.Points.threshold = threshold;
+      const vertexHit = this.raycaster.intersectObject(this.vertexPoints, false)[0];
+      if (vertexHit?.index !== undefined) {
+        const vertex = this.topology.bufferToVertex[vertexHit.index];
+        if (this.topology.logicalVertices.includes(vertex)) {
+          const raw = this.topology.vertices[vertex][0];
+          return {
+            detail: { kind: 'vertex', vertex },
+            point: new THREE.Vector3().fromBufferAttribute(position, raw),
+          };
+        }
+      }
+    }
+
+    this.raycaster.params.Line.threshold = threshold;
+    const hit = this.raycaster.intersectObject(this.componentEdges, false)[0];
+    if (hit?.index === undefined) return null;
+    const edge = Math.floor(hit.index / 2);
+    const logicalEdge = this.topology.polygonEdges[edge];
+    if (!logicalEdge) return null;
+    const a = new THREE.Vector3().fromBufferAttribute(position, this.topology.vertices[logicalEdge[0]][0]);
+    const b = new THREE.Vector3().fromBufferAttribute(position, this.topology.vertices[logicalEdge[1]][0]);
+    const direction = b.clone().sub(a);
+    const lengthSq = direction.lengthSq();
+    if (lengthSq < 1e-16) return null;
+    const localPoint = this.selected.worldToLocal(hit.point.clone());
+    const t = localPoint.sub(a).dot(direction) / lengthSq;
+    if (!Number.isFinite(t) || t <= 1e-5 || t >= 1 - 1e-5) return null;
+    return {
+      detail: { kind: 'edge', edge, t },
+      point: a.clone().lerp(b, t),
+    };
+  }
+
+  private setKnifePreview(pick: KnifePick | null) {
+    this.knifePreviewTarget = pick?.detail ?? null;
+    this.knifePreviewHover = pick?.point.clone() ?? null;
+    if (this.knifePreviewPoint) {
+      if (pick) {
+        this.knifePreviewPoint.geometry.setAttribute('position', new THREE.Float32BufferAttribute(pick.point.toArray(), 3));
+        this.knifePreviewPoint.geometry.computeBoundingSphere();
+        this.knifePreviewPoint.visible = true;
+      } else {
+        this.knifePreviewPoint.visible = false;
+      }
+    }
+    if (this.knifePreviewLine) {
+      if (this.knifePreviewAnchor && pick && this.knifePreviewAnchor.distanceToSquared(pick.point) > 1e-16) {
+        (this.knifePreviewLine.geometry as LineSegmentsGeometry).setPositions([
+          this.knifePreviewAnchor.x, this.knifePreviewAnchor.y, this.knifePreviewAnchor.z,
+          pick.point.x, pick.point.y, pick.point.z,
+        ]);
+        this.knifePreviewLine.visible = true;
+      } else {
+        this.knifePreviewLine.visible = false;
+      }
+    }
+    this.invalidate();
+  }
+
+  setKnifePreviewAnchor(position: [number, number, number] | null) {
+    this.knifePreviewAnchor = position ? new THREE.Vector3(...position) : null;
+    if (this.knifePreviewLine) {
+      if (this.knifePreviewAnchor && this.knifePreviewHover && this.knifePreviewAnchor.distanceToSquared(this.knifePreviewHover) > 1e-16) {
+        (this.knifePreviewLine.geometry as LineSegmentsGeometry).setPositions([
+          this.knifePreviewAnchor.x, this.knifePreviewAnchor.y, this.knifePreviewAnchor.z,
+          this.knifePreviewHover.x, this.knifePreviewHover.y, this.knifePreviewHover.z,
+        ]);
+        this.knifePreviewLine.visible = true;
+      } else {
+        this.knifePreviewLine.visible = false;
+      }
+    }
+    this.invalidate();
+  }
+
+  get knifePreviewState() {
+    return {
+      pointVisible: this.knifePreviewPoint?.visible ?? false,
+      lineVisible: this.knifePreviewLine?.visible ?? false,
+      point: this.knifePreviewHover?.toArray() ?? null,
+      anchor: this.knifePreviewAnchor?.toArray() ?? null,
+      target: this.knifePreviewTarget ? { ...this.knifePreviewTarget } : null,
+    };
+  }
+
   snapSelectionToVertex(vertex: number) {
     if (!this.editMode || !this.topology || !(this.selected instanceof THREE.Mesh) || !this.vertexIndices.length || this.playing || this.transform.dragging) throw new Error('Select mesh components in Edit Mode and finish the current drag first.');
     if (!Number.isInteger(vertex) || !this.topology.vertices[vertex] || !this.topology.logicalVertices.includes(vertex)) throw new Error('Invalid logical snap target vertex.');
