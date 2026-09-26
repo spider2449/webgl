@@ -1140,6 +1140,10 @@ function startVertexSnap() {
 editor.addEventListener('mode', () => { $<HTMLSelectElement>('#component-mode').value = editor.componentMode; });
 editor.addEventListener('snap-complete', () => toast(editor.snapTargetKind === 'surface' ? 'Selection center snapped to surface point.' : editor.snapTargetKind === 'edge' ? 'Selection center snapped to edge midpoint.' : 'Selection center snapped to vertex.'));
 editor.addEventListener('snap-error', event => toast((event as CustomEvent<string>).detail));
+editor.addEventListener('knife-point', () => toast('First Knife point set. Click a second boundary point.'));
+editor.addEventListener('knife-complete', () => toast('Knife cut complete.'));
+editor.addEventListener('knife-error', event => toast((event as CustomEvent<string>).detail));
+editor.addEventListener('knife-cancel', () => toast('Knife cancelled.'));
 let proportionalEnabled = false, proportionalRadius = 2, proportionalConnected = false;
 for (const id of ['proportional-enabled', 'proportional-radius', 'proportional-connected']) $<HTMLInputElement>(`#${id}`).onchange = () => {
   try {
@@ -1257,6 +1261,15 @@ async function cutFaceBetweenSelectedVertices() {
     toast('Face cut between selected vertices.');
   } catch (error) { toast((error as Error).message); }
 }
+function startKnife() {
+  try {
+    if (!editor.editMode || editor.componentMode !== 'face' || editor.componentSelection.length !== 1 || !editor.meshTopology) {
+      throw new Error('Select exactly one logical face in Face Mode first.');
+    }
+    editor.beginKnife(editor.componentSelection[0]);
+    toast('Knife: click the first boundary point, then a second boundary point. Escape cancels.');
+  } catch (error) { toast((error as Error).message); }
+}
 async function deleteSelectedComponents() {
   try {
     if (!editor.editMode || !editor.componentSelection.length || !editor.meshTopology) throw new Error('Select mesh components in Edit Mode first.');
@@ -1285,6 +1298,7 @@ const modelingCommands = {
   bevelEdges: bevelSelectedEdges,
   loopCut: loopCutSelectedEdge,
   cutFace: cutFaceBetweenSelectedVertices,
+  knife: startKnife,
   deleteComponents: deleteSelectedComponents,
 };
 
@@ -1365,6 +1379,7 @@ function viewportContextCommands(mode: ViewportContextMode): ViewportContextComm
     { label: 'Extrude Face', action: modelingCommands.extrudeFace, enabled: oneComponent, separatorBefore: true },
     { label: 'Extrude Region', action: modelingCommands.extrudeRegion, enabled: hasComponents },
     { label: 'Inset Face', action: modelingCommands.insetFace, enabled: oneComponent },
+    { label: 'Knife', shortcut: 'K', action: modelingCommands.knife, enabled: oneComponent },
     { label: 'Delete Faces', shortcut: 'Del', action: modelingCommands.deleteComponents, enabled: hasComponents, separatorBefore: true, danger: true },
   ];
   return [
@@ -2645,6 +2660,7 @@ document.addEventListener('keydown', e => {
   }
   if (key === 'alt') editor.orbit.mouseButtons.LEFT = THREE.MOUSE.ROTATE;
   if (key === 'q') tool('select'); if (key === 'g') tool('translate'); if (key === 'r') tool('rotate'); if (key === 's') tool('scale');
+  if (key === 'k' && editor.editMode && editor.componentMode === 'face') { e.preventDefault(); startKnife(); }
   if (key === 'f') editor.focus();
   if (key === 'd' && e.shiftKey) { e.preventDefault(); editor.duplicate(); }
   else if (key === 'd' && e.altKey) { e.preventDefault(); if (!editor.duplicateLinked()) toast('Linked duplicate requires an ordinary mesh without modifiers.'); }
@@ -2675,12 +2691,13 @@ document.addEventListener('keydown', e => {
       animationGraph.selectKeyFrame(null);
       updateTimeline();
     } else if (editor.modelingBusy) editor.cancelModeling();
+    else if (editor.knifePending) editor.cancelKnife();
     else if (editor.snapTargetPending) editor.cancelVertexSnap();
     else if (editor.transform.dragging) editor.transform.reset();
     else editor.select(null);
   }
 });
 document.addEventListener('keyup', e => { if (e.key === 'Alt') editor.orbit.mouseButtons.LEFT = null as unknown as THREE.MOUSE; });
-window.addEventListener('blur', () => { editor.orbit.mouseButtons.LEFT = null as unknown as THREE.MOUSE; editor.cancelBoxSelection(); cancelTimelineKeyDrag(); cancelTimelineBoxDrag(); cancelTimelinePanDrag(); cancelTimelineScrollbarDrag(); if (editor.playing) editor.togglePlayback(); });
+window.addEventListener('blur', () => { editor.orbit.mouseButtons.LEFT = null as unknown as THREE.MOUSE; editor.cancelBoxSelection(); editor.cancelKnife(); cancelTimelineKeyDrag(); cancelTimelineBoxDrag(); cancelTimelinePanDrag(); cancelTimelineScrollbarDrag(); if (editor.playing) editor.togglePlayback(); });
 document.addEventListener('visibilitychange', () => { if (document.hidden && editor.playing) editor.togglePlayback(); });
 if (import.meta.env.DEV) Object.assign(window, { __forge: editor, __rig: rigSystem, __forgeCommands: modelingCommands, __forgeModelingSettings: modelingToolSettings });
