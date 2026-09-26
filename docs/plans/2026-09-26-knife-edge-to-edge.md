@@ -26,6 +26,18 @@ This is the default.
 
 The control is exposed as `Knife Snap` in the Vertex context menu next to the Knife operator.
 
+## Edge-only endpoint preview
+
+`Knife Snap = Edge only` keeps its hover marker visible when the cursor approaches a logical edge endpoint.
+
+- the preview point is shown at the endpoint instead of disappearing
+- the candidate remains an edge target; it does not silently convert to a vertex snap
+- endpoint candidates are non-committable and are shown as invalid once a Knife anchor exists
+- clicking an endpoint does not mutate topology and does not leave Knife
+- moving back inside the edge immediately restores an interior edge candidate
+
+This keeps `Edge only` visually continuous while preserving its rule that true logical vertices are only selected through `Vertex + Edge`.
+
 ## Sticky vertex snapping
 
 Knife vertex snapping now uses hysteresis so the cursor does not flicker between a logical vertex and its incident edge.
@@ -131,6 +143,15 @@ npm test -- --workers=2
 ```
 
 Manual checks:
+
+### Edge-only endpoint continuity
+
+1. Set `Knife Snap = Edge only`.
+2. Start Knife.
+3. Move along an edge toward one of its logical vertices.
+4. Confirm the preview point stays visible all the way to the endpoint instead of disappearing.
+5. Click the endpoint and confirm the mesh is unchanged and Knife remains active.
+6. Move back into the edge interior and confirm the preview resumes as a normal interior edge target.
 
 ### Sticky vertex lock
 
