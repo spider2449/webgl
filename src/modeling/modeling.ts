@@ -578,20 +578,6 @@ export function cutLogicalFaceViaInteriorPoint(
   const expected = new THREE.Vector3(...interior);
   const position = source.getAttribute('position');
   const boundaryPoints = boundary.map(vertex => new THREE.Vector3().fromBufferAttribute(position, topology.vertices[vertex][0]));
-  let winding = 0;
-  for (let index = 0; index < boundaryPoints.length; index++) {
-    const a = boundaryPoints[index];
-    const b = boundaryPoints[(index + 1) % boundaryPoints.length];
-    const c = boundaryPoints[(index + 2) % boundaryPoints.length];
-    const turn = b.clone().sub(a).cross(c.clone().sub(b)).dot(reference);
-    if (Math.abs(turn) < 1e-10) continue;
-    const sign = Math.sign(turn);
-    if (winding && sign !== winding) {
-      throw new Error('Interior Knife bend currently requires one convex logical face.');
-    }
-    winding = sign;
-  }
-  if (!winding) throw new Error('Interior Knife bend requires a non-degenerate logical face.');
   for (let index = 0; index < boundaryPoints.length; index++) {
     const nearest = new THREE.Line3(
       boundaryPoints[index],
@@ -600,6 +586,67 @@ export function cutLogicalFaceViaInteriorPoint(
     if (nearest.distanceToSquared(expected) < 1e-12) {
       throw new Error('Interior Knife point must lie strictly inside the logical face.');
     }
+  }
+
+  type Point2 = { x: number; y: number };
+  const absNormal = [Math.abs(reference.x), Math.abs(reference.y), Math.abs(reference.z)];
+  const dropAxis = absNormal.indexOf(Math.max(...absNormal));
+  const project2 = (point: THREE.Vector3): Point2 =>
+    dropAxis === 0 ? { x: point.y, y: point.z }
+      : dropAxis === 1 ? { x: point.x, y: point.z }
+        : { x: point.x, y: point.y };
+  const cross2 = (a: Point2, b: Point2, c: Point2) =>
+    (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
+  const dot2 = (a: Point2, b: Point2, c: Point2) =>
+    (b.x - a.x) * (c.x - a.x) + (b.y - a.y) * (c.y - a.y);
+  const projectedBoundary = boundaryPoints.map(project2);
+  const projectedInterior = project2(expected);
+  const SEGMENT_EPSILON = 1e-9;
+
+  const pathLegStaysInside = (boundaryIndex: number) => {
+    const startPoint = projectedBoundary[boundaryIndex];
+    const dx = projectedInterior.x - startPoint.x;
+    const dy = projectedInterior.y - startPoint.y;
+    const lengthSq = dx * dx + dy * dy;
+    if (lengthSq < SEGMENT_EPSILON * SEGMENT_EPSILON) return false;
+
+    for (let edge = 0; edge < projectedBoundary.length; edge++) {
+      const a = projectedBoundary[edge];
+      const b = projectedBoundary[(edge + 1) % projectedBoundary.length];
+      const sx = b.x - a.x, sy = b.y - a.y;
+      const denominator = dx * sy - dy * sx;
+      const ax = a.x - startPoint.x, ay = a.y - startPoint.y;
+
+      if (Math.abs(denominator) < SEGMENT_EPSILON) {
+        if (Math.abs(ax * dy - ay * dx) >= SEGMENT_EPSILON) continue;
+        const ta = dot2(startPoint, projectedInterior, a) / lengthSq;
+        const tb = dot2(startPoint, projectedInterior, b) / lengthSq;
+        const overlapStart = Math.max(0, Math.min(ta, tb));
+        const overlapEnd = Math.min(1, Math.max(ta, tb));
+        if (overlapEnd - overlapStart > SEGMENT_EPSILON) return false;
+        continue;
+      }
+
+      const t = (ax * sy - ay * sx) / denominator;
+      const u = (ax * dy - ay * dx) / denominator;
+      if (
+        t > SEGMENT_EPSILON &&
+        t < 1 - SEGMENT_EPSILON &&
+        u > -SEGMENT_EPSILON &&
+        u < 1 + SEGMENT_EPSILON
+      ) return false;
+
+      if (Math.abs(t) <= SEGMENT_EPSILON) {
+        const incident = edge === boundaryIndex ||
+          (edge + 1) % projectedBoundary.length === boundaryIndex;
+        if (!incident && u > -SEGMENT_EPSILON && u < 1 + SEGMENT_EPSILON) return false;
+      }
+    }
+    return true;
+  };
+
+  if (!pathLegStaysInside(start) || !pathLegStaysInside(end)) {
+    throw new Error('Interior Knife bend would leave the logical face boundary.');
   }
 
   const readCorner = (raw: number): Corner => Object.fromEntries(
