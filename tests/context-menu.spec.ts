@@ -313,12 +313,16 @@ test('double-click selects a logical edge loop and Shift-double-click toggles th
     const edgeInfo = expected.map((edge: number) => {
       const [a, b] = t.polygonEdges[edge];
       const ai = t.vertices[a][0], bi = t.vertices[b][0];
-      const first = new THREE.Vector3(position.getX(ai), position.getY(ai), position.getZ(ai));
-      const second = new THREE.Vector3(position.getX(bi), position.getY(bi), position.getZ(bi));
-      return { edge, first, second, depth: (first.z + second.z) / 2 };
+      const first = [position.getX(ai), position.getY(ai), position.getZ(ai)];
+      const second = [position.getX(bi), position.getY(bi), position.getZ(bi)];
+      return { edge, first, second, depth: (first[2] + second[2]) / 2 };
     }).sort((a: any, b: any) => b.depth - a.depth)[0];
 
-    const midpoint = edgeInfo.first.clone().add(edgeInfo.second).multiplyScalar(0.5);
+    const midpoint = mesh.position.clone().set(
+      (edgeInfo.first[0] + edgeInfo.second[0]) / 2,
+      (edgeInfo.first[1] + edgeInfo.second[1]) / 2,
+      (edgeInfo.first[2] + edgeInfo.second[2]) / 2,
+    );
     mesh.localToWorld(midpoint).project(e.camera);
     const rect = e.host.getBoundingClientRect();
     const unrelated = t.polygonEdges.findIndex((_: unknown, edge: number) => !expected.includes(edge));
@@ -340,14 +344,12 @@ test('double-click selects a logical edge loop and Shift-double-click toggles th
     const e = (window as any).__forge;
     const selection = [...e.componentSelection];
     return {
-      selection,
       sameLoop: selection.length === expected.expected.length &&
         selection.every((edge: number) => expected.expected.includes(edge)),
       active: selection.at(-1),
       undoDepth: e.undoDepth,
     };
   }, target)).toEqual({
-    selection: expect.any(Array),
     sameLoop: true,
     active: target.seed,
     undoDepth: target.undoDepth,
