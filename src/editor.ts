@@ -2,8 +2,6 @@ import * as THREE from 'three';
 import { allAnimationFrames, animationChannels, effectiveBezierHandle, sampleAnimationChannel, trackKeys, validAnimationChannel, validAnimationTracks, validKeyInterpolation, validKeyTangentMode } from './animation/animation';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { TransformControls } from 'three/addons/controls/TransformControls.js';
-import { Line2 } from 'three/addons/lines/Line2.js';
-import { LineGeometry } from 'three/addons/lines/LineGeometry.js';
 import { LineSegments2 } from 'three/addons/lines/LineSegments2.js';
 import { LineSegmentsGeometry } from 'three/addons/lines/LineSegmentsGeometry.js';
 import { LineMaterial } from 'three/addons/lines/LineMaterial.js';
@@ -103,7 +101,7 @@ export class Editor extends EventTarget {
   private knifePreviewPoint: THREE.Points | null = null;
   private knifePreviewLine: LineSegments2 | null = null;
   private knifePendingPoint: THREE.Points | null = null;
-  private knifePendingLine: Line2 | null = null;
+  private knifePendingLine: THREE.Line | null = null;
   private knifePendingPath: THREE.Vector3[] = [];
   private knifePendingLinePointCount = 0;
   private knifePendingActiveIndex: number | null = null;
@@ -752,7 +750,6 @@ export class Editor extends EventTarget {
     if (this.selectedEdgeOverlay) (this.selectedEdgeOverlay.material as LineMaterial).resolution.set(width, height);
     if (this.activeEdgeOverlay) (this.activeEdgeOverlay.material as LineMaterial).resolution.set(width, height);
     if (this.knifePreviewLine) (this.knifePreviewLine.material as LineMaterial).resolution.set(width, height);
-    if (this.knifePendingLine) (this.knifePendingLine.material as LineMaterial).resolution.set(width, height);
     this.perspective.aspect = width / height;
     this.perspective.updateProjectionMatrix();
     const extent = 7;
@@ -1380,9 +1377,12 @@ export class Editor extends EventTarget {
       this.knifePendingPoint.renderOrder = 17;
       this.knifePendingPoint.visible = false;
 
-      const knifePendingMaterial = new LineMaterial({ color: 0x62d982, linewidth: 3, worldUnits: false, depthTest: false, depthWrite: false });
-      knifePendingMaterial.resolution.copy(this.renderer.getSize(new THREE.Vector2()));
-      this.knifePendingLine = new Line2(new LineGeometry(), knifePendingMaterial);
+      const knifePendingMaterial = new THREE.LineBasicMaterial({
+        color: 0x62d982,
+        depthTest: false,
+        depthWrite: false,
+      });
+      this.knifePendingLine = new THREE.Line(new THREE.BufferGeometry(), knifePendingMaterial);
       this.knifePendingLine.userData.forgeEditorHelper = true;
       this.knifePendingLine.renderOrder = 16;
       this.knifePendingLine.frustumCulled = false;
@@ -1913,10 +1913,11 @@ export class Editor extends EventTarget {
         ? overridePoint
         : point;
     });
-    (this.knifePendingLine.geometry as LineGeometry).setPositions(
-      path.flatMap(point => point.toArray()),
+    this.knifePendingLine.geometry.setAttribute(
+      'position',
+      new THREE.Float32BufferAttribute(path.flatMap(point => point.toArray()), 3),
     );
-    this.knifePendingLine.computeLineDistances();
+    this.knifePendingLine.geometry.computeBoundingSphere();
     this.knifePendingLinePointCount = path.length;
     this.knifePendingLine.visible = true;
   }
