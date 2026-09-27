@@ -58,9 +58,14 @@ $('#app').innerHTML = `
   <div class="workspace-bar"><div class="workspace-tabs"><button class="workspace-tab active" data-workspace="layout">Layout</button><button class="workspace-tab" data-workspace="modeling">Modeling</button><button class="workspace-tab" data-workspace="material">Material</button><button class="workspace-tab" data-workspace="animation">Animation</button></div><span class="workspace-note"><span></span> All processing stays on your device</span>${button('toggle-sidebar', 'panel-right-close', 'Toggle properties panel')}</div>
   <main class="workspace">
     <section class="viewport-panel">
-      <div class="viewport-toolbar"><div class="mode-select">${icon('box')}<select id="mode" aria-label="Interaction mode"><option value="object">Object Mode</option><option value="edit">Edit Mode</option><option value="weight">Weight Mode</option></select></div><select id="component-mode" aria-label="Mesh component" class="hidden"><option value="vertex">Vertex</option><option value="edge">Edge</option><option value="face">Face</option></select><span class="divider"></span><div class="dropdown"><button class="add-button" data-menu="add-menu">${icon('plus')} Add ${icon('chevron-down')}</button><div class="menu hidden primitive-menu" id="add-menu"><span class="menu-label">MESH PRIMITIVES</span>${(['cube','sphere','cylinder','cone','torus','plane','icosphere'] as Primitive[]).map(kind => `<button data-primitive="${kind}">${icon(kind === 'sphere' ? 'globe' : kind === 'plane' ? 'grid-2x2' : 'box')}${kind[0].toUpperCase() + kind.slice(1)}</button>`).join('')}</div></div><button id="frame-all" class="text-button">View all</button><div class="toolbar-spacer"></div><select id="space" aria-label="Transform orientation"><option value="world">Global</option><option value="local">Local</option><option value="gimbal">Gimbal</option></select>${button('snap','magnet','Toggle grid snap (Shift Tab)')}${button('grid','grid-2x2','Toggle grid','active')}<span class="divider"></span><div class="shading-group">${button('shading-wire','hexagon','Wireframe shading')}${button('shading-solid','circle','Solid shading')}${button('shading-material','sun','Material shading','active')}</div><select id="face-display" aria-label="Face display" title="Viewport face display"><option value="double">Double-sided</option><option value="front">Front only</option></select></div>
+      <div class="viewport-toolbar"><div class="mode-select">${icon('box')}<select id="mode" aria-label="Interaction mode"><option value="object">Object Mode</option><option value="edit">Edit Mode</option><option value="weight">Weight Mode</option></select></div><select id="component-mode" aria-label="Mesh component" class="hidden"><option value="vertex">Vertex</option><option value="edge">Edge</option><option value="face">Face</option></select><span class="divider"></span><div class="dropdown"><button class="add-button" data-menu="add-menu">${icon('plus')} Add ${icon('chevron-down')}</button><div class="menu hidden primitive-menu" id="add-menu"><span class="menu-label">MESH PRIMITIVES</span>${(['cube','sphere','cylinder','cone','torus','plane','icosphere'] as Primitive[]).map(kind => `<button data-primitive="${kind}">${icon(kind === 'sphere' ? 'globe' : kind === 'plane' ? 'grid-2x2' : 'box')}${kind[0].toUpperCase() + kind.slice(1)}</button>`).join('')}</div></div><button id="frame-all" class="text-button">View all</button><div class="toolbar-spacer"></div><select id="space" aria-label="Transform orientation"><option value="world">Global</option><option value="local">Local</option><option value="gimbal">Gimbal</option></select>${button('snap','magnet','Toggle grid snap (Shift Tab)')}${button('grid','grid-2x2','Toggle grid','active')}${button('geometry-stats-toggle','activity','Toggle geometry statistics')}<span class="divider"></span><div class="shading-group">${button('shading-wire','hexagon','Wireframe shading')}${button('shading-solid','circle','Solid shading')}${button('shading-material','sun','Material shading','active')}</div><select id="face-display" aria-label="Face display" title="Viewport face display"><option value="double">Double-sided</option><option value="front">Front only</option></select></div>
       <div id="viewport" class="viewport">
         <div class="view-label"><span id="view-label">User Perspective</span><small id="selection-label">Scene Collection / Cube</small></div>
+        <div id="geometry-statistics" class="geometry-statistics hidden" aria-label="Geometry statistics">
+          <div class="geometry-statistics-heading"><span>Geometry</span><small id="geometry-statistics-mode">OBJECT</small></div>
+          <div class="geometry-statistics-row"><strong>ALL</strong><span id="geometry-statistics-all">Obj 0 · V 0 · E 0 · F 0 · T 0</span></div>
+          <div class="geometry-statistics-row selected"><strong>SELECTED</strong><span id="geometry-statistics-selected">Obj 0 · V 0 · E 0 · F 0 · T 0</span></div>
+        </div>
         <div class="tool-rail" role="toolbar" aria-label="Transform tools">${button('tool-select','mouse-pointer-2','Select (Q)')}${button('tool-translate','move','Move (G)','active')}${button('tool-rotate','rotate-3d','Rotate (R)')}${button('tool-scale','scaling','Scale (S)')}<span></span>${button('focus','scan','Frame selected (F)')}${button('duplicate-rail','copy','Duplicate (Shift D)')}</div>
         <div class="axis-widget"><button id="axis-y" title="Top view (7)" class="axis y">Y</button><button id="axis-z" title="Front view (1)" class="axis z">Z</button><button id="axis-x" title="Right view (3)" class="axis x">X</button><span class="axis-line line-y"></span><span class="axis-line line-z"></span><span class="axis-line line-x"></span><button id="axis-home" class="axis-center" title="Perspective view"></button></div>
         <div class="view-actions">${button('projection','box','Toggle perspective / orthographic (5)')}${button('home-view','crosshair','Reset view')}${button('capture-quick','camera','Capture viewport')}</div>
@@ -1001,12 +1006,39 @@ function updateTimeline() {
   }
   setTimelineMarkerSelection();
 }
-editor.addEventListener('change', updateUI);
+let geometryStatisticsVisible = false;
+const formatGeometryCounts = (counts: { objects: number; vertices: number; edges: number; faces: number; triangles: number }) =>
+  `Obj ${counts.objects.toLocaleString()} · V ${counts.vertices.toLocaleString()} · E ${counts.edges.toLocaleString()} · F ${counts.faces.toLocaleString()} · T ${counts.triangles.toLocaleString()}`;
+function updateGeometryStatistics() {
+  const overlay = $('#geometry-statistics');
+  overlay.classList.toggle('hidden', !geometryStatisticsVisible);
+  const toggle = $<HTMLButtonElement>('#geometry-stats-toggle');
+  toggle.classList.toggle('active', geometryStatisticsVisible);
+  toggle.setAttribute('aria-pressed', String(geometryStatisticsVisible));
+  if (!geometryStatisticsVisible) return;
+  const statistics = editor.geometryStatistics();
+  $('#geometry-statistics-all').textContent = formatGeometryCounts(statistics.all);
+  $('#geometry-statistics-selected').textContent = formatGeometryCounts(statistics.selected);
+  $('#geometry-statistics-mode').textContent = editor.weightMode
+    ? 'WEIGHT'
+    : editor.editMode
+      ? `EDIT · ${editor.componentMode.toUpperCase()}`
+      : 'OBJECT';
+}
+on('geometry-stats-toggle', () => {
+  geometryStatisticsVisible = !geometryStatisticsVisible;
+  updateGeometryStatistics();
+});
+
+editor.addEventListener('change', () => { updateUI(); updateGeometryStatistics(); });
+editor.addEventListener('component-selection', updateGeometryStatistics);
+editor.addEventListener('commit', updateGeometryStatistics);
 editor.addEventListener('transform', updateTransforms);
 editor.addEventListener('history-limit', () => toast('Scene exceeds the 24 MiB undo budget. History disabled; save a project file.'));
 editor.addEventListener('frame', updateTimeline);
 editor.addEventListener('animation', updateTimeline);
 editor.addEventListener('mode', updateTimeline);
+editor.addEventListener('mode', updateGeometryStatistics);
 editor.addEventListener('mode', () => {
   $('#component-mode').classList.toggle('hidden', !editor.editMode || editor.weightMode);
   $<HTMLSelectElement>('#mode').value = editor.weightMode ? 'weight' : editor.editMode ? 'edit' : 'object';
@@ -1189,6 +1221,7 @@ $<HTMLSelectElement>('#space').onchange = e => editor.setTransformOrientation((e
 function snap() { const enabled = !$('#snap').classList.contains('active'); $('#snap').classList.toggle('active', enabled); editor.setTransformSnapping(enabled); toast(enabled ? 'Snap: 0.5 units · 15° · 0.1 scale' : 'Snapping disabled'); }
 on('snap', snap);
 on('grid', () => { editor.grid.visible = !editor.grid.visible; $('#grid').classList.toggle('active', editor.grid.visible); editor.invalidate(); });
+$<HTMLButtonElement>('#geometry-stats-toggle').setAttribute('aria-pressed', 'false');
 for (const value of ['wire','solid','material']) on(`shading-${value}`, () => { editor.setShading(value); document.querySelectorAll('.shading-group button').forEach(b => b.classList.toggle('active', b.id === `shading-${value}`)); });
 $<HTMLSelectElement>('#face-display').onchange = event => editor.setFaceDisplayMode((event.target as HTMLSelectElement).value as 'front' | 'double');
 on('focus', () => editor.focus()); on('frame-all', () => editor.focus(true));
