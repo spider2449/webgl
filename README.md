@@ -42,6 +42,10 @@ In Edit Mode Face selection, RMB -> **Inset Face** accepts one convex logical Tr
 
 Enable **Proportional editing** in the Object panel, set a positive **Influence radius**, then move a selected vertex, edge or triangle in Edit Mode. Selected vertices move fully; nearby vertices follow with smooth falloff to zero at the radius. Distance is measured in local mesh units from the nearest selected vertex, including across disconnected geometry. Welded seams stay together. Each drag uses its starting positions and radius; Escape resets the current drag. Geometry changes support undo/redo and project saving. The toggle and radius are session preferences. Enable **Connected only** to measure shortest-path distance along mesh edges and keep disconnected islands fixed. Triangle diagonals participate; this is an edge-path approximation, not continuous surface distance. Exact coincident positions still share connectivity across seams. The setting is captured at drag start and remains a session preference. Radius overlays and proportional rotation/scale are not implemented.
 
+### Viewport geometry statistics
+
+Use the **Geometry statistics** activity button in the viewport toolbar to toggle a session-only overlay with separate **ALL** and **SELECTED** rows. Both rows show object, logical vertex, logical edge, logical face and renderer-triangle counts (`Obj / V / E / F / T`). Scene totals use Forge's logical modeling topology, so the default Cube reports 8 vertices, 12 edges and 6 faces rather than renderer buffer vertices or triangulation diagonals. In Object Mode, **SELECTED** totals the complete geometry of all selected objects. In Edit Mode, **SELECTED** reflects the current logical component selection: selected edges contribute their logical endpoints, selected faces contribute their logical boundary edges, and triangle counts come from the selected logical faces' tessellation. Empty component selections therefore report zero selected geometry while the active object remains selected.
+
 ### Component multi-selection
 
 In Edit Mode, **Shift-click** to add or remove logical vertices, logical edges or logical faces.
