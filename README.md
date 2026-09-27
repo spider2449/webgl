@@ -54,9 +54,9 @@ it; Shift-clicking empty space preserves it. Drag the move gizmo to move the
 selection from the centroid of its unique logical vertices. Shared vertices and
 welded seams move once, and proportional editing uses all selected vertices.
 Shift-click takes priority over the gizmo so you can deselect its center component.
-Switching component modes or leaving Edit Mode clears the selection. Press **A** or use RMB -> **Select All**
+Switching component modes or leaving Edit Mode clears the selection. Press **A** (or **Ctrl+A**) or use RMB -> **Select All**
 to select every logical component in the active Vertex, Edge or Face mode; **Alt+A** / **Deselect All**
-clears the component selection. These shortcuts are Edit Mode only and do not affect Object Mode selection.
+clears the component selection. Outside text-entry fields, Ctrl+A is intercepted by the editor so the browser does not highlight the whole UI; in Object Mode it remains a no-op. These shortcuts do not alter Object Mode selection.
 RMB -> **Select Linked**
 expands the current selection across each connected logical mesh island: vertices and edges follow
 logical polygon boundary edges, while faces cross only shared logical boundary edges. In Face mode,
