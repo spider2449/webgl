@@ -1010,7 +1010,12 @@ export function subdivideLogicalEdges(
   source: THREE.BufferGeometry,
   edges: number[],
   polygonTriangles?: number[][],
+  cuts = 1,
 ) {
+  if (!Number.isInteger(cuts) || cuts < 1 || cuts > 32) {
+    throw new Error('Subdivision cuts must be an integer between 1 and 32.');
+  }
+
   const inspection = inspectGeometry(source, polygonTriangles ?? false);
   const { topology, read } = inspection;
   const { polygons } = logicalSurface(source, inspection);
@@ -1025,7 +1030,7 @@ export function subdivideLogicalEdges(
     const point = new THREE.Vector3().fromBufferAttribute(source.getAttribute('position'), copies[0]);
     return key(point.toArray());
   }));
-  const midpointByEdge = new Map<number, number[]>();
+  const pointsByEdge = new Map<number, number[][]>();
 
   for (const edge of selected) {
     const [a, b] = topology.polygonEdges[edge];
@@ -1034,20 +1039,28 @@ export function subdivideLogicalEdges(
     const forward = key(firstPosition) < key(secondPosition);
     const first = forward ? firstPosition : secondPosition;
     const second = forward ? secondPosition : firstPosition;
-    const midpoint = first.map((value, component) =>
-      Math.fround(value + (second[component] - value) * 0.5)
-    );
-    if (
-      midpoint.some(value => !Number.isFinite(value)) ||
-      midpoint.every((value, component) => value === first[component]) ||
-      midpoint.every((value, component) => value === second[component])
-    ) {
-      throw new Error('Subdivision collapses at mesh coordinate precision.');
+    const points: number[][] = [];
+
+    for (let cut = 1; cut <= cuts; cut++) {
+      const factor = cut / (cuts + 1);
+      const point = first.map((value, component) =>
+        Math.fround(value + (second[component] - value) * factor)
+      );
+      if (
+        point.some(value => !Number.isFinite(value)) ||
+        point.every((value, component) => value === first[component]) ||
+        point.every((value, component) => value === second[component])
+      ) {
+        throw new Error('Subdivision collapses at mesh coordinate precision.');
+      }
+      const pointKey = key(point);
+      if (occupied.has(pointKey)) {
+        throw new Error('Subdivision point already contains a mesh vertex or another cut point.');
+      }
+      occupied.add(pointKey);
+      points.push(point);
     }
-    const midpointKey = key(midpoint);
-    if (occupied.has(midpointKey)) throw new Error('Edge midpoint already contains a mesh vertex or another midpoint.');
-    occupied.add(midpointKey);
-    midpointByEdge.set(edge, midpoint);
+    pointsByEdge.set(edge, points);
   }
 
   const output = polygons.map((polygon, polygonId) => {
@@ -1065,16 +1078,22 @@ export function subdivideLogicalEdges(
       const edge = edgeByKey.get(edgeKey(vertices[local], vertices[next]));
       if (edge === undefined || !selected.has(edge)) continue;
 
+      const canonicalPoints = pointsByEdge.get(edge)!;
       const forward = key(a.position) < key(b.position);
-      const midpoint = forward ? interpolate(a, b, 0.5) : interpolate(b, a, 0.5);
-      midpoint.position = [...midpointByEdge.get(edge)!];
-      corners.push(midpoint);
+      for (let cut = 1; cut <= cuts; cut++) {
+        const localFactor = cut / (cuts + 1);
+        const canonicalIndex = forward ? cut - 1 : cuts - cut;
+        const inserted = interpolate(a, b, localFactor);
+        inserted.position = [...canonicalPoints[canonicalIndex]];
+        corners.push(inserted);
 
-      if (referenceNormals) {
-        const normal = polygon.referenceNormals![local].clone().add(polygon.referenceNormals![next]);
-        if (normal.lengthSq() > 1e-16) normal.normalize();
-        else normal.copy(polygon.referenceNormals![local]);
-        referenceNormals.push(normal);
+        if (referenceNormals) {
+          const normal = polygon.referenceNormals![local].clone().multiplyScalar(1 - localFactor)
+            .addScaledVector(polygon.referenceNormals![next], localFactor);
+          if (normal.lengthSq() > 1e-16) normal.normalize();
+          else normal.copy(polygon.referenceNormals![local]);
+          referenceNormals.push(normal);
+        }
       }
     }
 

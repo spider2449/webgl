@@ -63,7 +63,7 @@ test('invalid subdivision rejects without changing source geometry', () => {
   check(mesh([0,0,0,2,0,0,0,1,0, 2,0,0,0,0,0,0,-1,0, 0,0,0,2,0,0,0,0,1]),[0,1],/manifold/);
 });
 
-test('viewport selected edge subdivides, keeps split edges selected and restores history/project', async ({page}) => {
+test('viewport selected edge supports three logical cuts and restores history/project', async ({page}) => {
   await page.goto('/'); await page.waitForFunction(()=>(window as any).__forge?.selected);
   await page.evaluate(()=>{ const e=(window as any).__forge; e.selected.rotation.set(0,0,0); e.selected.scale.set(1.5,0.8,1.2); e.commit(); e.view('front'); });
   await page.locator('#mode').selectOption('edit');
@@ -73,16 +73,27 @@ test('viewport selected edge subdivides, keeps split edges selected and restores
     const edge=t.polygonEdges.find((vs:number[])=>vs.every(v=>a.getZ(t.vertices[v][0])===1 && a.getY(t.vertices[v][0])===1));
     const point=m.position.clone().set(0,0,0);
     for (const v of edge) point.add(m.position.clone().fromBufferAttribute(a,t.vertices[v][0])); point.multiplyScalar(0.5);
-    const midpoint=point.toArray(); m.updateWorldMatrix(true,true); e.camera.updateMatrixWorld(true); m.localToWorld(point).project(e.camera);
+    const midpoint=point.toArray();
+    const endpoints=edge.map((v:number)=>{
+      const i=t.vertices[v][0];
+      return [a.getX(i),a.getY(i),a.getZ(i)];
+    });
+    const cutPositions=[0.25,0.5,0.75].map(factor=>endpoints[0].map((value:number,index:number)=>
+      Math.fround(value+(endpoints[1][index]-value)*factor)
+    ));
+    m.updateWorldMatrix(true,true); e.camera.updateMatrixWorld(true); m.localToWorld(point).project(e.camera);
     const rect=e.host.getBoundingClientRect();
     const originalVertices=t.logicalVertices.map((v:number)=>{
       const i=t.vertices[v][0];
       return [a.getX(i),a.getY(i),a.getZ(i)];
     });
-    return {x:rect.left+(point.x+1)*rect.width/2,y:rect.top+(1-point.y)*rect.height/2,midpoint,originalVertices,before:e.snapshot()};
+    return {x:rect.left+(point.x+1)*rect.width/2,y:rect.top+(1-point.y)*rect.height/2,midpoint,cutPositions,originalVertices,before:e.snapshot()};
   });
   await page.mouse.click(target.x,target.y);
-  await page.evaluate(() => (window as any).__forgeCommands.subdivideEdges());
+  await page.evaluate(() => {
+    (window as any).__forgeModelingSettings.subdivideCuts = 3;
+    return (window as any).__forgeCommands.subdivideEdges();
+  });
   await page.waitForFunction(() => !(window as any).__forge.modelingBusy);
   await expect(page.locator('#toast')).toContainText('Edges subdivided');
   await expect(page.getByLabel('Mesh component')).toHaveValue('edge');
@@ -122,14 +133,14 @@ test('viewport selected edge subdivides, keeps split edges selected and restores
     };
   }, target);
   expect(result.center).toEqual(target.midpoint);
-  expect(result.midpointPositions).toHaveLength(1);
-  expect(result.midpointPositions).toEqual([target.midpoint]);
-  expect(result.selectedEdges).toHaveLength(2);
-  expect(result.selected.length).toBeGreaterThanOrEqual(3);
-  expect(result.triangles).toBe(14);
-  expect(result.polygonSizes).toEqual([4,4,4,4,5,5]);
+  expect(result.midpointPositions).toHaveLength(3);
+  for (const expected of target.cutPositions) expect(result.midpointPositions).toContainEqual(expected);
+  expect(result.selectedEdges).toHaveLength(4);
+  expect(result.selected.length).toBeGreaterThanOrEqual(5);
+  expect(result.triangles).toBe(18);
+  expect(result.polygonSizes).toEqual([4,4,4,4,7,7]);
   expect(result.polygonGroups).toBe(6);
-  expect(result.logicalEdges).toBe(13);
+  expect(result.logicalEdges).toBe(15);
   result.afterMove.forEach((v:any,i:number)=>expect(v).toBeCloseTo(result.beforeMove[i]+(i%3===0&&result.selected.includes(i/3)?0.2:0),5));
   expect(result.undone).toBe(target.before); expect(result.redone).toBe(result.after); expect(result.restored).toBe(result.after);
 });

@@ -1079,6 +1079,7 @@ const modelingToolSettings = {
   insetDistance: 0.1,
   bevelWidth: 0.1,
   loopPosition: 0.5,
+  subdivideCuts: 1,
   get snapTarget() { return modelingSnapTarget; },
   set snapTarget(value: 'vertex' | 'edge' | 'surface') {
     if (editor.snapTargetPending && value !== modelingSnapTarget) editor.cancelVertexSnap();
@@ -1131,6 +1132,7 @@ async function subdivideSelectedEdges() {
     await editor.runModeling({
       kind: 'subdivide',
       edges: editor.componentSelection,
+      cuts: modelingToolSettings.subdivideCuts,
       polygonTriangles: editor.meshTopology.polygonTriangles.map(group => [...group]),
     });
     toast('Edges subdivided. Split edge segments selected.');
@@ -2026,6 +2028,7 @@ type ContextNumberParameter = {
   sliderMin: number;
   sliderMax: number;
   step: number;
+  integer?: boolean;
   get: () => number;
   set: (value: number) => void;
   run: () => void | Promise<void>;
@@ -2159,13 +2162,21 @@ function appendContextParameter(parameter: ContextParameter) {
 
     const commitNumber = () => {
       const value = Number(number.value);
-      if (!Number.isFinite(value) || value < parameter.min || value > parameter.max) {
+      if (
+        !Number.isFinite(value) ||
+        value < parameter.min ||
+        value > parameter.max ||
+        (parameter.integer && !Number.isInteger(value))
+      ) {
         number.value = String(parameter.get());
-        toast(`${parameter.label} must be between ${parameter.min} and ${parameter.max}.`);
+        toast(parameter.integer
+          ? `${parameter.label} must be a whole number between ${parameter.min} and ${parameter.max}.`
+          : `${parameter.label} must be between ${parameter.min} and ${parameter.max}.`);
         return false;
       }
       parameter.set(value);
-      slider.value = String(Math.min(Math.max(value, parameter.sliderMin), parameter.sliderMax));
+      number.value = String(parameter.get());
+      slider.value = String(Math.min(Math.max(parameter.get(), parameter.sliderMin), parameter.sliderMax));
       return true;
     };
 
@@ -2220,6 +2231,20 @@ function contextParameterBefore(mode: ViewportContextMode, command: ViewportCont
     get: () => modelingToolSettings.bevelWidth,
     set: value => { modelingToolSettings.bevelWidth = value; },
     run: modelingCommands.bevelEdges,
+  };
+  if (mode === 'edge' && command.label === 'Subdivide Edges') return {
+    kind: 'number',
+    label: 'Cuts',
+    ariaLabel: 'Context subdivision cuts',
+    min: 1,
+    max: 32,
+    sliderMin: 1,
+    sliderMax: 8,
+    step: 1,
+    integer: true,
+    get: () => modelingToolSettings.subdivideCuts,
+    set: value => { modelingToolSettings.subdivideCuts = value; },
+    run: modelingCommands.subdivideEdges,
   };
   if (mode === 'edge' && command.label === 'Loop Cut') return {
     kind: 'number',

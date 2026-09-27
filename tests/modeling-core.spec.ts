@@ -113,6 +113,33 @@ test('logical edge subdivision preserves polygon boundaries and only retessellat
   expect(multipleTopology.polygons).toHaveLength(6);
   expect(multipleTopology.polygons.some(polygon => polygon.length === 6)).toBe(true);
 
+  const threeCuts = subdivideLogicalEdges(box, [selectedEdge], input.polygonTriangles, 3);
+  const threeCutsTopology = buildTopology(
+    threeCuts.geometry.getAttribute('position').array,
+    threeCuts.geometry.index?.array,
+    threeCuts.polygonTriangles,
+  );
+  expect(threeCutsTopology.logicalVertices).toHaveLength(11);
+  expect(threeCutsTopology.polygonEdges).toHaveLength(15);
+  expect(threeCutsTopology.faces).toHaveLength(18);
+  expect(threeCutsTopology.polygons).toHaveLength(6);
+  expect(threeCutsTopology.polygons.map(polygon => polygon.length).sort((x, y) => x - y))
+    .toEqual([4, 4, 4, 4, 7, 7]);
+
+  const threeCutsPosition = threeCuts.geometry.getAttribute('position');
+  const expectedCuts = [0.25, 0.5, 0.75].map(factor => pa.clone().lerp(pb, factor));
+  for (const expected of expectedCuts) {
+    expect(threeCutsTopology.logicalVertices.some(vertex => {
+      const index = threeCutsTopology.vertices[vertex][0];
+      return new THREE.Vector3().fromBufferAttribute(threeCutsPosition, index).distanceToSquared(expected) < 1e-12;
+    })).toBe(true);
+  }
+
+  expect(() => subdivideLogicalEdges(box, [selectedEdge], input.polygonTriangles, 0)).toThrow(/integer between 1 and 32/);
+  expect(() => subdivideLogicalEdges(box, [selectedEdge], input.polygonTriangles, 1.5)).toThrow(/integer between 1 and 32/);
+  expect(() => subdivideLogicalEdges(box, [selectedEdge], input.polygonTriangles, 33)).toThrow(/integer between 1 and 32/);
+
+  threeCuts.geometry.dispose();
   multiple.geometry.dispose();
   result.geometry.dispose();
   box.dispose();
