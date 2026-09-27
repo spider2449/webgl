@@ -325,13 +325,16 @@ export function logicalCoplanarFaces(
 
   const point = (vertex: number) => {
     const buffer = topology.vertices[vertex]?.[0];
+    if (buffer === undefined || !Number.isInteger(buffer)) {
+      throw new Error('Logical face positions are invalid.');
+    }
     const offset = buffer * 3;
     const value: [number, number, number] = [
       Number(positions[offset]),
       Number(positions[offset + 1]),
       Number(positions[offset + 2]),
     ];
-    if (!Number.isInteger(buffer) || value.some(component => !Number.isFinite(component))) {
+    if (value.some(component => !Number.isFinite(component))) {
       throw new Error('Logical face positions are invalid.');
     }
     return value;
