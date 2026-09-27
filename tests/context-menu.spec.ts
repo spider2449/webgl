@@ -231,6 +231,7 @@ test('Edit Mode RMB menu changes with Vertex, Edge and Face component mode', asy
   await expect(menu.getByRole('menuitem', { name: 'Rotate R' })).toBeVisible();
   await expect(menu.getByRole('menuitem', { name: 'Scale S' })).toBeVisible();
   await expect(menu.getByRole('menuitem', { name: 'Select Linked' })).toBeVisible();
+  await expect(menu.getByRole('menuitem', { name: 'Invert Selection' })).toBeVisible();
   await expect(menu.getByRole('menuitem', { name: 'Knife K' })).toBeVisible();
   await expect(menu.getByRole('menuitem', { name: 'Knife K' })).toBeEnabled();
   await expect(menu.getByRole('menuitem', { name: 'Cut Face' })).toBeVisible();
@@ -255,6 +256,7 @@ test('Edit Mode RMB menu changes with Vertex, Edge and Face component mode', asy
   await expect(menu.getByRole('menuitem', { name: 'Rotate R' })).toBeVisible();
   await expect(menu.getByRole('menuitem', { name: 'Scale S' })).toBeVisible();
   await expect(menu.getByRole('menuitem', { name: 'Select Linked' })).toBeVisible();
+  await expect(menu.getByRole('menuitem', { name: 'Invert Selection' })).toBeVisible();
   await expect(menu.getByRole('menuitem', { name: 'Bevel Edges' })).toBeVisible();
   await expect(menu.getByRole('menuitem', { name: 'Subdivide Edges' })).toBeVisible();
   await expect(menu.getByRole('menuitem', { name: 'Loop Cut' })).toBeVisible();
@@ -271,6 +273,7 @@ test('Edit Mode RMB menu changes with Vertex, Edge and Face component mode', asy
   await expect(menu.getByRole('menuitem', { name: 'Rotate R' })).toBeVisible();
   await expect(menu.getByRole('menuitem', { name: 'Scale S' })).toBeVisible();
   await expect(menu.getByRole('menuitem', { name: 'Select Linked' })).toBeVisible();
+  await expect(menu.getByRole('menuitem', { name: 'Invert Selection' })).toBeVisible();
   await expect(menu.getByRole('menuitem', { name: 'Select Boundary Edges' })).toBeVisible();
   await expect(menu.getByRole('menuitem', { name: 'Extrude Face' })).toBeVisible();
   await expect(menu.getByRole('menuitem', { name: 'Extrude Region' })).toBeVisible();
@@ -330,6 +333,55 @@ test('RMB Select Linked expands the current logical Cube island without history'
       const afterEdgeOverlayGeometry = await page.evaluate(() => (window as any).__forge.selectedEdgeOverlay.geometry.uuid);
       expect(afterEdgeOverlayGeometry).not.toBe(beforeEdgeOverlayGeometry);
     }
+  }
+});
+
+test('RMB Invert Selection complements logical components without history', async ({ page }) => {
+  await page.locator('#mode').selectOption('edit');
+  const initialUndoDepth = await page.evaluate(() => (window as any).__forge.undoDepth);
+
+  for (const [mode, total] of [['vertex', 8], ['edge', 12], ['face', 6]] as const) {
+    await page.getByLabel('Mesh component').selectOption(mode);
+    await page.evaluate(() => (window as any).__forge.selectComponent(0));
+
+    await rightClickViewport(page);
+    let menu = page.locator('#viewport-context-menu');
+    await expect(menu.getByRole('menuitem', { name: 'Invert Selection' })).toBeEnabled();
+    await menu.getByRole('menuitem', { name: 'Invert Selection' }).click();
+    await expect(page.locator('#toast')).toContainText(`Selection inverted; ${total - 1} logical components selected`);
+
+    expect(await page.evaluate(currentMode => {
+      const e = (window as any).__forge;
+      const selection = [...e.componentSelection];
+      return {
+        mode: e.componentMode,
+        selection,
+        containsSeed: selection.includes(0),
+        edgeOverlay: currentMode === 'edge' ? e.selectedEdgeOverlay.geometry.instanceCount : null,
+        activeEdge: currentMode === 'edge' ? selection.at(-1) : null,
+        undoDepth: e.undoDepth,
+      };
+    }, mode)).toEqual({
+      mode,
+      selection: expect.any(Array),
+      containsSeed: false,
+      edgeOverlay: mode === 'edge' ? 11 : null,
+      activeEdge: mode === 'edge' ? 11 : null,
+      undoDepth: initialUndoDepth,
+    });
+    expect(await page.evaluate(() => (window as any).__forge.componentSelection.length)).toBe(total - 1);
+
+    await rightClickViewport(page);
+    menu = page.locator('#viewport-context-menu');
+    await menu.getByRole('menuitem', { name: 'Invert Selection' }).click();
+    expect(await page.evaluate(() => (window as any).__forge.componentSelection)).toEqual([0]);
+
+    await page.evaluate(() => (window as any).__forge.selectComponent(undefined));
+    await rightClickViewport(page);
+    menu = page.locator('#viewport-context-menu');
+    await expect(menu.getByRole('menuitem', { name: 'Invert Selection' })).toBeEnabled();
+    await menu.getByRole('menuitem', { name: 'Invert Selection' }).click();
+    expect(await page.evaluate(() => (window as any).__forge.componentSelection.length)).toBe(total);
   }
 });
 
