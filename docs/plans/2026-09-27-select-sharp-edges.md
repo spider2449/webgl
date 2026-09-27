@@ -99,7 +99,7 @@ Real RMB workflow:
 2. Select one edge.
 3. Set Sharp Angle to 91° and run -> no match; original selection preserved.
 4. Set Sharp Angle to 30° and run -> all 12 logical Cube edges selected.
-5. Geometry Statistics SELECTED -> `Obj 1 · V 8 · E 12 · F 0 · T 0`.
+5. Geometry Statistics SELECTED -> `Obj 1 · V 8 · E 12 · F 6 · T 12`: Edge mode counts selected V/E, and because all six Cube face boundary-edge sets are complete, the existing statistics contract also counts F6/T12.
 6. Selected-edge overlay -> 12 orange LineSegments2 segments, width 4.
 7. Active edge overlay -> 1 white segment, width 6.
 8. Add Plane with Segments X=2.
