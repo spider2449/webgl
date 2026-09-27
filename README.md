@@ -50,8 +50,11 @@ it; Shift-clicking empty space preserves it. Drag the move gizmo to move the
 selection from the centroid of its unique logical vertices. Shared vertices and
 welded seams move once, and proportional editing uses all selected vertices.
 Shift-click takes priority over the gizmo so you can deselect its center component.
-Switching component modes or leaving Edit Mode clears the selection. Selection is
-temporary; moved geometry supports undo/redo and project saving. **Extrude Face** and **Inset Face**
+Switching component modes or leaving Edit Mode clears the selection. RMB -> **Select Linked**
+expands the current selection across each connected logical mesh island: vertices and edges follow
+logical polygon boundary edges, while faces cross only shared logical boundary edges. Renderer
+triangulation diagonals never participate. Selection is temporary and Select Linked does not add an
+Undo step; moved geometry still supports undo/redo and project saving. **Extrude Face** and **Inset Face**
 require exactly one selected logical face and keep the resulting cap/inner polygon selected.
 **Extrude planar region** accepts connected coplanar face selections.
 
