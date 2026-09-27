@@ -10,7 +10,7 @@ import { clone as cloneSkeleton } from 'three/addons/utils/SkeletonUtils.js';
 import { createGrid, setGridPlane } from './viewport/grid';
 import { insetTriangle } from './modeling/extrude';
 import { extrudeLogicalFace } from './modeling/modeling';
-import { buildTopology, logicalEdgeRing, type MeshTopology, type ComponentMode } from './modeling/topology';
+import { buildTopology, logicalEdgeLoop, type MeshTopology, type ComponentMode } from './modeling/topology';
 import { proportionalWeights } from './modeling/proportional';
 import { subdivideEdges } from './modeling/subdivide';
 import { extrudeRegion } from './modeling/extrude-region';
@@ -1592,19 +1592,19 @@ export class Editor extends EventTarget {
     this.selectComponentVertices(vertices);
     this.emit('component-selection');
   }
-  selectEdgeRing() {
+  selectEdgeLoop() {
     if (!this.editMode || this.componentMode !== 'edge' || this.selectedComponents.size !== 1 || !this.topology || this.modelingBusy || this.playing || this.transform.dragging) {
       throw new Error('Select exactly one logical edge in Edit Mode first.');
     }
     const start = [...this.selectedComponents][0];
-    const ring = logicalEdgeRing(this.topology, start);
-    if (ring.length < 2) throw new Error('Selected edge does not continue through a logical Quad ring.');
+    const loop = logicalEdgeLoop(this.topology, start);
+    if (loop.length < 2) throw new Error('Selected edge does not continue through a regular logical Quad loop.');
     this.modelingVersion++;
-    this.selectedComponents = new Set([...ring.filter(edge => edge !== start), start]);
+    this.selectedComponents = new Set([...loop.filter(edge => edge !== start), start]);
     this.selectedFace = null;
     this.selectComponentVertices([...this.selectedComponents].flatMap(edge => this.topology!.polygonEdges[edge]));
     this.emit('component-selection');
-    return ring.length;
+    return loop.length;
   }
 
   private selectComponentVertices(vertices?: number[]) {

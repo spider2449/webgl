@@ -214,7 +214,7 @@ test('Edit Mode RMB menu changes with Vertex, Edge and Face component mode', asy
   await expect(menu.getByRole('menuitem', { name: 'Scale S' })).toBeVisible();
   await expect(menu.getByRole('menuitem', { name: 'Bevel Edges' })).toBeVisible();
   await expect(menu.getByRole('menuitem', { name: 'Subdivide Edges' })).toBeVisible();
-  await expect(menu.getByRole('menuitem', { name: 'Select Edge Ring' })).toBeVisible();
+  await expect(menu.getByRole('menuitem', { name: 'Select Edge Loop' })).toBeVisible();
   await expect(menu.getByRole('menuitem', { name: 'Loop Cut' })).toBeVisible();
   await expect(menu.getByRole('menuitem', { name: 'Delete Edges Del' })).toBeVisible();
   await expect(menu.getByRole('menuitem', { name: 'Extrude Face' })).toHaveCount(0);
@@ -235,52 +235,53 @@ test('Edit Mode RMB menu changes with Vertex, Edge and Face component mode', asy
   await expect(menu.getByRole('menuitem', { name: 'Bevel Edges' })).toHaveCount(0);
 });
 
-test('RMB Select Edge Ring follows logical Quad opposite edges without changing history', async ({ page }) => {
+test('RMB Select Edge Loop restores the connected middle Loop Cut cycle without changing history', async ({ page }) => {
   await page.locator('#mode').selectOption('edit');
   await page.getByLabel('Mesh component').selectOption('edge');
-  const before = await page.evaluate(() => {
-    const e = (window as any).__forge, t = e.meshTopology, p = e.selected.geometry.getAttribute('position');
+
+  await page.evaluate(() => {
+    const e = (window as any).__forge;
     e.selectComponent(0);
-    const [a, b] = t.polygonEdges[0];
-    const ai = t.vertices[a][0], bi = t.vertices[b][0];
-    return {
-      undoDepth: e.undoDepth,
-      direction: [p.getX(bi) - p.getX(ai), p.getY(bi) - p.getY(ai), p.getZ(bi) - p.getZ(ai)],
-    };
+    (window as any).__forgeModelingSettings.loopPosition = 0.3;
+  });
+  await rightClickViewport(page);
+  await page.locator('#viewport-context-menu').getByRole('menuitem', { name: 'Loop Cut' }).click();
+  await page.waitForFunction(() => !(window as any).__forge.modelingBusy);
+  await expect(page.locator('#toast')).toContainText('Loop cut complete');
+
+  const before = await page.evaluate(() => {
+    const e = (window as any).__forge;
+    const cutLoop = [...e.componentSelection];
+    if (cutLoop.length !== 4) throw new Error(`Expected four Loop Cut result edges, got ${cutLoop.length}`);
+    const seed = cutLoop[0];
+    e.selectComponent(seed);
+    return { seed, expected: cutLoop, undoDepth: e.undoDepth };
   });
 
   await rightClickViewport(page);
   const menu = page.locator('#viewport-context-menu');
-  await expect(menu.getByRole('menuitem', { name: 'Select Edge Ring' })).toBeEnabled();
-  await menu.getByRole('menuitem', { name: 'Select Edge Ring' }).click();
-  await expect(page.locator('#toast')).toContainText('Selected 4 logical edges');
+  await expect(menu.getByRole('menuitem', { name: 'Select Edge Loop' })).toBeEnabled();
+  await menu.getByRole('menuitem', { name: 'Select Edge Loop' }).click();
+  await expect(page.locator('#toast')).toContainText('Selected 4 logical edges in the loop');
 
   expect(await page.evaluate(expected => {
-    const e = (window as any).__forge, t = e.meshTopology, p = e.selected.geometry.getAttribute('position');
+    const e = (window as any).__forge;
     const selection = [...e.componentSelection];
-    const length = (v: number[]) => Math.hypot(v[0], v[1], v[2]);
-    const refLength = length(expected.direction);
-    const parallel = selection.every((edgeId: number) => {
-      const [a, b] = t.polygonEdges[edgeId];
-      const ai = t.vertices[a][0], bi = t.vertices[b][0];
-      const direction = [p.getX(bi) - p.getX(ai), p.getY(bi) - p.getY(ai), p.getZ(bi) - p.getZ(ai)];
-      const dot = direction[0] * expected.direction[0] + direction[1] * expected.direction[1] + direction[2] * expected.direction[2];
-      return Math.abs(dot / (length(direction) * refLength)) > 0.999999;
-    });
     return {
       mode: e.componentMode,
       selectionCount: selection.length,
-      includesStart: selection.includes(0),
+      sameEdges: selection.length === expected.expected.length &&
+        selection.every((edge: number) => expected.expected.includes(edge)),
+      includesSeed: selection.includes(expected.seed),
       active: selection.at(-1),
-      parallel,
       undoDepth: e.undoDepth,
     };
   }, before)).toEqual({
     mode: 'edge',
     selectionCount: 4,
-    includesStart: true,
-    active: 0,
-    parallel: true,
+    sameEdges: true,
+    includesSeed: true,
+    active: before.seed,
     undoDepth: before.undoDepth,
   });
 });

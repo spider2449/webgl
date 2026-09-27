@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 import * as THREE from 'three';
 import { bevelEdges, bevelLogicalEdges, cutLogicalFace, deleteLogicalComponents, extrudeLogicalFace, insetLogicalFace, loopCut, loopCutLogicalEdge, editUV } from '../src/modeling/modeling';
-import { buildTopology, logicalEdgeRing } from '../src/modeling/topology';
+import { buildTopology, logicalEdgeLoop } from '../src/modeling/topology';
 import { evaluateModifiers } from '../src/modeling/modifiers';
 
 function topology(g: THREE.BufferGeometry) { return buildTopology(g.getAttribute('position').array, g.index?.array); }
@@ -55,37 +55,44 @@ test('logical quad topology keeps renderer triangles but removes selectable diag
   expect(explicit.triangleToPolygon).toEqual(pt.triangleToPolygon);
 });
 
-test('logical edge ring follows opposite Quad edges and stops at boundaries without renderer diagonals', () => {
+test('logical edge loop follows the connected Loop Cut cycle and stops at Cube poles', () => {
   const box = new THREE.BoxGeometry(2, 2, 2);
-  const boxTopology = buildTopology(box.getAttribute('position').array, box.index?.array, true);
-  const boxPosition = box.getAttribute('position');
-  const ring = logicalEdgeRing(boxTopology, 0);
-  expect(ring).toHaveLength(4);
-  expect(new Set(ring).size).toBe(4);
-  expect(ring).toContain(0);
+  const input = buildTopology(box.getAttribute('position').array, box.index?.array, true);
+  expect(logicalEdgeLoop(input, 0)).toEqual([0]);
 
-  const direction = ([a, b]: [number, number]) => {
-    const start = new THREE.Vector3().fromBufferAttribute(boxPosition, boxTopology.vertices[a][0]);
-    const end = new THREE.Vector3().fromBufferAttribute(boxPosition, boxTopology.vertices[b][0]);
-    return end.sub(start).normalize();
-  };
-  const reference = direction(boxTopology.polygonEdges[0]);
-  for (const edge of ring) {
-    const candidate = direction(boxTopology.polygonEdges[edge]);
-    expect(Math.abs(reference.dot(candidate))).toBeCloseTo(1, 6);
-  }
+  const cut = loopCutLogicalEdge(box, 0, input.polygonTriangles, 0.3);
+  const output = buildTopology(
+    cut.geometry.getAttribute('position').array,
+    cut.geometry.index?.array,
+    cut.polygonTriangles,
+  );
+  const sourcePosition = box.getAttribute('position');
+  const original = new Set(input.logicalVertices.map(vertex => {
+    const index = input.vertices[vertex][0];
+    return `${sourcePosition.getX(index)},${sourcePosition.getY(index)},${sourcePosition.getZ(index)}`;
+  }));
+  const cutPosition = cut.geometry.getAttribute('position');
+  const inserted = new Set(output.logicalVertices.filter(vertex => {
+    const index = output.vertices[vertex][0];
+    return !original.has(`${cutPosition.getX(index)},${cutPosition.getY(index)},${cutPosition.getZ(index)}`);
+  }));
+  const loopEdges = output.polygonEdges.flatMap(([a, b], edgeId) =>
+    inserted.has(a) && inserted.has(b) ? [edgeId] : []
+  );
+  expect(loopEdges).toHaveLength(4);
+
+  const loop = logicalEdgeLoop(output, loopEdges[0]);
+  expect(new Set(loop)).toEqual(new Set(loopEdges));
+  expect(loop).toHaveLength(4);
+  expect(loop.every(edge => output.polygonEdges[edge].every(vertex => inserted.has(vertex)))).toBe(true);
 
   const rendererOnlyEdges = new Set(
-    boxTopology.edges.map((_, id) => id).filter(id => !boxTopology.polygonEdgeToEdge.includes(id))
+    output.edges.map((_, id) => id).filter(id => !output.polygonEdgeToEdge.includes(id))
   );
-  expect(ring.some(edge => rendererOnlyEdges.has(boxTopology.polygonEdgeToEdge[edge]))).toBe(false);
+  expect(loop.some(edge => rendererOnlyEdges.has(output.polygonEdgeToEdge[edge]))).toBe(false);
+  expect(() => logicalEdgeLoop(output, -1)).toThrow(/valid logical edge/);
 
-  const plane = new THREE.PlaneGeometry(2, 2, 1, 1);
-  const planeTopology = buildTopology(plane.getAttribute('position').array, plane.index?.array, true);
-  expect(logicalEdgeRing(planeTopology, 0)).toHaveLength(2);
-
-  expect(() => logicalEdgeRing(boxTopology, -1)).toThrow(/valid logical edge/);
-  plane.dispose();
+  cut.geometry.dispose();
   box.dispose();
 });
 
