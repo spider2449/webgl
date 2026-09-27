@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import * as THREE from 'three';
-import { bevelEdges, bevelLogicalEdges, cutLogicalFace, deleteLogicalComponents, extrudeLogicalFace, insetLogicalFace, loopCut, loopCutLogicalEdge, editUV } from '../src/modeling/modeling';
+import { bevelEdges, bevelLogicalEdges, cutLogicalFace, deleteLogicalComponents, extrudeLogicalFace, insetLogicalFace, loopCut, loopCutLogicalEdge, subdivideLogicalEdges, editUV } from '../src/modeling/modeling';
 import { buildTopology } from '../src/modeling/topology';
 import { evaluateModifiers } from '../src/modeling/modifiers';
 
@@ -53,6 +53,69 @@ test('logical quad topology keeps renderer triangles but removes selectable diag
   expect(explicit.polygons).toEqual(pt.polygons);
   expect(explicit.polygonEdges).toEqual(pt.polygonEdges);
   expect(explicit.triangleToPolygon).toEqual(pt.triangleToPolygon);
+});
+
+test('logical edge subdivision preserves polygon boundaries and only retessellates renderer triangles', () => {
+  const box = new THREE.BoxGeometry(2, 2, 2);
+  const input = buildTopology(box.getAttribute('position').array, box.index?.array, true);
+  const selectedEdge = 0;
+  const [a, b] = input.polygonEdges[selectedEdge];
+  const position = box.getAttribute('position');
+  const pa = new THREE.Vector3().fromBufferAttribute(position, input.vertices[a][0]);
+  const pb = new THREE.Vector3().fromBufferAttribute(position, input.vertices[b][0]);
+  const midpoint = pa.clone().lerp(pb, 0.5);
+
+  const result = subdivideLogicalEdges(box, [selectedEdge], input.polygonTriangles);
+  const output = buildTopology(
+    result.geometry.getAttribute('position').array,
+    result.geometry.index?.array,
+    result.polygonTriangles,
+  );
+  const outputPosition = result.geometry.getAttribute('position');
+  const midpointVertex = output.logicalVertices.find(vertex => {
+    const index = output.vertices[vertex][0];
+    return new THREE.Vector3().fromBufferAttribute(outputPosition, index).distanceToSquared(midpoint) < 1e-12;
+  });
+
+  expect(midpointVertex).toBeDefined();
+  expect(output.polygons).toHaveLength(6);
+  expect(output.logicalVertices).toHaveLength(9);
+  expect(output.polygonEdges).toHaveLength(13);
+  expect(output.faces).toHaveLength(14);
+  expect(output.polygons.map(polygon => polygon.length).sort((x, y) => x - y)).toEqual([4, 4, 4, 4, 5, 5]);
+
+  const originalA = output.logicalVertices.find(vertex => {
+    const index = output.vertices[vertex][0];
+    return new THREE.Vector3().fromBufferAttribute(outputPosition, index).distanceToSquared(pa) < 1e-12;
+  });
+  const originalB = output.logicalVertices.find(vertex => {
+    const index = output.vertices[vertex][0];
+    return new THREE.Vector3().fromBufferAttribute(outputPosition, index).distanceToSquared(pb) < 1e-12;
+  });
+  const hasEdge = (x: number | undefined, y: number | undefined) =>
+    output.polygonEdges.some(([m, n]) => (m === x && n === y) || (m === y && n === x));
+  expect(hasEdge(originalA, midpointVertex)).toBe(true);
+  expect(hasEdge(midpointVertex, originalB)).toBe(true);
+  expect(hasEdge(originalA, originalB)).toBe(false);
+  expect(output.polygons.filter(polygon => polygon.includes(midpointVertex!))).toHaveLength(2);
+
+  const secondEdge = input.polygonEdges.findIndex((edge, id) =>
+    id !== selectedEdge && edge.includes(a)
+  );
+  const multiple = subdivideLogicalEdges(box, [selectedEdge, secondEdge], input.polygonTriangles);
+  const multipleTopology = buildTopology(
+    multiple.geometry.getAttribute('position').array,
+    multiple.geometry.index?.array,
+    multiple.polygonTriangles,
+  );
+  expect(multipleTopology.logicalVertices).toHaveLength(10);
+  expect(multipleTopology.polygonEdges).toHaveLength(14);
+  expect(multipleTopology.polygons).toHaveLength(6);
+  expect(multipleTopology.polygons.some(polygon => polygon.length === 6)).toBe(true);
+
+  multiple.geometry.dispose();
+  result.geometry.dispose();
+  box.dispose();
 });
 
 test('logical Cube bevel ignores renderer diagonals and returns persistent polygon groups', () => {
