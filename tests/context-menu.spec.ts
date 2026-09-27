@@ -460,7 +460,7 @@ test('RMB Select Sharp Edges uses a session angle threshold and preserves no-mat
     activeWidth:6,
     undoDepth:initialUndoDepth,
   });
-  await expect(page.locator('#geometry-statistics-selected')).toHaveText('Obj 1 · V 8 · E 12 · F 0 · T 0');
+  await expect(page.locator('#geometry-statistics-selected')).toHaveText('Obj 1 · V 8 · E 12 · F 6 · T 12');
 
   await page.locator('#mode').selectOption('object');
   await page.locator('[data-menu="add-menu"]').click();
