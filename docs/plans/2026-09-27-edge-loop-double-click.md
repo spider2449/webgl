@@ -15,7 +15,8 @@ Make logical edge-loop selection a direct viewport gesture while preserving the 
 
 ## Topology and picking
 
-- Picking raycasts only the Edit Mode `componentEdges`, which are built from logical `polygonEdges`.
+- Each ordinary pointerup resolves the logical edge through the existing Edit Mode `componentEdges` pick path.
+- The `dblclick` handler does **not** raycast again. It requires the two preceding pointerup picks to agree on the same logical edge and uses that edge as the loop seed.
 - Loop traversal reuses the validated `logicalEdgeLoop()` helper.
 - Renderer triangulation diagonals are therefore excluded at both the picking and traversal layers.
 - A pole/boundary/non-Quad edge with no continuation keeps normal double-click behavior without fabricating a loop.
@@ -29,9 +30,12 @@ The gesture changes only temporary component selection:
 - no history commit;
 - existing pending modeling results are invalidated through the normal modeling-selection version counter.
 
-The two ordinary clicks that precede the browser's `dblclick` event are compatible with the final gesture:
-- plain clicks both leave the targeted seed selected before loop expansion;
-- two Shift-clicks toggle the seed twice, returning to the pre-gesture selection before whole-loop toggle is applied.
+The two ordinary clicks that precede the browser's `dblclick` event are treated as one atomic gesture:
+- the first pointerup records the selection snapshot from before the gesture;
+- the second pointerup must resolve the same logical edge;
+- plain double-click replaces the selection with only that edge's loop;
+- Shift-double-click restores the pre-gesture snapshot first, then applies whole-loop add/remove.
+This prevents an unrelated previously active edge from leaking into the final loop selection.
 
 ## Regression coverage
 
@@ -39,7 +43,7 @@ The viewport test:
 
 1. creates a real off-center polygon-native Loop Cut;
 2. targets one visible edge from the resulting four-edge loop;
-3. double-clicks it and verifies the exact Loop Cut result loop is selected;
+3. double-clicks it and verifies the selection set equals the exact Loop Cut result loop with no extra edge;
 4. verifies the targeted seed is active;
 5. Shift-double-clicks to add the loop beside one unrelated edge;
 6. Shift-double-clicks again to remove the whole loop while preserving the unrelated edge;

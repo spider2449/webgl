@@ -139,6 +139,7 @@ export class Editor extends EventTarget {
   private raycaster = new THREE.Raycaster();
   private mouseDown = new THREE.Vector2();
   private suppressClick = false;
+  private recentEdgeClicks: Array<{ edge: number; before: number[]; x: number; y: number }> = [];
   private boxSelectOverlay!: HTMLDivElement;
   private boxSelectDrag: { pointerId: number; start: THREE.Vector2; current: THREE.Vector2; mode: 'replace' | 'add' | 'toggle'; active: boolean } | null = null;
   private rotationDragObject: THREE.Object3D | null = null;
@@ -477,7 +478,16 @@ export class Editor extends EventTarget {
               }
             }
           } catch (error) { this.dispatchEvent(new CustomEvent('snap-error', { detail: (error as Error).message })); }
-        } else this.pickVertex(e.shiftKey);
+        } else {
+          const before = [...this.selectedComponents];
+          const component = this.pickVertex(e.shiftKey);
+          if (this.componentMode === 'edge' && component !== undefined) {
+            this.recentEdgeClicks.push({ edge: component, before, x: e.clientX, y: e.clientY });
+            if (this.recentEdgeClicks.length > 2) this.recentEdgeClicks.shift();
+          } else {
+            this.recentEdgeClicks = [];
+          }
+        }
         return;
       }
       const special = this.pickOverride?.(this.raycaster);
@@ -508,7 +518,6 @@ export class Editor extends EventTarget {
         !this.editMode ||
         this.weightMode ||
         this.componentMode !== 'edge' ||
-        !this.componentEdges ||
         !this.topology ||
         this.snapTargetPending ||
         this.modelingBusy ||
@@ -516,20 +525,21 @@ export class Editor extends EventTarget {
         this.transform.dragging
       ) return;
 
-      const rect = host.getBoundingClientRect();
-      this.raycaster.setFromCamera(
-        new THREE.Vector2(
-          (e.clientX - rect.left) / rect.width * 2 - 1,
-          -(e.clientY - rect.top) / rect.height * 2 + 1,
-        ),
-        this.camera,
-      );
-      this.raycaster.params.Line.threshold = this.camera.position.distanceTo(this.orbit.target) * 0.012;
-      const hit = this.raycaster.intersectObject(this.componentEdges, false)[0];
-      if (hit?.index === undefined) return;
+      // Do not perform a third raycast for dblclick. The two pointerup events
+      // immediately before this event already resolved the logical edge the
+      // user actually clicked. Reusing that result keeps the active edge and
+      // expanded loop on one picking source, and prevents threshold/depth
+      // differences from expanding a different nearby edge.
+      const [first, second] = this.recentEdgeClicks;
+      this.recentEdgeClicks = [];
+      if (
+        !first ||
+        !second ||
+        first.edge !== second.edge ||
+        Math.hypot(second.x - e.clientX, second.y - e.clientY) > 4
+      ) return;
 
-      const edge = Math.floor(hit.index / 2);
-      if (this.applyEdgeLoopSelection(edge, e.shiftKey) >= 2) {
+      if (this.applyEdgeLoopSelection(first.edge, e.shiftKey, first.before) >= 2) {
         e.preventDefault();
         e.stopPropagation();
       }
@@ -1510,6 +1520,7 @@ export class Editor extends EventTarget {
     this.modelingVersion++;
     this.cancelVertexSnap();
     this.componentDrag = null;
+    this.recentEdgeClicks = [];
     this.componentMode = mode;
     this.selectedComponents.clear();
     this.vertexIndices = [];
@@ -1612,6 +1623,7 @@ export class Editor extends EventTarget {
       if (hit?.faceIndex !== undefined && hit.faceIndex !== null) component = this.topology.triangleToPolygon[hit.faceIndex];
     }
     this.selectComponent(component, toggle);
+    return component;
   }
   private selectComponent(component: number | undefined, toggle = false) {
     this.modelingVersion++;
@@ -1626,12 +1638,13 @@ export class Editor extends EventTarget {
     this.selectComponentVertices(vertices);
     this.emit('component-selection');
   }
-  private applyEdgeLoopSelection(start: number, toggle = false) {
+  private applyEdgeLoopSelection(start: number, toggle = false, baseSelection?: number[]) {
     if (!this.topology || !this.topology.polygonEdges[start]) return 0;
     const loop = logicalEdgeLoop(this.topology, start);
     if (loop.length < 2) return loop.length;
 
     this.modelingVersion++;
+    if (baseSelection) this.selectedComponents = new Set(baseSelection);
     if (toggle) {
       const remove = loop.every(edge => this.selectedComponents.has(edge));
       for (const edge of loop) {

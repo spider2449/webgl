@@ -344,13 +344,14 @@ test('double-click selects a logical edge loop and Shift-double-click toggles th
     const e = (window as any).__forge;
     const selection = [...e.componentSelection];
     return {
-      sameLoop: selection.length === expected.expected.length &&
-        selection.every((edge: number) => expected.expected.includes(edge)),
+      selection: [...selection].sort((a: number, b: number) => a - b),
+      expected: [...expected.expected].sort((a: number, b: number) => a - b),
       active: selection.at(-1),
       undoDepth: e.undoDepth,
     };
   }, target)).toEqual({
-    sameLoop: true,
+    selection: [...target.expected].sort((a: number, b: number) => a - b),
+    expected: [...target.expected].sort((a: number, b: number) => a - b),
     active: target.seed,
     undoDepth: target.undoDepth,
   });
@@ -363,16 +364,12 @@ test('double-click selects a logical edge loop and Shift-double-click toggles th
   expect(await page.evaluate(expected => {
     const selection = [...(window as any).__forge.componentSelection];
     return {
-      count: selection.length,
-      hasUnrelated: selection.includes(expected.unrelated),
-      hasLoop: expected.expected.every((edge: number) => selection.includes(edge)),
+      selection: [...selection].sort((a: number, b: number) => a - b),
       active: selection.at(-1),
       undoDepth: (window as any).__forge.undoDepth,
     };
   }, target)).toEqual({
-    count: 5,
-    hasUnrelated: true,
-    hasLoop: true,
+    selection: [...target.expected, target.unrelated].sort((a: number, b: number) => a - b),
     active: target.seed,
     undoDepth: target.undoDepth,
   });
