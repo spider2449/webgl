@@ -1360,6 +1360,7 @@ export class Editor extends EventTarget {
     this.weightMode = nextWeightMode;
     this.editMode = enabled;
     if (this.weightMode) this.componentMode = 'vertex';
+    this.recentEdgeClicks = [];
     this.selectedComponents.clear();
     this.componentDrag = null;
     this.vertexIndices = [];
