@@ -1343,6 +1343,7 @@ test('viewport Knife keeps multiple interior bends pending and commits the full 
   expect(pending.pendingPointVisible).toBe(true);
   expect(pending.pendingLineVisible).toBe(true);
   expect(pending.pendingPath).toHaveLength(3);
+  expect(pending.pendingLinePointCount).toBe(3);
   for (const [actual, expected] of [
     [pending.pendingPath[0], target.start.local],
     [pending.pendingPath[1], target.bend1.local],
@@ -1650,6 +1651,7 @@ test('viewport Knife can select, drag, delete, undo, and redo any pending bend',
   let pending = await page.evaluate(() => (window as any).__forge.knifePreviewState);
   expect(pending.pendingActiveIndex).toBe(0);
   expect(pending.pendingPath).toHaveLength(3);
+  expect(pending.pendingLinePointCount).toBe(3);
   pending.pendingPath[1].forEach((value: number, index: number) =>
     expect(value).toBeCloseTo(target.moved1.local[index], 4)
   );
@@ -1674,6 +1676,7 @@ test('viewport Knife can select, drag, delete, undo, and redo any pending bend',
   expect(await page.evaluate(() => (window as any).__forge.snapshot())).toBe(target.before);
   pending = await page.evaluate(() => (window as any).__forge.knifePreviewState);
   expect(pending.pendingPath).toHaveLength(2);
+  expect(pending.pendingLinePointCount).toBe(2);
 
   await page.keyboard.press('Control+z');
   await expect(page.locator('#toast')).toContainText('Pending Knife edit undone');
