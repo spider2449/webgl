@@ -2075,6 +2075,13 @@ function selectFaceBoundaryEdges() {
   } catch (error) { toast((error as Error).message); }
 }
 
+function selectMoreComponents() {
+  try {
+    const count = editor.selectMoreComponents();
+    toast(`Selection grown to ${count} logical components.`);
+  } catch (error) { toast((error as Error).message); }
+}
+
 function selectLinkedComponents() {
   try {
     const count = editor.selectLinkedComponents();
@@ -2112,6 +2119,7 @@ const modelingCommands = {
   knife: startKnifeCut,
   cutFace: cutFaceBetweenSelectedVertices,
   selectLinked: selectLinkedComponents,
+  selectMore: selectMoreComponents,
   selectAll: () => selectAllComponents(true),
   deselectAll: () => selectAllComponents(false),
   invertSelection: invertComponentSelection,
@@ -2187,6 +2195,7 @@ function viewportContextCommands(mode: ViewportContextMode): ViewportContextComm
     { label: 'Rotate', shortcut: 'R', action: () => tool('rotate'), enabled: hasComponents },
     { label: 'Scale', shortcut: 'S', action: () => tool('scale'), enabled: hasComponents },
     { label: 'Select Linked', action: modelingCommands.selectLinked, enabled: hasComponents },
+    { label: 'Select More', action: modelingCommands.selectMore, enabled: hasComponents },
     { label: 'Select All', shortcut: 'A', action: modelingCommands.selectAll, enabled: canSelectComponents },
     { label: 'Deselect All', shortcut: 'Alt A', action: modelingCommands.deselectAll, enabled: canDeselectComponents },
     { label: 'Invert Selection', action: modelingCommands.invertSelection, enabled: canInvertComponents },
@@ -2200,6 +2209,7 @@ function viewportContextCommands(mode: ViewportContextMode): ViewportContextComm
     { label: 'Rotate', shortcut: 'R', action: () => tool('rotate'), enabled: hasComponents },
     { label: 'Scale', shortcut: 'S', action: () => tool('scale'), enabled: hasComponents },
     { label: 'Select Linked', action: modelingCommands.selectLinked, enabled: hasComponents },
+    { label: 'Select More', action: modelingCommands.selectMore, enabled: hasComponents },
     { label: 'Select All', shortcut: 'A', action: modelingCommands.selectAll, enabled: canSelectComponents },
     { label: 'Deselect All', shortcut: 'Alt A', action: modelingCommands.deselectAll, enabled: canDeselectComponents },
     { label: 'Invert Selection', action: modelingCommands.invertSelection, enabled: canInvertComponents },
@@ -2216,6 +2226,7 @@ function viewportContextCommands(mode: ViewportContextMode): ViewportContextComm
     { label: 'Rotate', shortcut: 'R', action: () => tool('rotate'), enabled: hasComponents },
     { label: 'Scale', shortcut: 'S', action: () => tool('scale'), enabled: hasComponents },
     { label: 'Select Linked', action: modelingCommands.selectLinked, enabled: hasComponents },
+    { label: 'Select More', action: modelingCommands.selectMore, enabled: hasComponents },
     { label: 'Select All', shortcut: 'A', action: modelingCommands.selectAll, enabled: canSelectComponents },
     { label: 'Deselect All', shortcut: 'Alt A', action: modelingCommands.deselectAll, enabled: canDeselectComponents },
     { label: 'Invert Selection', action: modelingCommands.invertSelection, enabled: canInvertComponents },

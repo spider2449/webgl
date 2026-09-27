@@ -10,7 +10,7 @@ import { clone as cloneSkeleton } from 'three/addons/utils/SkeletonUtils.js';
 import { createGrid, setGridPlane } from './viewport/grid';
 import { insetTriangle } from './modeling/extrude';
 import { extrudeLogicalFace } from './modeling/modeling';
-import { buildTopology, linkedLogicalComponents, logicalCoplanarFaces, logicalFaceBoundaryEdges, logicalFacesBySides, logicalMeshBoundaryEdges, logicalNonManifoldEdges, logicalSharpEdges, type MeshTopology, type ComponentMode, type FaceSideKind } from './modeling/topology';
+import { buildTopology, growLogicalComponents, linkedLogicalComponents, logicalCoplanarFaces, logicalFaceBoundaryEdges, logicalFacesBySides, logicalMeshBoundaryEdges, logicalNonManifoldEdges, logicalSharpEdges, type MeshTopology, type ComponentMode, type FaceSideKind } from './modeling/topology';
 import { proportionalWeights } from './modeling/proportional';
 import { subdivideEdges } from './modeling/subdivide';
 import { extrudeRegion } from './modeling/extrude-region';
@@ -1846,6 +1846,47 @@ export class Editor extends EventTarget {
     this.selectComponentVertices(boundary.flatMap(edge => this.topology!.polygonEdges[edge]));
     this.emit('component-selection');
     return boundary.length;
+  }
+
+  selectMoreComponents() {
+    if (
+      !this.editMode ||
+      this.weightMode ||
+      !this.topology ||
+      !this.selectedComponents.size ||
+      this.modelingBusy ||
+      this.playing ||
+      this.transform.dragging
+    ) {
+      throw new Error('Select one or more logical components in Edit Mode first.');
+    }
+
+    const active = [...this.selectedComponents].at(-1);
+    const grown = growLogicalComponents(this.topology, this.componentMode, [...this.selectedComponents]);
+    this.modelingVersion++;
+    this.selectedComponents = new Set(grown);
+
+    if (this.componentMode === 'edge' && active !== undefined && this.selectedComponents.has(active)) {
+      this.selectedComponents = new Set([
+        ...[...this.selectedComponents].filter(component => component !== active),
+        active,
+      ]);
+    }
+
+    this.selectedFace =
+      this.componentMode === 'face' && this.selectedComponents.size === 1
+        ? [...this.selectedComponents][0]
+        : null;
+    const vertices = [...this.selectedComponents].flatMap(id =>
+      this.componentMode === 'vertex'
+        ? [id]
+        : this.componentMode === 'edge'
+          ? this.topology!.polygonEdges[id]
+          : this.topology!.polygons[id]
+    );
+    this.selectComponentVertices(vertices);
+    this.emit('component-selection');
+    return this.selectedComponents.size;
   }
 
   selectLinkedComponents() {
