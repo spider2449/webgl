@@ -278,6 +278,7 @@ test('Edit Mode RMB menu changes with Vertex, Edge and Face component mode', asy
   await expect(menu.getByRole('menuitem', { name: 'Invert Selection' })).toBeVisible();
   await expect(menu.getByRole('menuitem', { name: 'Select Faces by Sides' })).toBeVisible();
   await expect(page.getByLabel('Context face type')).toHaveValue('quads');
+  await expect(menu.getByRole('menuitem', { name: 'Select Coplanar Faces' })).toBeVisible();
   await expect(menu.getByRole('menuitem', { name: 'Select Boundary Edges' })).toBeVisible();
   await expect(menu.getByRole('menuitem', { name: 'Extrude Face' })).toBeVisible();
   await expect(menu.getByRole('menuitem', { name: 'Extrude Region' })).toBeVisible();
@@ -520,6 +521,60 @@ test('RMB Select Mesh Boundary selects open logical edges and preserves closed-m
     mode:'edge',
     selection:before.selection,
     undoDepth:before.undoDepth,
+  });
+});
+
+test('RMB Select Coplanar Faces expands a segmented Plane but not across Cube corners', async ({ page }) => {
+  await page.getByRole('button', { name: 'Toggle geometry statistics' }).click();
+
+  await page.locator('[data-menu="add-menu"]').click();
+  await page.locator('[data-primitive="plane"]').click();
+  await page.getByLabel('Primitive Segments X').fill('2');
+  await page.getByLabel('Primitive Segments X').press('Enter');
+
+  await page.locator('#mode').selectOption('edit');
+  await page.getByLabel('Mesh component').selectOption('face');
+  await page.evaluate(() => (window as any).__forge.selectComponent(0));
+  const initialUndoDepth = await page.evaluate(() => (window as any).__forge.undoDepth);
+
+  await rightClickViewport(page);
+  let menu = page.locator('#viewport-context-menu');
+  await expect(menu.getByRole('menuitem', { name: 'Select Coplanar Faces', exact: true })).toBeEnabled();
+  await menu.getByRole('menuitem', { name: 'Select Coplanar Faces', exact: true }).click();
+  await expect(page.locator('#toast')).toContainText('Selected 2 connected coplanar logical faces');
+
+  expect(await page.evaluate(() => {
+    const e=(window as any).__forge;
+    return {
+      polygons:e.meshTopology.polygons.length,
+      selection:[...e.componentSelection],
+      undoDepth:e.undoDepth,
+    };
+  })).toEqual({
+    polygons:2,
+    selection:[0,1],
+    undoDepth:initialUndoDepth,
+  });
+  await expect(page.locator('#geometry-statistics-selected')).toHaveText('Obj 1 · V 6 · E 7 · F 2 · T 4');
+
+  await page.locator('#mode').selectOption('object');
+  await page.locator('.object-row', { hasText: 'Cube' }).click();
+  await page.locator('#mode').selectOption('edit');
+  await page.getByLabel('Mesh component').selectOption('face');
+  await page.evaluate(() => (window as any).__forge.selectComponent(0));
+  const cubeUndoDepth = await page.evaluate(() => (window as any).__forge.undoDepth);
+
+  await rightClickViewport(page);
+  menu = page.locator('#viewport-context-menu');
+  await menu.getByRole('menuitem', { name: 'Select Coplanar Faces', exact: true }).click();
+  await expect(page.locator('#toast')).toContainText('Selected 1 connected coplanar logical faces');
+
+  expect(await page.evaluate(() => ({
+    selection:[...(window as any).__forge.componentSelection],
+    undoDepth:(window as any).__forge.undoDepth,
+  }))).toEqual({
+    selection:[0],
+    undoDepth:cubeUndoDepth,
   });
 });
 
