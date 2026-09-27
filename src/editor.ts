@@ -1849,7 +1849,15 @@ export class Editor extends EventTarget {
   }
 
   selectMoreComponents() {
-    if (!this.editMode || this.weightMode || !this.topology || !this.selectedComponents.size || this.playing || this.transform.dragging) {
+    if (
+      !this.editMode ||
+      this.weightMode ||
+      !this.topology ||
+      !this.selectedComponents.size ||
+      this.modelingBusy ||
+      this.playing ||
+      this.transform.dragging
+    ) {
       throw new Error('Select one or more logical components in Edit Mode first.');
     }
 
