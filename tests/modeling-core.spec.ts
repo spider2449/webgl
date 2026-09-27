@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 import * as THREE from 'three';
 import { bevelEdges, bevelLogicalEdges, cutLogicalFace, deleteLogicalComponents, extrudeLogicalFace, insetLogicalFace, loopCut, loopCutLogicalEdge, subdivideLogicalEdges, editUV } from '../src/modeling/modeling';
-import { buildTopology, growLogicalComponents, linkedLogicalComponents, logicalCoplanarFaces, logicalFaceBoundaryEdges, logicalFacesBySides, logicalMeshBoundaryEdges, logicalNonManifoldEdges, logicalSharpEdges } from '../src/modeling/topology';
+import { buildTopology, growLogicalComponents, linkedLogicalComponents, logicalCoplanarFaces, logicalFaceBoundaryEdges, logicalFacesBySides, logicalMeshBoundaryEdges, logicalNonManifoldEdges, logicalSharpEdges, shrinkLogicalComponents } from '../src/modeling/topology';
 import { evaluateModifiers } from '../src/modeling/modifiers';
 
 function topology(g: THREE.BufferGeometry) { return buildTopology(g.getAttribute('position').array, g.index?.array); }
@@ -53,6 +53,30 @@ test('logical quad topology keeps renderer triangles but removes selectable diag
   expect(explicit.polygons).toEqual(pt.polygons);
   expect(explicit.polygonEdges).toEqual(pt.polygonEdges);
   expect(explicit.triangleToPolygon).toEqual(pt.triangleToPolygon);
+});
+
+test('Select Less removes one logical selection boundary ring', () => {
+  const box = new THREE.BoxGeometry(2, 2, 2);
+  const cube = buildTopology(box.getAttribute('position').array, box.index?.array, true);
+
+  const vertexSeed = cube.logicalVertices[0];
+  const grownVertices = growLogicalComponents(cube, 'vertex', [vertexSeed]);
+  const grownEdges = growLogicalComponents(cube, 'edge', [0]);
+  const grownFaces = growLogicalComponents(cube, 'face', [0]);
+
+  expect(shrinkLogicalComponents(cube, 'vertex', grownVertices)).toEqual([vertexSeed]);
+  expect(shrinkLogicalComponents(cube, 'edge', grownEdges)).toEqual([0]);
+  expect(shrinkLogicalComponents(cube, 'face', grownFaces)).toEqual([0]);
+
+  expect(shrinkLogicalComponents(cube, 'vertex', [vertexSeed])).toEqual([]);
+  expect(shrinkLogicalComponents(cube, 'edge', [0])).toEqual([]);
+  expect(shrinkLogicalComponents(cube, 'face', [0])).toEqual([]);
+
+  expect(shrinkLogicalComponents(cube, 'vertex', cube.logicalVertices)).toHaveLength(8);
+  expect(shrinkLogicalComponents(cube, 'edge', cube.polygonEdges.map((_, edge) => edge))).toHaveLength(12);
+  expect(shrinkLogicalComponents(cube, 'face', cube.polygons.map((_, face) => face))).toHaveLength(6);
+
+  box.dispose();
 });
 
 test('Select More grows one logical adjacency ring without flooding the mesh', () => {
