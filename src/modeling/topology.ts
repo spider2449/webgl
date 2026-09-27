@@ -172,7 +172,6 @@ export function buildTopology(
   };
 }
 
-
 export function linkedLogicalComponents(
   topology: MeshTopology,
   mode: ComponentMode,
@@ -197,8 +196,8 @@ export function linkedLogicalComponents(
 
     const visited = new Set<number>();
     const queue = [...uniqueSeeds];
-    while (queue.length) {
-      const vertex = queue.shift()!;
+    for (let cursor = 0; cursor < queue.length; cursor++) {
+      const vertex = queue[cursor];
       if (visited.has(vertex)) continue;
       visited.add(vertex);
       for (const next of neighbors.get(vertex) ?? []) if (!visited.has(next)) queue.push(next);
@@ -220,8 +219,8 @@ export function linkedLogicalComponents(
 
     const visited = new Set<number>();
     const queue = [...uniqueSeeds];
-    while (queue.length) {
-      const edge = queue.shift()!;
+    for (let cursor = 0; cursor < queue.length; cursor++) {
+      const edge = queue[cursor];
       if (visited.has(edge)) continue;
       visited.add(edge);
       for (const vertex of topology.polygonEdges[edge]) {
@@ -255,8 +254,8 @@ export function linkedLogicalComponents(
 
   const visited = new Set<number>();
   const queue = [...uniqueSeeds];
-  while (queue.length) {
-    const face = queue.shift()!;
+  for (let cursor = 0; cursor < queue.length; cursor++) {
+    const face = queue[cursor];
     if (visited.has(face)) continue;
     visited.add(face);
     for (const next of neighbors.get(face) ?? []) if (!visited.has(next)) queue.push(next);
