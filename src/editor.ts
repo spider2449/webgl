@@ -409,7 +409,8 @@ export class Editor extends EventTarget {
         this.knifePendingHoverSegment = null;
       }
       this.refreshKnifePendingSegmentOverlay();
-      this.setKnifePreview(this.pickKnifeTarget(threshold, 'hover'));
+      if (pendingPointHit || this.knifePendingHoverSegment !== null) this.setKnifePreview(null);
+      else this.setKnifePreview(this.pickKnifeTarget(threshold, 'hover'));
     });
     this.renderer.domElement.addEventListener('pointerleave', () => {
       this.knifePendingHoverIndex = null;
