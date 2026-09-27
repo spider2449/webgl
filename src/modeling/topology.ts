@@ -282,3 +282,7 @@ export function logicalFaceBoundaryEdges(topology: MeshTopology, faces: number[]
 
   return topology.polygonEdges.flatMap((_, edge) => selectedUses.get(edge) === 1 ? [edge] : []);
 }
+
+export function logicalMeshBoundaryEdges(topology: MeshTopology) {
+  return logicalFaceBoundaryEdges(topology, topology.polygons.map((_, face) => face));
+}
