@@ -260,22 +260,15 @@ export class Editor extends EventTarget {
         this.knifePendingPoint &&
         this.knifePendingPath.length >= 2
       ) {
-        const rect = host.getBoundingClientRect();
-        this.raycaster.setFromCamera(
-          new THREE.Vector2(
-            (e.clientX - rect.left) / rect.width * 2 - 1,
-            -(e.clientY - rect.top) / rect.height * 2 + 1,
-          ),
-          this.camera,
-        );
-        const threshold = this.camera.position.distanceTo(this.orbit.target) * 0.018;
-        this.raycaster.params.Points.threshold = threshold;
-        const hit = this.raycaster.intersectObject(this.knifePendingPoint, false)[0];
-        if (hit?.index !== undefined) {
-          const index = hit.index;
+        const pendingPick = this.pickKnifePendingPathScreen(e.clientX, e.clientY);
+        if (pendingPick?.kind === 'bend') {
+          const index = pendingPick.index;
           this.knifePendingActiveIndex = index;
           this.knifePendingHoverIndex = index;
+          this.knifePendingActiveSegment = null;
+          this.knifePendingHoverSegment = null;
           this.refreshKnifePendingPointColors();
+          this.refreshKnifePendingSegmentOverlay();
           this.dispatchEvent(new CustomEvent('knife-pending-active', { detail: index }));
           this.knifePendingDrag = { pointerId: e.pointerId, index, startX: e.clientX, startY: e.clientY, moved: false };
           this.suppressClick = true;
@@ -285,29 +278,24 @@ export class Editor extends EventTarget {
           this.setKnifePreview(null, 'knife-pending-drag-preview');
           return;
         }
-        if (this.knifePendingLine?.visible && this.selected instanceof THREE.Mesh) {
-          this.raycaster.params.Line.threshold = threshold;
-          const lineHit = this.raycaster.intersectObject(this.knifePendingLine, false)[0];
-          if (lineHit?.index !== undefined) {
-            const segment = Math.min(Math.max(lineHit.index, 0), this.knifePendingPath.length - 2);
-            const local = this.selected.worldToLocal(lineHit.point.clone());
-            this.knifePendingActiveSegment = segment;
-            this.knifePendingHoverSegment = segment;
-            this.knifePendingActiveIndex = null;
-            this.knifePendingHoverIndex = null;
-            this.refreshKnifePendingPointColors();
-            this.refreshKnifePendingSegmentOverlay();
-            this.knifePendingSegmentClick = {
-              pointerId: e.pointerId,
-              segment,
-              point: local,
-              startX: e.clientX,
-              startY: e.clientY,
-              moved: false,
-            };
-            this.suppressClick = true;
-            return;
-          }
+        if (pendingPick?.kind === 'segment') {
+          const segment = pendingPick.index;
+          this.knifePendingActiveSegment = segment;
+          this.knifePendingHoverSegment = segment;
+          this.knifePendingActiveIndex = null;
+          this.knifePendingHoverIndex = null;
+          this.refreshKnifePendingPointColors();
+          this.refreshKnifePendingSegmentOverlay();
+          this.knifePendingSegmentClick = {
+            pointerId: e.pointerId,
+            segment,
+            point: pendingPick.point,
+            startX: e.clientX,
+            startY: e.clientY,
+            moved: false,
+          };
+          this.suppressClick = true;
+          return;
         }
       }
       if (e.button === 0 && !e.altKey && !this.transform.dragging && !this.playing && !this.modelingBusy && !this.snapTargetPending) {
@@ -389,27 +377,12 @@ export class Editor extends EventTarget {
         this.camera,
       );
       const threshold = this.camera.position.distanceTo(this.orbit.target) * 0.012;
-      let pendingPointHit = false;
-      if (this.knifePendingPoint?.visible) {
-        this.raycaster.params.Points.threshold = threshold * 1.5;
-        const pendingHit = this.raycaster.intersectObject(this.knifePendingPoint, false)[0];
-        this.knifePendingHoverIndex = pendingHit?.index ?? null;
-        pendingPointHit = pendingHit?.index !== undefined;
-        this.refreshKnifePendingPointColors();
-      }
-      if (pendingPointHit) {
-        this.knifePendingHoverSegment = null;
-      } else if (this.knifePendingLine?.visible) {
-        this.raycaster.params.Line.threshold = threshold;
-        const lineHit = this.raycaster.intersectObject(this.knifePendingLine, false)[0];
-        this.knifePendingHoverSegment = lineHit?.index === undefined
-          ? null
-          : Math.min(Math.max(lineHit.index, 0), this.knifePendingPath.length - 2);
-      } else {
-        this.knifePendingHoverSegment = null;
-      }
+      const pendingPick = this.pickKnifePendingPathScreen(e.clientX, e.clientY);
+      this.knifePendingHoverIndex = pendingPick?.kind === 'bend' ? pendingPick.index : null;
+      this.knifePendingHoverSegment = pendingPick?.kind === 'segment' ? pendingPick.index : null;
+      this.refreshKnifePendingPointColors();
       this.refreshKnifePendingSegmentOverlay();
-      if (pendingPointHit || this.knifePendingHoverSegment !== null) this.setKnifePreview(null);
+      if (pendingPick) this.setKnifePreview(null);
       else this.setKnifePreview(this.pickKnifeTarget(threshold, 'hover'));
     });
     this.renderer.domElement.addEventListener('pointerleave', () => {
@@ -1961,6 +1934,66 @@ export class Editor extends EventTarget {
     if (this.knifePreviewPoint) (this.knifePreviewPoint.material as THREE.PointsMaterial).color.setHex(pointColor);
     if (this.knifePreviewLine) (this.knifePreviewLine.material as LineMaterial).color.setHex(lineColor);
     this.invalidate();
+  }
+
+  private pickKnifePendingPathScreen(clientX: number, clientY: number):
+    | { kind: 'bend'; index: number }
+    | { kind: 'segment'; index: number; point: THREE.Vector3 }
+    | null {
+    if (!(this.selected instanceof THREE.Mesh) || this.knifePendingPath.length < 2) return null;
+
+    const rect = this.host.getBoundingClientRect();
+    this.selected.updateWorldMatrix(true, false);
+    this.camera.updateMatrixWorld(true);
+
+    const screen = (point: THREE.Vector3) => {
+      const projected = this.selected!.localToWorld(point.clone()).project(this.camera);
+      return new THREE.Vector2(
+        rect.left + (projected.x + 1) * rect.width / 2,
+        rect.top + (1 - projected.y) * rect.height / 2,
+      );
+    };
+
+    const cursor = new THREE.Vector2(clientX, clientY);
+    const bendRadius = 10;
+    let bestBend: { index: number; distanceSq: number } | null = null;
+    for (let index = 0; index + 1 < this.knifePendingPath.length; index++) {
+      const distanceSq = cursor.distanceToSquared(screen(this.knifePendingPath[index + 1]));
+      if (
+        distanceSq <= bendRadius * bendRadius &&
+        (!bestBend || distanceSq < bestBend.distanceSq)
+      ) {
+        bestBend = { index, distanceSq };
+      }
+    }
+    if (bestBend) return { kind: 'bend', index: bestBend.index };
+
+    const segmentRadius = 8;
+    let bestSegment: { index: number; distanceSq: number; t: number } | null = null;
+    for (let index = 0; index + 1 < this.knifePendingPath.length; index++) {
+      const a = screen(this.knifePendingPath[index]);
+      const b = screen(this.knifePendingPath[index + 1]);
+      const ab = b.clone().sub(a);
+      const lengthSq = ab.lengthSq();
+      if (lengthSq <= 1e-12) continue;
+      const t = THREE.MathUtils.clamp(cursor.clone().sub(a).dot(ab) / lengthSq, 0, 1);
+      const closest = a.clone().addScaledVector(ab, t);
+      const distanceSq = cursor.distanceToSquared(closest);
+      if (
+        distanceSq <= segmentRadius * segmentRadius &&
+        (!bestSegment || distanceSq < bestSegment.distanceSq)
+      ) {
+        bestSegment = { index, distanceSq, t };
+      }
+    }
+
+    if (!bestSegment) return null;
+    return {
+      kind: 'segment',
+      index: bestSegment.index,
+      point: this.knifePendingPath[bestSegment.index].clone()
+        .lerp(this.knifePendingPath[bestSegment.index + 1], bestSegment.t),
+    };
   }
 
   private refreshKnifePendingPointColors() {
