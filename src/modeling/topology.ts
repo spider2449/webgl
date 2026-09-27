@@ -80,6 +80,72 @@ function explicitPolygons(faces: MeshTopology['faces'], groups: number[][]) {
   return { polygons, polygonTriangles, triangleToPolygon };
 }
 
+export function logicalEdgeLoop(topology: MeshTopology, edge: number) {
+  if (!Number.isInteger(edge) || edge < 0 || !topology.polygonEdges[edge]) {
+    throw new Error('Select exactly one valid logical edge.');
+  }
+
+  const edgeFaces = topology.polygonEdges.map(() => new Set<number>());
+  const vertexEdges = new Map<number, number[]>();
+  const vertexFaces = new Map<number, number[]>();
+
+  topology.polygonEdges.forEach(([a, b], edgeId) => {
+    for (const vertex of [a, b]) {
+      const edges = vertexEdges.get(vertex) ?? [];
+      edges.push(edgeId);
+      vertexEdges.set(vertex, edges);
+    }
+  });
+  topology.polygons.forEach((polygon, face) => {
+    for (const vertex of polygon) {
+      const faces = vertexFaces.get(vertex) ?? [];
+      if (!faces.includes(face)) faces.push(face);
+      vertexFaces.set(vertex, faces);
+    }
+    for (let local = 0; local < polygon.length; local++) {
+      const a = polygon[local], b = polygon[(local + 1) % polygon.length];
+      const edgeId = topology.polygonEdges.findIndex(([x, y]) => edgeKey(x, y) === edgeKey(a, b));
+      if (edgeId >= 0) edgeFaces[edgeId].add(face);
+    }
+  });
+
+  const selected = new Set<number>([edge]);
+  const result: number[] = [edge];
+
+  const walk = (startVertex: number) => {
+    let currentEdge = edge;
+    let vertex = startVertex;
+    while (true) {
+      const incidentEdges = vertexEdges.get(vertex) ?? [];
+      const incidentFaces = vertexFaces.get(vertex) ?? [];
+      if (incidentEdges.length !== 4 || incidentFaces.length !== 4 || incidentFaces.some(face => topology.polygons[face]?.length !== 4)) break;
+
+      const currentFaces = edgeFaces[currentEdge];
+      const candidates = incidentEdges.filter(candidate => {
+        if (candidate === currentEdge) return false;
+        for (const face of edgeFaces[candidate]) if (currentFaces.has(face)) return false;
+        return true;
+      });
+      if (candidates.length !== 1) break;
+
+      const next = candidates[0];
+      if (next === edge || selected.has(next)) break;
+      selected.add(next);
+      result.push(next);
+
+      const [a, b] = topology.polygonEdges[next];
+      vertex = a === vertex ? b : b === vertex ? a : -1;
+      if (vertex < 0) break;
+      currentEdge = next;
+    }
+  };
+
+  const [a, b] = topology.polygonEdges[edge];
+  walk(a);
+  walk(b);
+  return result;
+}
+
 // The third argument controls only the modeling layer. false exposes renderer
 // triangles as logical triangles; true pairs the known consecutive triangle
 // layout emitted by Forge Cube/Plane; explicit groups preserve arbitrary logical

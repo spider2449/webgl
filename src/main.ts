@@ -1226,6 +1226,13 @@ async function bevelSelectedEdges() {
     toast('Bevel complete.');
   } catch (error) { toast((error as Error).message); }
 }
+function selectEdgeLoop() {
+  try {
+    const count = editor.selectEdgeLoop();
+    toast(`Selected ${count} logical edges in the loop.`);
+  } catch (error) { toast((error as Error).message); }
+}
+
 async function loopCutSelectedEdge() {
   try {
     if (!editor.editMode || editor.componentMode !== 'edge' || editor.componentSelection.length !== 1 || !editor.meshTopology) throw new Error('Select exactly one quad boundary edge.');
@@ -1997,6 +2004,7 @@ const modelingCommands = {
   subdivideEdges: subdivideSelectedEdges,
   vertexSnap: startVertexSnap,
   bevelEdges: bevelSelectedEdges,
+  selectEdgeLoop,
   loopCut: loopCutSelectedEdge,
   knife: startKnifeCut,
   cutFace: cutFaceBetweenSelectedVertices,
@@ -2072,6 +2080,7 @@ function viewportContextCommands(mode: ViewportContextMode): ViewportContextComm
     { label: 'Scale', shortcut: 'S', action: () => tool('scale'), enabled: hasComponents },
     { label: 'Bevel Edges', action: modelingCommands.bevelEdges, enabled: hasComponents, separatorBefore: true },
     { label: 'Subdivide Edges', action: modelingCommands.subdivideEdges, enabled: hasComponents },
+    { label: 'Select Edge Loop', action: modelingCommands.selectEdgeLoop, enabled: oneComponent },
     { label: 'Loop Cut', action: modelingCommands.loopCut, enabled: oneComponent },
     { label: 'Delete Edges', shortcut: 'Del', action: modelingCommands.deleteComponents, enabled: hasComponents, separatorBefore: true, danger: true },
   ];
