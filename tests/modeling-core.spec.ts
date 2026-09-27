@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 import * as THREE from 'three';
 import { bevelEdges, bevelLogicalEdges, cutLogicalFace, deleteLogicalComponents, extrudeLogicalFace, insetLogicalFace, loopCut, loopCutLogicalEdge, subdivideLogicalEdges, editUV } from '../src/modeling/modeling';
-import { buildTopology, linkedLogicalComponents, logicalFaceBoundaryEdges, logicalMeshBoundaryEdges } from '../src/modeling/topology';
+import { buildTopology, linkedLogicalComponents, logicalFaceBoundaryEdges, logicalMeshBoundaryEdges, logicalNonManifoldEdges } from '../src/modeling/topology';
 import { evaluateModifiers } from '../src/modeling/modifiers';
 
 function topology(g: THREE.BufferGeometry) { return buildTopology(g.getAttribute('position').array, g.index?.array); }
@@ -94,6 +94,53 @@ test('linked logical traversal expands connected islands without renderer diagon
   expect(linkedLogicalComponents(cube, 'face', [0])).toHaveLength(6);
   expect(() => linkedLogicalComponents(cube, 'edge', [-1])).toThrow(/valid logical edges/);
   box.dispose();
+});
+
+test('logical non-manifold selection includes open and over-connected polygon edges', () => {
+  const plane = new THREE.PlaneGeometry(2, 2);
+  const planeTopology = buildTopology(
+    plane.getAttribute('position').array,
+    plane.index?.array,
+    true,
+  );
+  expect(logicalNonManifoldEdges(planeTopology)).toHaveLength(4);
+
+  const cube = new THREE.BoxGeometry(2, 2, 2);
+  const cubeTopology = buildTopology(
+    cube.getAttribute('position').array,
+    cube.index?.array,
+    true,
+  );
+  expect(logicalNonManifoldEdges(cubeTopology)).toEqual([]);
+
+  const positions = new Float32Array([
+    0,0,0, 1,0,0,
+    0.5,1,0, 0.5,-1,0, 0.5,0,1,
+  ]);
+  const indices = new Uint16Array([
+    0,1,2,
+    1,0,3,
+    0,1,4,
+  ]);
+  const overConnected = buildTopology(positions, indices, [[0],[1],[2]]);
+  const nonManifold = logicalNonManifoldEdges(overConnected);
+  const edgeKey = (a: number, b: number) => `${Math.min(a,b)}:${Math.max(a,b)}`;
+  const edgeByKey = new Map(overConnected.polygonEdges.map((edge, id) => [edgeKey(edge[0], edge[1]), id]));
+  const uses = new Map<number, number>();
+  overConnected.polygons.forEach(polygon => {
+    polygon.forEach((vertex, local) => {
+      const next = polygon[(local + 1) % polygon.length];
+      const edge = edgeByKey.get(edgeKey(vertex, next))!;
+      uses.set(edge, (uses.get(edge) ?? 0) + 1);
+    });
+  });
+  const common = [...uses.entries()].find(([, count]) => count === 3)?.[0];
+  expect(common).toBeDefined();
+  expect(nonManifold).toContain(common!);
+  expect(nonManifold).toHaveLength(7);
+
+  plane.dispose();
+  cube.dispose();
 });
 
 test('logical mesh boundary selects only open polygon perimeter edges', () => {

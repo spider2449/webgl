@@ -257,6 +257,7 @@ test('Edit Mode RMB menu changes with Vertex, Edge and Face component mode', asy
   await expect(menu.getByRole('menuitem', { name: 'Scale S' })).toBeVisible();
   await expect(menu.getByRole('menuitem', { name: 'Select Linked' })).toBeVisible();
   await expect(menu.getByRole('menuitem', { name: 'Invert Selection' })).toBeVisible();
+  await expect(menu.getByRole('menuitem', { name: 'Select Non-Manifold Edges' })).toBeVisible();
   await expect(menu.getByRole('menuitem', { name: 'Select Mesh Boundary' })).toBeVisible();
   await expect(menu.getByRole('menuitem', { name: 'Bevel Edges' })).toBeVisible();
   await expect(menu.getByRole('menuitem', { name: 'Subdivide Edges' })).toBeVisible();
@@ -402,6 +403,63 @@ test('RMB Invert Selection complements logical components without history', asyn
       undoDepth:initialUndoDepth,
     });
   }
+});
+
+test('RMB Select Non-Manifold Edges selects open logical edges and preserves closed-manifold selection', async ({ page }) => {
+  await page.getByRole('button', { name: 'Toggle geometry statistics' }).click();
+
+  await page.locator('[data-menu="add-menu"]').click();
+  await page.locator('[data-primitive="plane"]').click();
+  await page.locator('#mode').selectOption('edit');
+  await page.getByLabel('Mesh component').selectOption('edge');
+  const initialUndoDepth = await page.evaluate(() => (window as any).__forge.undoDepth);
+
+  await rightClickViewport(page);
+  let menu = page.locator('#viewport-context-menu');
+  await expect(menu.getByRole('menuitem', { name: 'Select Non-Manifold Edges', exact: true })).toBeEnabled();
+  await menu.getByRole('menuitem', { name: 'Select Non-Manifold Edges', exact: true }).click();
+  await expect(page.locator('#toast')).toContainText('Selected 4 logical non-manifold edges');
+
+  expect(await page.evaluate(() => {
+    const e=(window as any).__forge;
+    return {
+      count:e.componentSelection.length,
+      overlay:e.selectedEdgeOverlay.geometry.instanceCount,
+      active:e.componentSelection.at(-1),
+      undoDepth:e.undoDepth,
+    };
+  })).toEqual({
+    count:4,
+    overlay:4,
+    active:3,
+    undoDepth:initialUndoDepth,
+  });
+  await expect(page.locator('#geometry-statistics-selected')).toHaveText('Obj 1 · V 4 · E 4 · F 1 · T 2');
+
+  await page.locator('#mode').selectOption('object');
+  await page.locator('.object-row', { hasText: 'Cube' }).click();
+  await page.locator('#mode').selectOption('edit');
+  await page.getByLabel('Mesh component').selectOption('edge');
+  await page.evaluate(() => (window as any).__forge.selectComponent(0));
+  const before = await page.evaluate(() => ({
+    selection:[...(window as any).__forge.componentSelection],
+    undoDepth:(window as any).__forge.undoDepth,
+  }));
+
+  await rightClickViewport(page);
+  menu = page.locator('#viewport-context-menu');
+  await menu.getByRole('menuitem', { name: 'Select Non-Manifold Edges', exact: true }).click();
+  await expect(page.locator('#toast')).toContainText('Mesh has no logical non-manifold edges');
+
+  expect(await page.evaluate(() => ({
+    mode:(window as any).__forge.componentMode,
+    selection:[...(window as any).__forge.componentSelection],
+    undoDepth:(window as any).__forge.undoDepth,
+  }))).toEqual({
+    mode:'edge',
+    selection:before.selection,
+    undoDepth:before.undoDepth,
+  });
 });
 
 test('RMB Select Mesh Boundary selects open logical edges and preserves closed-mesh selection', async ({ page }) => {
