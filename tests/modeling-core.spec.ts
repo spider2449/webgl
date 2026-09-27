@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 import * as THREE from 'three';
 import { bevelEdges, bevelLogicalEdges, cutLogicalFace, deleteLogicalComponents, extrudeLogicalFace, insetLogicalFace, loopCut, loopCutLogicalEdge, subdivideLogicalEdges, editUV } from '../src/modeling/modeling';
-import { buildTopology, linkedLogicalComponents, logicalFaceBoundaryEdges } from '../src/modeling/topology';
+import { buildTopology, linkedLogicalComponents, logicalFaceBoundaryEdges, logicalMeshBoundaryEdges } from '../src/modeling/topology';
 import { evaluateModifiers } from '../src/modeling/modifiers';
 
 function topology(g: THREE.BufferGeometry) { return buildTopology(g.getAttribute('position').array, g.index?.array); }
@@ -94,6 +94,53 @@ test('linked logical traversal expands connected islands without renderer diagon
   expect(linkedLogicalComponents(cube, 'face', [0])).toHaveLength(6);
   expect(() => linkedLogicalComponents(cube, 'edge', [-1])).toThrow(/valid logical edges/);
   box.dispose();
+});
+
+test('logical mesh boundary selects only open polygon perimeter edges', () => {
+  const plane = new THREE.PlaneGeometry(2, 2);
+  const planeTopology = buildTopology(
+    plane.getAttribute('position').array,
+    plane.index?.array,
+    true,
+  );
+  expect(planeTopology.polygons).toHaveLength(1);
+  expect(logicalMeshBoundaryEdges(planeTopology)).toHaveLength(4);
+
+  const strip = new THREE.PlaneGeometry(2, 1, 2, 1);
+  const stripTopology = buildTopology(
+    strip.getAttribute('position').array,
+    strip.index?.array,
+    true,
+  );
+  const stripBoundary = logicalMeshBoundaryEdges(stripTopology);
+  expect(stripTopology.polygons).toHaveLength(2);
+  expect(stripBoundary).toHaveLength(6);
+  const boundarySet = new Set(stripBoundary);
+  const polygonEdgeUses = new Map<number, number>();
+  const edgeKey = (a: number, b: number) => `${Math.min(a, b)}:${Math.max(a, b)}`;
+  const edgeByKey = new Map(stripTopology.polygonEdges.map((edge, id) => [edgeKey(edge[0], edge[1]), id]));
+  stripTopology.polygons.forEach(polygon => {
+    polygon.forEach((vertex, local) => {
+      const next = polygon[(local + 1) % polygon.length];
+      const edge = edgeByKey.get(edgeKey(vertex, next))!;
+      polygonEdgeUses.set(edge, (polygonEdgeUses.get(edge) ?? 0) + 1);
+    });
+  });
+  const interior = [...polygonEdgeUses.entries()].find(([, uses]) => uses === 2)?.[0];
+  expect(interior).toBeDefined();
+  expect(boundarySet.has(interior!)).toBe(false);
+
+  const cube = new THREE.BoxGeometry(2, 2, 2);
+  const cubeTopology = buildTopology(
+    cube.getAttribute('position').array,
+    cube.index?.array,
+    true,
+  );
+  expect(logicalMeshBoundaryEdges(cubeTopology)).toEqual([]);
+
+  plane.dispose();
+  strip.dispose();
+  cube.dispose();
 });
 
 test('logical face boundary selects only region perimeter edges', () => {

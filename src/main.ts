@@ -2026,6 +2026,13 @@ function invertComponentSelection() {
   } catch (error) { toast((error as Error).message); }
 }
 
+function selectMeshBoundaryEdges() {
+  try {
+    const count = editor.selectMeshBoundaryEdges();
+    toast(`Selected ${count} open logical boundary edges.`);
+  } catch (error) { toast((error as Error).message); }
+}
+
 function selectFaceBoundaryEdges() {
   try {
     const count = editor.selectFaceBoundaryEdges();
@@ -2073,6 +2080,7 @@ const modelingCommands = {
   selectAll: () => selectAllComponents(true),
   deselectAll: () => selectAllComponents(false),
   invertSelection: invertComponentSelection,
+  selectMeshBoundaryEdges,
   selectFaceBoundaryEdges,
   deleteComponents: deleteSelectedComponents,
 };
@@ -2156,6 +2164,7 @@ function viewportContextCommands(mode: ViewportContextMode): ViewportContextComm
     { label: 'Select All', shortcut: 'A', action: modelingCommands.selectAll, enabled: canSelectComponents },
     { label: 'Deselect All', shortcut: 'Alt A', action: modelingCommands.deselectAll, enabled: canDeselectComponents },
     { label: 'Invert Selection', action: modelingCommands.invertSelection, enabled: canInvertComponents },
+    { label: 'Select Mesh Boundary', action: modelingCommands.selectMeshBoundaryEdges, enabled: canSelectComponents },
     { label: 'Bevel Edges', action: modelingCommands.bevelEdges, enabled: hasComponents, separatorBefore: true },
     { label: 'Subdivide Edges', action: modelingCommands.subdivideEdges, enabled: hasComponents },
     { label: 'Loop Cut', action: modelingCommands.loopCut, enabled: oneComponent },
