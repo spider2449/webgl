@@ -103,6 +103,47 @@ test('Edge context exposes inline Bevel width and Enter executes with the typed 
   });
 });
 
+test('Edge context exposes retained integer subdivision cuts', async ({ page }) => {
+  await page.locator('#mode').selectOption('edit');
+  await page.getByLabel('Mesh component').selectOption('edge');
+  await page.evaluate(() => {
+    const e = (window as any).__forge;
+    e.selectComponent(0);
+    (window as any).__contextCalls = [];
+    (window as any).__forgeModelingSettings.subdivideCuts = 1;
+    e.runModeling = async (operation: unknown) => { (window as any).__contextCalls.push(operation); };
+  });
+  await rightClickViewport(page);
+
+  let menu = page.locator('#viewport-context-menu');
+  const cutsNumber = menu.getByLabel('Context subdivision cuts', { exact: true });
+  const cutsSlider = menu.getByLabel('Context subdivision cuts slider', { exact: true });
+  await expect(cutsNumber).toHaveValue('1');
+  await expect(cutsSlider).toHaveValue('1');
+  await setRange(cutsSlider, '4');
+  await expect(cutsNumber).toHaveValue('4');
+  await cutsNumber.fill('3');
+  await cutsNumber.press('Enter');
+  await expect(menu).toBeHidden();
+
+  expect(await page.evaluate(() => (window as any).__contextCalls[0])).toMatchObject({
+    kind: 'subdivide',
+    cuts: 3,
+  });
+
+  await rightClickViewport(page);
+  menu = page.locator('#viewport-context-menu');
+  const retained = menu.getByLabel('Context subdivision cuts', { exact: true });
+  await expect(retained).toHaveValue('3');
+  await retained.fill('2.5');
+  await retained.press('Enter');
+  await expect(menu).toBeVisible();
+  await expect(page.locator('#toast')).toContainText('whole number between 1 and 32');
+  await expect(retained).toHaveValue('3');
+  expect(await page.evaluate(() => (window as any).__contextCalls)).toHaveLength(1);
+  await page.keyboard.press('Escape');
+});
+
 test('Edge context exposes inline Loop position and Enter sends the retained factor', async ({ page }) => {
   await page.locator('#mode').selectOption('edit');
   await page.getByLabel('Mesh component').selectOption('edge');
