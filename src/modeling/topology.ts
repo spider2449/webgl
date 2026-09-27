@@ -286,3 +286,16 @@ export function logicalFaceBoundaryEdges(topology: MeshTopology, faces: number[]
 export function logicalMeshBoundaryEdges(topology: MeshTopology) {
   return logicalFaceBoundaryEdges(topology, topology.polygons.map((_, face) => face));
 }
+
+export function logicalNonManifoldEdges(topology: MeshTopology) {
+  const edgeByKey = new Map(topology.polygonEdges.map((edge, id) => [edgeKey(edge[0], edge[1]), id]));
+  const uses = new Map<number, number>();
+  topology.polygons.forEach(polygon => {
+    for (let local = 0; local < polygon.length; local++) {
+      const edge = edgeByKey.get(edgeKey(polygon[local], polygon[(local + 1) % polygon.length]));
+      if (edge === undefined) throw new Error('Logical polygon boundary edge is missing.');
+      uses.set(edge, (uses.get(edge) ?? 0) + 1);
+    }
+  });
+  return topology.polygonEdges.flatMap((_, edge) => (uses.get(edge) ?? 0) !== 2 ? [edge] : []);
+}
