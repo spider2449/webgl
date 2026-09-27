@@ -10,7 +10,7 @@ import { clone as cloneSkeleton } from 'three/addons/utils/SkeletonUtils.js';
 import { createGrid, setGridPlane } from './viewport/grid';
 import { insetTriangle } from './modeling/extrude';
 import { extrudeLogicalFace } from './modeling/modeling';
-import { buildTopology, linkedLogicalComponents, logicalFaceBoundaryEdges, logicalFacesBySides, logicalMeshBoundaryEdges, logicalNonManifoldEdges, type MeshTopology, type ComponentMode, type FaceSideKind } from './modeling/topology';
+import { buildTopology, linkedLogicalComponents, logicalCoplanarFaces, logicalFaceBoundaryEdges, logicalFacesBySides, logicalMeshBoundaryEdges, logicalNonManifoldEdges, type MeshTopology, type ComponentMode, type FaceSideKind } from './modeling/topology';
 import { proportionalWeights } from './modeling/proportional';
 import { subdivideEdges } from './modeling/subdivide';
 import { extrudeRegion } from './modeling/extrude-region';
@@ -1678,6 +1678,35 @@ export class Editor extends EventTarget {
     this.selectComponentVertices(vertices);
     this.emit('component-selection');
     return inverted.length;
+  }
+
+  selectCoplanarFaces() {
+    if (
+      !this.editMode ||
+      this.weightMode ||
+      this.componentMode !== 'face' ||
+      !this.topology ||
+      !this.selectedComponents.size ||
+      !(this.selected instanceof THREE.Mesh) ||
+      this.modelingBusy ||
+      this.playing ||
+      this.transform.dragging
+    ) {
+      throw new Error('Select one or more logical faces in Face Edit Mode first.');
+    }
+
+    const position = this.selected.geometry.getAttribute('position');
+    if (!(position instanceof THREE.BufferAttribute) || position.itemSize !== 3) {
+      throw new Error('Coplanar selection requires standard mesh positions.');
+    }
+    const faces = logicalCoplanarFaces(this.topology, position.array, [...this.selectedComponents]);
+
+    this.modelingVersion++;
+    this.selectedComponents = new Set(faces);
+    this.selectedFace = faces.length === 1 ? faces[0] : null;
+    this.selectComponentVertices(faces.flatMap(face => this.topology!.polygons[face]));
+    this.emit('component-selection');
+    return faces.length;
   }
 
   selectFacesBySides(kind: FaceSideKind) {
