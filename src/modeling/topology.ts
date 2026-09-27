@@ -263,9 +263,8 @@ export function linkedLogicalComponents(
   return topology.polygons.flatMap((_, face) => visited.has(face) ? [face] : []);
 }
 
-
 export function logicalFaceBoundaryEdges(topology: MeshTopology, faces: number[]) {
-  const selected = new Set([...new Set(faces)]);
+  const selected = new Set(faces);
   if (!selected.size) return [];
   if ([...selected].some(face => !topology.polygons[face])) throw new Error('Select valid logical faces.');
 
