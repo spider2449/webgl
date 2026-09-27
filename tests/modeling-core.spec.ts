@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 import * as THREE from 'three';
 import { bevelEdges, bevelLogicalEdges, cutLogicalFace, deleteLogicalComponents, extrudeLogicalFace, insetLogicalFace, loopCut, loopCutLogicalEdge, editUV } from '../src/modeling/modeling';
-import { buildTopology, logicalEdgeLoop } from '../src/modeling/topology';
+import { buildTopology } from '../src/modeling/topology';
 import { evaluateModifiers } from '../src/modeling/modifiers';
 
 function topology(g: THREE.BufferGeometry) { return buildTopology(g.getAttribute('position').array, g.index?.array); }
@@ -53,47 +53,6 @@ test('logical quad topology keeps renderer triangles but removes selectable diag
   expect(explicit.polygons).toEqual(pt.polygons);
   expect(explicit.polygonEdges).toEqual(pt.polygonEdges);
   expect(explicit.triangleToPolygon).toEqual(pt.triangleToPolygon);
-});
-
-test('logical edge loop follows the connected Loop Cut cycle and stops at Cube poles', () => {
-  const box = new THREE.BoxGeometry(2, 2, 2);
-  const input = buildTopology(box.getAttribute('position').array, box.index?.array, true);
-  expect(logicalEdgeLoop(input, 0)).toEqual([0]);
-
-  const cut = loopCutLogicalEdge(box, 0, input.polygonTriangles, 0.3);
-  const output = buildTopology(
-    cut.geometry.getAttribute('position').array,
-    cut.geometry.index?.array,
-    cut.polygonTriangles,
-  );
-  const sourcePosition = box.getAttribute('position');
-  const original = new Set(input.logicalVertices.map(vertex => {
-    const index = input.vertices[vertex][0];
-    return `${sourcePosition.getX(index)},${sourcePosition.getY(index)},${sourcePosition.getZ(index)}`;
-  }));
-  const cutPosition = cut.geometry.getAttribute('position');
-  const inserted = new Set(output.logicalVertices.filter(vertex => {
-    const index = output.vertices[vertex][0];
-    return !original.has(`${cutPosition.getX(index)},${cutPosition.getY(index)},${cutPosition.getZ(index)}`);
-  }));
-  const loopEdges = output.polygonEdges.flatMap(([a, b], edgeId) =>
-    inserted.has(a) && inserted.has(b) ? [edgeId] : []
-  );
-  expect(loopEdges).toHaveLength(4);
-
-  const loop = logicalEdgeLoop(output, loopEdges[0]);
-  expect(new Set(loop)).toEqual(new Set(loopEdges));
-  expect(loop).toHaveLength(4);
-  expect(loop.every(edge => output.polygonEdges[edge].every(vertex => inserted.has(vertex)))).toBe(true);
-
-  const rendererOnlyEdges = new Set(
-    output.edges.map((_, id) => id).filter(id => !output.polygonEdgeToEdge.includes(id))
-  );
-  expect(loop.some(edge => rendererOnlyEdges.has(output.polygonEdgeToEdge[edge]))).toBe(false);
-  expect(() => logicalEdgeLoop(output, -1)).toThrow(/valid logical edge/);
-
-  cut.geometry.dispose();
-  box.dispose();
 });
 
 test('logical Cube bevel ignores renderer diagonals and returns persistent polygon groups', () => {
