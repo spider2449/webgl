@@ -72,6 +72,20 @@ test('linked logical traversal expands connected islands without renderer diagon
   expect(linkedLogicalComponents(disconnected, 'edge', [firstEdge])).toHaveLength(4);
   expect(linkedLogicalComponents(disconnected, 'face', [0])).toEqual([0]);
   expect(linkedLogicalComponents(disconnected, 'face', [0, 1])).toEqual([0, 1]);
+  expect(linkedLogicalComponents(disconnected, 'vertex', [disconnected.polygons[0][0], disconnected.polygons[1][0]])).toHaveLength(8);
+  const secondFaceVertices = new Set(disconnected.polygons[1]);
+  const secondEdge = disconnected.polygonEdges.findIndex(edge => edge.every(vertex => secondFaceVertices.has(vertex)));
+  expect(linkedLogicalComponents(disconnected, 'edge', [firstEdge, secondEdge])).toHaveLength(8);
+
+  const touchingPositions = new Float32Array([
+    0,0,0, 1,0,0, 0,1,0,
+    -1,0,0, 0,-1,0,
+  ]);
+  const touchingIndices = new Uint16Array([0,1,2, 0,3,4]);
+  const touching = buildTopology(touchingPositions, touchingIndices, [[0],[1]]);
+  expect(linkedLogicalComponents(touching, 'vertex', [0])).toHaveLength(5);
+  expect(linkedLogicalComponents(touching, 'edge', [0])).toHaveLength(6);
+  expect(linkedLogicalComponents(touching, 'face', [0])).toEqual([0]);
 
   const box = new THREE.BoxGeometry(2, 2, 2);
   const cube = buildTopology(box.getAttribute('position').array, box.index?.array, true);
