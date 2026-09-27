@@ -57,6 +57,50 @@ test('A and Alt+A select and clear all logical Edit Mode components', async ({ p
   }
 });
 
+test('Ctrl+A selects Edit Mode components without selecting editor chrome text', async ({ page }) => {
+  await page.locator('#mode').selectOption('edit');
+  await page.getByLabel('Mesh component').selectOption('edge');
+  await page.evaluate(() => window.getSelection()?.removeAllRanges());
+
+  await page.keyboard.press('Control+a');
+
+  expect(await page.evaluate(() => ({
+    selected: (window as any).__forge.componentSelection.length,
+    pageSelection: window.getSelection()?.toString() ?? '',
+  }))).toEqual({
+    selected: 12,
+    pageSelection: '',
+  });
+});
+
+test('Ctrl+A is suppressed in Object Mode but remains native inside text fields', async ({ page }) => {
+  await page.locator('#duplicate-rail').click();
+  await page.evaluate(() => window.getSelection()?.removeAllRanges());
+
+  await page.keyboard.press('Control+a');
+  expect(await page.evaluate(() => ({
+    selectedObjects: (window as any).__forge.selectedObjects.size,
+    pageSelection: window.getSelection()?.toString() ?? '',
+  }))).toEqual({
+    selectedObjects: 1,
+    pageSelection: '',
+  });
+
+  const objectName = page.getByLabel('Object name');
+  await objectName.focus();
+  await objectName.fill('CubeCtrlA');
+  await page.keyboard.press('Control+a');
+  expect(await objectName.evaluate((input: HTMLInputElement) => ({
+    start: input.selectionStart,
+    end: input.selectionEnd,
+    length: input.value.length,
+  }))).toEqual({
+    start: 0,
+    end: 9,
+    length: 9,
+  });
+});
+
 test('Edit Mode context exposes Select All and Deselect All with correct enablement', async ({ page }) => {
   await page.locator('#mode').selectOption('edit');
 
