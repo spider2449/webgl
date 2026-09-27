@@ -2028,6 +2028,7 @@ type ContextNumberParameter = {
   sliderMin: number;
   sliderMax: number;
   step: number;
+  integer?: boolean;
   get: () => number;
   set: (value: number) => void;
   run: () => void | Promise<void>;
@@ -2161,13 +2162,21 @@ function appendContextParameter(parameter: ContextParameter) {
 
     const commitNumber = () => {
       const value = Number(number.value);
-      if (!Number.isFinite(value) || value < parameter.min || value > parameter.max) {
+      if (
+        !Number.isFinite(value) ||
+        value < parameter.min ||
+        value > parameter.max ||
+        (parameter.integer && !Number.isInteger(value))
+      ) {
         number.value = String(parameter.get());
-        toast(`${parameter.label} must be between ${parameter.min} and ${parameter.max}.`);
+        toast(parameter.integer
+          ? `${parameter.label} must be a whole number between ${parameter.min} and ${parameter.max}.`
+          : `${parameter.label} must be between ${parameter.min} and ${parameter.max}.`);
         return false;
       }
       parameter.set(value);
-      slider.value = String(Math.min(Math.max(value, parameter.sliderMin), parameter.sliderMax));
+      number.value = String(parameter.get());
+      slider.value = String(Math.min(Math.max(parameter.get(), parameter.sliderMin), parameter.sliderMax));
       return true;
     };
 
@@ -2232,8 +2241,9 @@ function contextParameterBefore(mode: ViewportContextMode, command: ViewportCont
     sliderMin: 1,
     sliderMax: 8,
     step: 1,
+    integer: true,
     get: () => modelingToolSettings.subdivideCuts,
-    set: value => { modelingToolSettings.subdivideCuts = Math.round(value); },
+    set: value => { modelingToolSettings.subdivideCuts = value; },
     run: modelingCommands.subdivideEdges,
   };
   if (mode === 'edge' && command.label === 'Loop Cut') return {
