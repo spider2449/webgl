@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 import * as THREE from 'three';
 import { bevelEdges, bevelLogicalEdges, cutLogicalFace, deleteLogicalComponents, extrudeLogicalFace, insetLogicalFace, loopCut, loopCutLogicalEdge, editUV } from '../src/modeling/modeling';
-import { buildTopology } from '../src/modeling/topology';
+import { buildTopology, logicalEdgeRing } from '../src/modeling/topology';
 import { evaluateModifiers } from '../src/modeling/modifiers';
 
 function topology(g: THREE.BufferGeometry) { return buildTopology(g.getAttribute('position').array, g.index?.array); }
@@ -53,6 +53,40 @@ test('logical quad topology keeps renderer triangles but removes selectable diag
   expect(explicit.polygons).toEqual(pt.polygons);
   expect(explicit.polygonEdges).toEqual(pt.polygonEdges);
   expect(explicit.triangleToPolygon).toEqual(pt.triangleToPolygon);
+});
+
+test('logical edge ring follows opposite Quad edges and stops at boundaries without renderer diagonals', () => {
+  const box = new THREE.BoxGeometry(2, 2, 2);
+  const boxTopology = buildTopology(box.getAttribute('position').array, box.index?.array, true);
+  const boxPosition = box.getAttribute('position');
+  const ring = logicalEdgeRing(boxTopology, 0);
+  expect(ring).toHaveLength(4);
+  expect(new Set(ring).size).toBe(4);
+  expect(ring).toContain(0);
+
+  const direction = ([a, b]: [number, number]) => {
+    const start = new THREE.Vector3().fromBufferAttribute(boxPosition, boxTopology.vertices[a][0]);
+    const end = new THREE.Vector3().fromBufferAttribute(boxPosition, boxTopology.vertices[b][0]);
+    return end.sub(start).normalize();
+  };
+  const reference = direction(boxTopology.polygonEdges[0]);
+  for (const edge of ring) {
+    const candidate = direction(boxTopology.polygonEdges[edge]);
+    expect(Math.abs(reference.dot(candidate))).toBeCloseTo(1, 6);
+  }
+
+  const rendererOnlyEdges = new Set(
+    boxTopology.edges.map((_, id) => id).filter(id => !boxTopology.polygonEdgeToEdge.includes(id))
+  );
+  expect(ring.some(edge => rendererOnlyEdges.has(boxTopology.polygonEdgeToEdge[edge]))).toBe(false);
+
+  const plane = new THREE.PlaneGeometry(2, 2, 1, 1);
+  const planeTopology = buildTopology(plane.getAttribute('position').array, plane.index?.array, true);
+  expect(logicalEdgeRing(planeTopology, 0)).toHaveLength(2);
+
+  expect(() => logicalEdgeRing(boxTopology, -1)).toThrow(/valid logical edge/);
+  plane.dispose();
+  box.dispose();
 });
 
 test('logical Cube bevel ignores renderer diagonals and returns persistent polygon groups', () => {

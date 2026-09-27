@@ -80,6 +80,45 @@ function explicitPolygons(faces: MeshTopology['faces'], groups: number[][]) {
   return { polygons, polygonTriangles, triangleToPolygon };
 }
 
+export function logicalEdgeRing(topology: MeshTopology, edge: number) {
+  if (!Number.isInteger(edge) || edge < 0 || !topology.polygonEdges[edge]) {
+    throw new Error('Select exactly one valid logical edge.');
+  }
+
+  const edgeIds = new Map(topology.polygonEdges.map((item, id) => [edgeKey(item[0], item[1]), id]));
+  const uses = new Map<string, { face: number; local: number }[]>();
+  topology.polygons.forEach((polygon, face) => {
+    polygon.forEach((a, local) => {
+      const b = polygon[(local + 1) % polygon.length];
+      const key = edgeKey(a, b);
+      const list = uses.get(key) ?? [];
+      list.push({ face, local });
+      uses.set(key, list);
+    });
+  });
+
+  const queue = [edge];
+  const visited = new Set<number>();
+  const result: number[] = [];
+  while (queue.length) {
+    const current = queue.shift()!;
+    if (visited.has(current)) continue;
+    visited.add(current);
+    result.push(current);
+
+    const [a, b] = topology.polygonEdges[current];
+    for (const use of uses.get(edgeKey(a, b)) ?? []) {
+      const polygon = topology.polygons[use.face];
+      if (polygon.length !== 4) continue;
+      const opposite = (use.local + 2) % 4;
+      const oppositeId = edgeIds.get(edgeKey(polygon[opposite], polygon[(opposite + 1) % 4]));
+      if (oppositeId === undefined) throw new Error('Logical Quad boundary is missing an opposite edge.');
+      if (!visited.has(oppositeId)) queue.push(oppositeId);
+    }
+  }
+  return result;
+}
+
 // The third argument controls only the modeling layer. false exposes renderer
 // triangles as logical triangles; true pairs the known consecutive triangle
 // layout emitted by Forge Cube/Plane; explicit groups preserve arbitrary logical
