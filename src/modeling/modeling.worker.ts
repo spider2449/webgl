@@ -22,7 +22,7 @@ self.onmessage = (event: MessageEvent<{ source: ReturnType<THREE.BufferGeometry[
         break;
       }
       case 'loop': {
-        const cut = loopCutLogicalEdge(source, op.edge, op.polygonTriangles);
+        const cut = loopCutLogicalEdge(source, op.edge, op.polygonTriangles, op.factor);
         result = cut.geometry;
         logicalGroups = cut.polygonTriangles;
         break;

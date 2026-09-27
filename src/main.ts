@@ -1078,6 +1078,7 @@ const modelingToolSettings = {
   extrudeDistance: 0.5,
   insetDistance: 0.1,
   bevelWidth: 0.1,
+  loopPosition: 0.5,
   get snapTarget() { return modelingSnapTarget; },
   set snapTarget(value: 'vertex' | 'edge' | 'surface') {
     if (editor.snapTargetPending && value !== modelingSnapTarget) editor.cancelVertexSnap();
@@ -1231,6 +1232,7 @@ async function loopCutSelectedEdge() {
     await editor.runModeling({
       kind: 'loop',
       edge: editor.componentSelection[0],
+      factor: modelingToolSettings.loopPosition,
       polygonTriangles: editor.meshTopology.polygonTriangles.map(group => [...group]),
     });
     toast('Loop cut complete.');
@@ -2214,6 +2216,19 @@ function contextParameterBefore(mode: ViewportContextMode, command: ViewportCont
     get: () => modelingToolSettings.bevelWidth,
     set: value => { modelingToolSettings.bevelWidth = value; },
     run: modelingCommands.bevelEdges,
+  };
+  if (mode === 'edge' && command.label === 'Loop Cut') return {
+    kind: 'number',
+    label: 'Loop Position',
+    ariaLabel: 'Context loop cut position',
+    min: 0.01,
+    max: 0.99,
+    sliderMin: 0.01,
+    sliderMax: 0.99,
+    step: 0.01,
+    get: () => modelingToolSettings.loopPosition,
+    set: value => { modelingToolSettings.loopPosition = value; },
+    run: modelingCommands.loopCut,
   };
   if (mode === 'face' && command.label === 'Extrude Face') return {
     kind: 'number',

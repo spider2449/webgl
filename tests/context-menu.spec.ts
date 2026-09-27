@@ -103,6 +103,38 @@ test('Edge context exposes inline Bevel width and Enter executes with the typed 
   });
 });
 
+test('Edge context exposes inline Loop position and Enter sends the retained factor', async ({ page }) => {
+  await page.locator('#mode').selectOption('edit');
+  await page.getByLabel('Mesh component').selectOption('edge');
+  await page.evaluate(() => {
+    const e = (window as any).__forge;
+    e.selectComponent(0);
+    (window as any).__contextCalls = [];
+    (window as any).__forgeModelingSettings.loopPosition = 0.5;
+    e.runModeling = async (operation: unknown) => { (window as any).__contextCalls.push(operation); };
+  });
+  await rightClickViewport(page);
+
+  const menu = page.locator('#viewport-context-menu');
+  const loopNumber = menu.getByLabel('Context loop cut position', { exact: true });
+  const loopSlider = menu.getByLabel('Context loop cut position slider', { exact: true });
+  await expect(loopNumber).toHaveValue('0.5');
+  await expect(loopSlider).toHaveValue('0.5');
+  await setRange(loopSlider, '0.3');
+  await expect(loopNumber).toHaveValue('0.3');
+  await loopNumber.fill('0.25');
+  await loopNumber.press('Enter');
+  await expect(menu).toBeHidden();
+
+  expect(await page.evaluate(() => (window as any).__contextCalls[0])).toMatchObject({
+    kind: 'loop',
+    factor: 0.25,
+  });
+
+  await rightClickViewport(page);
+  await expect(page.locator('#viewport-context-menu').getByLabel('Context loop cut position', { exact: true })).toHaveValue('0.25');
+});
+
 test('Vertex context keeps Snap target beside Snap Selection and Enter starts the chosen target mode', async ({ page }) => {
   await page.locator('#mode').selectOption('edit');
   await page.getByLabel('Mesh component').selectOption('vertex');
@@ -285,16 +317,36 @@ test('RMB Bevel mutates the default Cube through the real worker path', async ({
   expect(after.stored).toBe(after.polygons);
 });
 
-test('RMB Loop Cut splits the default Cube logical quad ring', async ({ page }) => {
+test('RMB Loop Cut splits the default Cube logical quad ring at the configured position', async ({ page }) => {
   await page.locator('#mode').selectOption('edit');
   await page.getByLabel('Mesh component').selectOption('edge');
-  await page.evaluate(() => (window as any).__forge.selectComponent(0));
+  const expected = await page.evaluate(() => {
+    const e = (window as any).__forge, t = e.meshTopology, p = e.selected.geometry.getAttribute('position');
+    const [a, b] = t.polygonEdges[0];
+    const ai = t.vertices[a][0], bi = t.vertices[b][0];
+    e.selectComponent(0);
+    (window as any).__forgeModelingSettings.loopPosition = 0.3;
+    return [
+      p.getX(ai) + (p.getX(bi) - p.getX(ai)) * 0.3,
+      p.getY(ai) + (p.getY(bi) - p.getY(ai)) * 0.3,
+      p.getZ(ai) + (p.getZ(bi) - p.getZ(ai)) * 0.3,
+    ];
+  });
   await rightClickViewport(page);
   await page.locator('#viewport-context-menu').getByRole('menuitem', { name: 'Loop Cut' }).click();
   await page.waitForFunction(() => !(window as any).__forge.modelingBusy);
   await expect(page.locator('#toast')).toContainText('Loop cut complete');
-  expect(await page.evaluate(() => {
+  expect(await page.evaluate(expectedPoint => {
     const e = (window as any).__forge, t = e.meshTopology;
+    const p = e.selected.geometry.getAttribute('position');
+    const positioned = t.logicalVertices.some((vertex: number) => {
+      const i = t.vertices[vertex][0];
+      return Math.hypot(
+        p.getX(i) - expectedPoint[0],
+        p.getY(i) - expectedPoint[1],
+        p.getZ(i) - expectedPoint[2],
+      ) < 1e-6;
+    });
     return {
       polygons: t.polygons.length,
       vertices: t.vertices.length,
@@ -302,14 +354,16 @@ test('RMB Loop Cut splits the default Cube logical quad ring', async ({ page }) 
       sizes: t.polygons.map((polygon: number[]) => polygon.length),
       stored: e.selected.userData.forgePolygonTriangles?.length,
       mode: e.componentMode,
+      positioned,
     };
-  })).toEqual({
+  }, expected)).toEqual({
     polygons: 10,
     vertices: 12,
     triangles: 20,
     sizes: new Array(10).fill(4),
     stored: 10,
     mode: 'edge',
+    positioned: true,
   });
 });
 
