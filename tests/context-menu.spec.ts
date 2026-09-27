@@ -271,6 +271,7 @@ test('Edit Mode RMB menu changes with Vertex, Edge and Face component mode', asy
   await expect(menu.getByRole('menuitem', { name: 'Rotate R' })).toBeVisible();
   await expect(menu.getByRole('menuitem', { name: 'Scale S' })).toBeVisible();
   await expect(menu.getByRole('menuitem', { name: 'Select Linked' })).toBeVisible();
+  await expect(menu.getByRole('menuitem', { name: 'Select Boundary Edges' })).toBeVisible();
   await expect(menu.getByRole('menuitem', { name: 'Extrude Face' })).toBeVisible();
   await expect(menu.getByRole('menuitem', { name: 'Extrude Region' })).toBeVisible();
   await expect(menu.getByRole('menuitem', { name: 'Inset Face' })).toBeVisible();
@@ -330,6 +331,58 @@ test('RMB Select Linked expands the current logical Cube island without history'
       expect(afterEdgeOverlayGeometry).not.toBe(beforeEdgeOverlayGeometry);
     }
   }
+});
+
+test('RMB Select Boundary Edges converts a face region to its logical perimeter without history', async ({ page }) => {
+  await page.locator('#mode').selectOption('edit');
+  await page.getByLabel('Mesh component').selectOption('face');
+
+  const setup = await page.evaluate(() => {
+    const e = (window as any).__forge, t = e.meshTopology;
+    const edgeKey = (a:number,b:number) => `${Math.min(a,b)}:${Math.max(a,b)}`;
+    const uses = new Map<string, number[]>();
+    t.polygons.forEach((polygon:number[], face:number) => {
+      for (let local=0; local<polygon.length; local++) {
+        const key=edgeKey(polygon[local], polygon[(local+1)%polygon.length]);
+        const list=uses.get(key) ?? [];
+        list.push(face);
+        uses.set(key,list);
+      }
+    });
+    const pair=[...uses.values()].find((faces:number[])=>faces.length===2);
+    if (!pair) throw new Error('Expected adjacent Cube faces.');
+    e.selectComponent(pair[0]);
+    e.selectComponent(pair[1], true);
+
+    const selected = new Set(pair);
+    const expected = t.polygonEdges.flatMap((edge:number[], id:number) => {
+      const key=edgeKey(edge[0],edge[1]);
+      const count=(uses.get(key) ?? []).filter((face:number)=>selected.has(face)).length;
+      return count===1 ? [id] : [];
+    });
+    return { pair, expected, undoDepth:e.undoDepth };
+  });
+
+  await rightClickViewport(page);
+  const menu = page.locator('#viewport-context-menu');
+  await expect(menu.getByRole('menuitem', { name: 'Select Boundary Edges' })).toBeEnabled();
+  await menu.getByRole('menuitem', { name: 'Select Boundary Edges' }).click();
+  await expect(page.locator('#toast')).toContainText('Selected 6 logical boundary edges');
+
+  expect(await page.evaluate(expected => {
+    const e=(window as any).__forge;
+    return {
+      mode:e.componentMode,
+      selection:[...e.componentSelection].sort((a:number,b:number)=>a-b),
+      overlay:e.selectedEdgeOverlay.geometry.instanceCount,
+      undoDepth:e.undoDepth,
+    };
+  }, setup.expected)).toEqual({
+    mode:'edge',
+    selection:[...setup.expected].sort((a:number,b:number)=>a-b),
+    overlay:6,
+    undoDepth:setup.undoDepth,
+  });
 });
 
 test('RMB Cut Face splits a Cube quad between two selected opposite vertices', async ({ page }) => {
