@@ -285,6 +285,30 @@ export class Editor extends EventTarget {
           this.setKnifePreview(null, 'knife-pending-drag-preview');
           return;
         }
+        if (this.knifePendingLine?.visible && this.selected instanceof THREE.Mesh) {
+          this.raycaster.params.Line.threshold = threshold;
+          const lineHit = this.raycaster.intersectObject(this.knifePendingLine, false)[0];
+          if (lineHit?.index !== undefined) {
+            const segment = Math.min(Math.max(lineHit.index, 0), this.knifePendingPath.length - 2);
+            const local = this.selected.worldToLocal(lineHit.point.clone());
+            this.knifePendingActiveSegment = segment;
+            this.knifePendingHoverSegment = segment;
+            this.knifePendingActiveIndex = null;
+            this.knifePendingHoverIndex = null;
+            this.refreshKnifePendingPointColors();
+            this.refreshKnifePendingSegmentOverlay();
+            this.knifePendingSegmentClick = {
+              pointerId: e.pointerId,
+              segment,
+              point: local,
+              startX: e.clientX,
+              startY: e.clientY,
+              moved: false,
+            };
+            this.suppressClick = true;
+            return;
+          }
+        }
       }
       if (e.button === 0 && !e.altKey && !this.transform.dragging && !this.playing && !this.modelingBusy && !this.snapTargetPending) {
         const rect = host.getBoundingClientRect();
@@ -311,6 +335,11 @@ export class Editor extends EventTarget {
       if (drag.active) this.updateBoxSelectOverlay(drag.start, drag.current);
     });
     this.renderer.domElement.addEventListener('pointermove', e => {
+      if (this.knifePendingSegmentClick?.pointerId === e.pointerId) {
+        if (Math.hypot(e.clientX - this.knifePendingSegmentClick.startX, e.clientY - this.knifePendingSegmentClick.startY) > 3) {
+          this.knifePendingSegmentClick.moved = true;
+        }
+      }
       if (this.knifePendingDrag) {
         if (this.knifePendingDrag.pointerId !== e.pointerId || this.modelingBusy) return;
         if (Math.hypot(e.clientX - this.knifePendingDrag.startX, e.clientY - this.knifePendingDrag.startY) > 3) {
@@ -360,20 +389,49 @@ export class Editor extends EventTarget {
         this.camera,
       );
       const threshold = this.camera.position.distanceTo(this.orbit.target) * 0.012;
+      let pendingPointHit = false;
       if (this.knifePendingPoint?.visible) {
         this.raycaster.params.Points.threshold = threshold * 1.5;
         const pendingHit = this.raycaster.intersectObject(this.knifePendingPoint, false)[0];
         this.knifePendingHoverIndex = pendingHit?.index ?? null;
+        pendingPointHit = pendingHit?.index !== undefined;
         this.refreshKnifePendingPointColors();
       }
+      if (pendingPointHit) {
+        this.knifePendingHoverSegment = null;
+      } else if (this.knifePendingLine?.visible) {
+        this.raycaster.params.Line.threshold = threshold;
+        const lineHit = this.raycaster.intersectObject(this.knifePendingLine, false)[0];
+        this.knifePendingHoverSegment = lineHit?.index === undefined
+          ? null
+          : Math.min(Math.max(lineHit.index, 0), this.knifePendingPath.length - 2);
+      } else {
+        this.knifePendingHoverSegment = null;
+      }
+      this.refreshKnifePendingSegmentOverlay();
       this.setKnifePreview(this.pickKnifeTarget(threshold, 'hover'));
     });
     this.renderer.domElement.addEventListener('pointerleave', () => {
       this.knifePendingHoverIndex = null;
+      this.knifePendingHoverSegment = null;
       this.refreshKnifePendingPointColors();
+      this.refreshKnifePendingSegmentOverlay();
       if (!this.knifePendingDrag && this.snapTargetPending && this.snapTargetKind === 'knife') this.setKnifePreview(null);
     });
     this.renderer.domElement.addEventListener('pointerup', e => {
+      if (this.knifePendingSegmentClick?.pointerId === e.pointerId) {
+        const click = this.knifePendingSegmentClick;
+        this.knifePendingSegmentClick = null;
+        if (!click.moved) {
+          this.dispatchEvent(new CustomEvent('knife-pending-segment-insert', {
+            detail: {
+              segment: click.segment,
+              position: click.point.toArray() as [number, number, number],
+            },
+          }));
+        }
+        return;
+      }
       if (this.knifePendingDrag?.pointerId === e.pointerId) {
         const rect = host.getBoundingClientRect();
         this.raycaster.setFromCamera(
@@ -459,11 +517,13 @@ export class Editor extends EventTarget {
     this.renderer.domElement.addEventListener('pointercancel', e => {
       restoreTransform(e);
       cancelKnifePendingDrag(e.pointerId);
+      if (this.knifePendingSegmentClick?.pointerId === e.pointerId) this.knifePendingSegmentClick = null;
       this.cancelBoxSelection();
     });
     this.renderer.domElement.addEventListener('lostpointercapture', e => {
       restoreTransform(e);
       cancelKnifePendingDrag(e.pointerId);
+      if (this.knifePendingSegmentClick?.pointerId === e.pointerId) this.knifePendingSegmentClick = null;
       if (this.boxSelectDrag?.pointerId === e.pointerId) this.cancelBoxSelection();
     });
     this.renderer.domElement.addEventListener('contextmenu', e => e.preventDefault());
