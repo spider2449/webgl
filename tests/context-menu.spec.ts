@@ -258,7 +258,7 @@ test('Edit Mode RMB menu changes with Vertex, Edge and Face component mode', asy
   await expect(menu.getByRole('menuitem', { name: 'Select Linked' })).toBeVisible();
   await expect(menu.getByRole('menuitem', { name: 'Invert Selection' })).toBeVisible();
   await expect(menu.getByRole('menuitem', { name: 'Select Sharp Edges' })).toBeVisible();
-  await expect(page.getByLabel('Context sharp angle')).toHaveValue('30');
+  await expect(page.getByRole('spinbutton', { name: 'Context sharp angle', exact: true })).toHaveValue('30');
   await expect(menu.getByRole('menuitem', { name: 'Select Non-Manifold Edges' })).toBeVisible();
   await expect(menu.getByRole('menuitem', { name: 'Select Mesh Boundary' })).toBeVisible();
   await expect(menu.getByRole('menuitem', { name: 'Bevel Edges' })).toBeVisible();
@@ -419,7 +419,7 @@ test('RMB Select Sharp Edges uses a session angle threshold and preserves no-mat
 
   await rightClickViewport(page);
   let menu = page.locator('#viewport-context-menu');
-  const sharpAngle = page.getByLabel('Context sharp angle');
+  const sharpAngle = page.getByRole('spinbutton', { name: 'Context sharp angle', exact: true });
   await expect(sharpAngle).toHaveValue('30');
   await sharpAngle.fill('91');
   await sharpAngle.press('Enter');
@@ -435,9 +435,9 @@ test('RMB Select Sharp Edges uses a session angle threshold and preserves no-mat
 
   await rightClickViewport(page);
   menu = page.locator('#viewport-context-menu');
-  await expect(page.getByLabel('Context sharp angle')).toHaveValue('91');
-  await page.getByLabel('Context sharp angle').fill('30');
-  await page.getByLabel('Context sharp angle').press('Enter');
+  await expect(page.getByRole('spinbutton', { name: 'Context sharp angle', exact: true })).toHaveValue('91');
+  await page.getByRole('spinbutton', { name: 'Context sharp angle', exact: true }).fill('30');
+  await page.getByRole('spinbutton', { name: 'Context sharp angle', exact: true }).press('Enter');
   await expect(page.locator('#toast')).toContainText('Selected 12 sharp logical edges at 30° or greater');
 
   expect(await page.evaluate(() => {
@@ -477,7 +477,7 @@ test('RMB Select Sharp Edges uses a session angle threshold and preserves no-mat
 
   await rightClickViewport(page);
   menu = page.locator('#viewport-context-menu');
-  await expect(page.getByLabel('Context sharp angle')).toHaveValue('30');
+  await expect(page.getByRole('spinbutton', { name: 'Context sharp angle', exact: true })).toHaveValue('30');
   await menu.getByRole('menuitem', { name: 'Select Sharp Edges', exact: true }).click();
   await expect(page.locator('#toast')).toContainText('Mesh has no sharp logical manifold edges at or above 30°');
 
