@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 import * as THREE from 'three';
 import { bevelEdges, bevelLogicalEdges, cutLogicalFace, deleteLogicalComponents, extrudeLogicalFace, insetLogicalFace, loopCut, loopCutLogicalEdge, subdivideLogicalEdges, editUV } from '../src/modeling/modeling';
-import { buildTopology, linkedLogicalComponents, logicalFaceBoundaryEdges, logicalMeshBoundaryEdges, logicalNonManifoldEdges } from '../src/modeling/topology';
+import { buildTopology, linkedLogicalComponents, logicalFaceBoundaryEdges, logicalFacesBySides, logicalMeshBoundaryEdges, logicalNonManifoldEdges } from '../src/modeling/topology';
 import { evaluateModifiers } from '../src/modeling/modifiers';
 
 function topology(g: THREE.BufferGeometry) { return buildTopology(g.getAttribute('position').array, g.index?.array); }
@@ -93,6 +93,29 @@ test('linked logical traversal expands connected islands without renderer diagon
   expect(linkedLogicalComponents(cube, 'edge', [0])).toHaveLength(12);
   expect(linkedLogicalComponents(cube, 'face', [0])).toHaveLength(6);
   expect(() => linkedLogicalComponents(cube, 'edge', [-1])).toThrow(/valid logical edges/);
+  box.dispose();
+});
+
+test('logical face-side selection uses polygon sides rather than renderer triangles', () => {
+  const box = new THREE.BoxGeometry(2, 2, 2);
+  const cube = buildTopology(box.getAttribute('position').array, box.index?.array, true);
+  expect(logicalFacesBySides(cube, 'quads')).toHaveLength(6);
+  expect(logicalFacesBySides(cube, 'triangles')).toEqual([]);
+  expect(logicalFacesBySides(cube, 'ngons')).toEqual([]);
+
+  const mixed = {
+    ...cube,
+    polygons: [
+      [0, 1, 2],
+      [0, 1, 2, 3],
+      [0, 1, 2, 3, 4],
+      [0, 1, 2, 3, 4, 5, 6],
+    ],
+  };
+  expect(logicalFacesBySides(mixed, 'triangles')).toEqual([0]);
+  expect(logicalFacesBySides(mixed, 'quads')).toEqual([1]);
+  expect(logicalFacesBySides(mixed, 'ngons')).toEqual([2, 3]);
+
   box.dispose();
 });
 
