@@ -1006,6 +1006,84 @@ export function cutLogicalFaceViaInteriorPoint(
   return cutLogicalFaceViaInteriorPath(source, face, vertices, [interior], polygonTriangles);
 }
 
+export function subdivideLogicalEdges(
+  source: THREE.BufferGeometry,
+  edges: number[],
+  polygonTriangles?: number[][],
+) {
+  const inspection = inspectGeometry(source, polygonTriangles ?? false);
+  const { topology, read } = inspection;
+  const { polygons } = logicalSurface(source, inspection);
+  if (!Array.isArray(edges) || !edges.length) throw new Error('Select one or more logical edges.');
+  if (edges.some(edge => !Number.isInteger(edge) || edge < 0 || !topology.polygonEdges[edge])) {
+    throw new Error('Select valid logical edges.');
+  }
+
+  const selected = new Set(edges);
+  const edgeByKey = new Map(topology.polygonEdges.map((edge, id) => [edgeKey(edge[0], edge[1]), id]));
+  const occupied = new Set(topology.vertices.map(copies => {
+    const point = new THREE.Vector3().fromBufferAttribute(source.getAttribute('position'), copies[0]);
+    return key(point.toArray());
+  }));
+  const midpointByEdge = new Map<number, number[]>();
+
+  for (const edge of selected) {
+    const [a, b] = topology.polygonEdges[edge];
+    const firstPosition = read(a).toArray();
+    const secondPosition = read(b).toArray();
+    const forward = key(firstPosition) < key(secondPosition);
+    const first = forward ? firstPosition : secondPosition;
+    const second = forward ? secondPosition : firstPosition;
+    const midpoint = first.map((value, component) =>
+      Math.fround(value + (second[component] - value) * 0.5)
+    );
+    if (
+      midpoint.some(value => !Number.isFinite(value)) ||
+      midpoint.every((value, component) => value === first[component]) ||
+      midpoint.every((value, component) => value === second[component])
+    ) {
+      throw new Error('Subdivision collapses at mesh coordinate precision.');
+    }
+    const midpointKey = key(midpoint);
+    if (occupied.has(midpointKey)) throw new Error('Edge midpoint already contains a mesh vertex or another midpoint.');
+    occupied.add(midpointKey);
+    midpointByEdge.set(edge, midpoint);
+  }
+
+  const output = polygons.map((polygon, polygonId) => {
+    const vertices = topology.polygons[polygonId];
+    const corners: Corner[] = [];
+    const referenceNormals: THREE.Vector3[] | undefined = polygon.referenceNormals ? [] : undefined;
+
+    for (let local = 0; local < vertices.length; local++) {
+      const next = (local + 1) % vertices.length;
+      const a = polygon.corners[local];
+      const b = polygon.corners[next];
+      corners.push(a);
+      referenceNormals?.push(polygon.referenceNormals![local].clone());
+
+      const edge = edgeByKey.get(edgeKey(vertices[local], vertices[next]));
+      if (edge === undefined || !selected.has(edge)) continue;
+
+      const forward = key(a.position) < key(b.position);
+      const midpoint = forward ? interpolate(a, b, 0.5) : interpolate(b, a, 0.5);
+      midpoint.position = [...midpointByEdge.get(edge)!];
+      corners.push(midpoint);
+
+      if (referenceNormals) {
+        const normal = polygon.referenceNormals![local].clone().add(polygon.referenceNormals![next]);
+        if (normal.lengthSq() > 1e-16) normal.normalize();
+        else normal.copy(polygon.referenceNormals![local]);
+        referenceNormals.push(normal);
+      }
+    }
+
+    return { material: polygon.material, corners, referenceNormals };
+  });
+
+  return finishDetailed(output);
+}
+
 export function loopCutLogicalEdge(
   source: THREE.BufferGeometry,
   edge: number,

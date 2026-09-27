@@ -1128,7 +1128,11 @@ $('#proportional-radius').closest('label')!.insertAdjacentHTML('afterend', '<lab
 async function subdivideSelectedEdges() {
   try {
     if (!editor.editMode || editor.componentMode !== 'edge' || !editor.componentSelection.length || !editor.meshTopology) throw new Error('Select one or more edges in Edit Mode first.');
-    await editor.runModeling({kind:'subdivide',edges:editor.componentSelection.map(id=>editor.meshTopology!.polygonEdges[id].map(v=>editor.meshTopology!.vertices[v][0]) as [number,number])});
+    await editor.runModeling({
+      kind: 'subdivide',
+      edges: editor.componentSelection,
+      polygonTriangles: editor.meshTopology.polygonTriangles.map(group => [...group]),
+    });
     toast('Edges subdivided. Split edge segments selected.');
   } catch (error) { toast((error as Error).message); }
 }

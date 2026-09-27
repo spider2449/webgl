@@ -83,7 +83,11 @@ test('Shift-selected adjacent edges subdivide atomically and keep split edges se
       const midpoint=point.toArray();m.localToWorld(point).project(e.camera);
       return {midpoint,x:rect.left+(point.x+1)*rect.width/2,y:rect.top+(1-point.y)*rect.height/2};
     });
-    return {targets,bufferCount:p.count};
+    const originalVertices=t.logicalVertices.map((v:number)=>{
+      const i=t.vertices[v][0];
+      return [p.getX(i),p.getY(i),p.getZ(i)];
+    });
+    return {targets,originalVertices};
   });
   const targets=setup.targets;
   await page.mouse.click(targets[0].x,targets[0].y);
@@ -103,8 +107,14 @@ test('Shift-selected adjacent edges subdivide atomically and keep split edges se
   await expect(page.getByLabel('Mesh component')).toHaveValue('edge');
   const result=await page.evaluate((setup)=>{
     const e=(window as any).__forge,p=e.selected.geometry.attributes.position,t=e.topology;
-    const midpointVertices=[...new Set(t.bufferToVertex.slice(setup.bufferCount))];
-    const mids=midpointVertices.map((v:number)=>[p.getX(t.vertices[v][0]),p.getY(t.vertices[v][0]),p.getZ(t.vertices[v][0])]);
+    const key=(value:number[])=>value.join(',');
+    const original=new Set(setup.originalVertices.map((value:number[])=>key(value)));
+    const mids=t.logicalVertices
+      .map((v:number)=>{
+        const i=t.vertices[v][0];
+        return [p.getX(i),p.getY(i),p.getZ(i)];
+      })
+      .filter((value:number[])=>!original.has(key(value)));
     const selectedEdges=[...e.selectedComponents];
     const selected=[...e.vertexIndices],positions=Array.from(p.array) as number[];
     e.transform.dispatchEvent({type:'dragging-changed',value:true});e.vertexProxy.position.x+=0.3;e.transform.dispatchEvent({type:'objectChange'});e.transform.dispatchEvent({type:'dragging-changed',value:false});
