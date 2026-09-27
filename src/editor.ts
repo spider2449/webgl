@@ -1652,7 +1652,11 @@ export class Editor extends EventTarget {
     this.emit('component-selection');
   }
 
-  private restoreSubdivisionSelection(mode: ComponentMode, oldEdges: [[number, number, number], [number, number, number]][]) {
+  private restoreSubdivisionSelection(
+    mode: ComponentMode,
+    oldEdges: [[number, number, number], [number, number, number]][],
+    cuts = 1,
+  ) {
     if (!this.topology || !(this.selected instanceof THREE.Mesh)) return;
     this.setComponentMode(mode);
     if (mode === 'edge' && oldEdges.length) {
@@ -1669,21 +1673,27 @@ export class Editor extends EventTarget {
 
       for (const [aPosition, bPosition] of oldEdges) {
         const aKey = positionKey(aPosition), bKey = positionKey(bPosition);
-        const [firstPosition, secondPosition] = aKey < bKey
-          ? [aPosition, bPosition]
-          : [bPosition, aPosition];
-        const midpointPosition: [number, number, number] = [
-          Math.fround(firstPosition[0] + (secondPosition[0] - firstPosition[0]) * 0.5),
-          Math.fround(firstPosition[1] + (secondPosition[1] - firstPosition[1]) * 0.5),
-          Math.fround(firstPosition[2] + (secondPosition[2] - firstPosition[2]) * 0.5),
-        ];
-        const a = vertexByPosition.get(aKey);
-        const b = vertexByPosition.get(bKey);
-        const midpoint = vertexByPosition.get(positionKey(midpointPosition));
-        if (a === undefined || b === undefined || midpoint === undefined) continue;
-        const first = edgeByKey.get(edgeKey(a, midpoint));
-        const second = edgeByKey.get(edgeKey(midpoint, b));
-        if (first !== undefined && second !== undefined) splitEdges.push(first, second);
+        const forward = aKey < bKey;
+        const firstPosition = forward ? aPosition : bPosition;
+        const secondPosition = forward ? bPosition : aPosition;
+        const canonicalCuts: [number, number, number][] = [];
+        for (let cut = 1; cut <= cuts; cut++) {
+          const factor = cut / (cuts + 1);
+          canonicalCuts.push([
+            Math.fround(firstPosition[0] + (secondPosition[0] - firstPosition[0]) * factor),
+            Math.fround(firstPosition[1] + (secondPosition[1] - firstPosition[1]) * factor),
+            Math.fround(firstPosition[2] + (secondPosition[2] - firstPosition[2]) * factor),
+          ]);
+        }
+        const localCuts = forward ? canonicalCuts : [...canonicalCuts].reverse();
+        const chainPositions = [aPosition, ...localCuts, bPosition];
+        const chain = chainPositions.map(position => vertexByPosition.get(positionKey(position)));
+        if (chain.some(vertex => vertex === undefined)) continue;
+
+        for (let segment = 0; segment + 1 < chain.length; segment++) {
+          const edge = edgeByKey.get(edgeKey(chain[segment]!, chain[segment + 1]!));
+          if (edge !== undefined) splitEdges.push(edge);
+        }
       }
 
       this.selectedComponents = new Set(splitEdges);
@@ -1778,7 +1788,7 @@ export class Editor extends EventTarget {
     this.content.traverse(object => { if (object instanceof THREE.Mesh && object.geometry === original) retained = true; });
     if (!retained) original.dispose();
     this.setEditMode(true);
-    this.restoreSubdivisionSelection('edge', oldEdges);
+    this.restoreSubdivisionSelection('edge', oldEdges, 1);
     this.commit();
   }
   cancelVertexSnap() {
@@ -2285,7 +2295,7 @@ export class Editor extends EventTarget {
         const rebuildFromStoredPolygons = operation.kind === 'bevel' || operation.kind === 'extrude' || operation.kind === 'inset' || operation.kind === 'loop' || (operation.kind === 'subdivide' && !batch) || operation.kind === 'delete-components' || operation.kind === 'cut-face' || operation.kind === 'cut-face-edge' || operation.kind === 'cut-face-edges' || operation.kind === 'cut-face-via-point' || operation.kind === 'cut-face-via-path';
         this.setEditMode(true, operation.kind === 'uv' || rebuildFromStoredPolygons ? undefined : topologies[0]);
         if (operation.kind === 'subdivide' && !batch) {
-          this.restoreSubdivisionSelection(oldMode, oldEdges);
+          this.restoreSubdivisionSelection(oldMode, oldEdges, operation.cuts ?? 1);
         } else if (operation.kind === 'subdivide-all') {
           this.setComponentMode(oldMode);
         } else if (operation.kind === 'loop') {
