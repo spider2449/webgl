@@ -10,7 +10,7 @@ import { clone as cloneSkeleton } from 'three/addons/utils/SkeletonUtils.js';
 import { createGrid, setGridPlane } from './viewport/grid';
 import { insetTriangle } from './modeling/extrude';
 import { extrudeLogicalFace } from './modeling/modeling';
-import { buildTopology, linkedLogicalComponents, logicalFaceBoundaryEdges, logicalMeshBoundaryEdges, logicalNonManifoldEdges, type MeshTopology, type ComponentMode } from './modeling/topology';
+import { buildTopology, linkedLogicalComponents, logicalFaceBoundaryEdges, logicalFacesBySides, logicalMeshBoundaryEdges, logicalNonManifoldEdges, type MeshTopology, type ComponentMode, type FaceSideKind } from './modeling/topology';
 import { proportionalWeights } from './modeling/proportional';
 import { subdivideEdges } from './modeling/subdivide';
 import { extrudeRegion } from './modeling/extrude-region';
@@ -1678,6 +1678,33 @@ export class Editor extends EventTarget {
     this.selectComponentVertices(vertices);
     this.emit('component-selection');
     return inverted.length;
+  }
+
+  selectFacesBySides(kind: FaceSideKind) {
+    if (
+      !this.editMode ||
+      this.weightMode ||
+      this.componentMode !== 'face' ||
+      !this.topology ||
+      this.modelingBusy ||
+      this.playing ||
+      this.transform.dragging
+    ) {
+      throw new Error('Enter mesh Face Edit Mode before selecting faces by side count.');
+    }
+
+    const faces = logicalFacesBySides(this.topology, kind);
+    if (!faces.length) {
+      const label = kind === 'triangles' ? 'triangles' : kind === 'quads' ? 'quads' : 'N-gons';
+      throw new Error(`Mesh has no logical ${label}.`);
+    }
+
+    this.modelingVersion++;
+    this.selectedComponents = new Set(faces);
+    this.selectedFace = faces.length === 1 ? faces[0] : null;
+    this.selectComponentVertices(faces.flatMap(face => this.topology!.polygons[face]));
+    this.emit('component-selection');
+    return faces.length;
   }
 
   selectNonManifoldEdges() {
