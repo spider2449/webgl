@@ -276,6 +276,8 @@ test('Edit Mode RMB menu changes with Vertex, Edge and Face component mode', asy
   await expect(menu.getByRole('menuitem', { name: 'Scale S' })).toBeVisible();
   await expect(menu.getByRole('menuitem', { name: 'Select Linked' })).toBeVisible();
   await expect(menu.getByRole('menuitem', { name: 'Invert Selection' })).toBeVisible();
+  await expect(menu.getByRole('menuitem', { name: 'Select Faces by Sides' })).toBeVisible();
+  await expect(page.getByLabel('Context face type')).toHaveValue('quads');
   await expect(menu.getByRole('menuitem', { name: 'Select Boundary Edges' })).toBeVisible();
   await expect(menu.getByRole('menuitem', { name: 'Extrude Face' })).toBeVisible();
   await expect(menu.getByRole('menuitem', { name: 'Extrude Region' })).toBeVisible();
@@ -518,6 +520,46 @@ test('RMB Select Mesh Boundary selects open logical edges and preserves closed-m
     mode:'edge',
     selection:before.selection,
     undoDepth:before.undoDepth,
+  });
+});
+
+test('RMB Select Faces by Sides uses logical polygon side counts and preserves selection on no match', async ({ page }) => {
+  await page.getByRole('button', { name: 'Toggle geometry statistics' }).click();
+  await page.locator('#mode').selectOption('edit');
+  await page.getByLabel('Mesh component').selectOption('face');
+  const initialUndoDepth = await page.evaluate(() => (window as any).__forge.undoDepth);
+
+  await rightClickViewport(page);
+  let menu = page.locator('#viewport-context-menu');
+  const faceType = page.getByLabel('Context face type');
+  await expect(faceType).toHaveValue('quads');
+  await expect(menu.getByRole('menuitem', { name: 'Select Faces by Sides', exact: true })).toBeEnabled();
+  await menu.getByRole('menuitem', { name: 'Select Faces by Sides', exact: true }).click();
+  await expect(page.locator('#toast')).toContainText('Selected 6 logical quads');
+
+  expect(await page.evaluate(() => ({
+    mode:(window as any).__forge.componentMode,
+    selection:[...(window as any).__forge.componentSelection],
+    undoDepth:(window as any).__forge.undoDepth,
+  }))).toEqual({
+    mode:'face',
+    selection:[0,1,2,3,4,5],
+    undoDepth:initialUndoDepth,
+  });
+  await expect(page.locator('#geometry-statistics-selected')).toHaveText('Obj 1 · V 8 · E 12 · F 6 · T 12');
+
+  await rightClickViewport(page);
+  menu = page.locator('#viewport-context-menu');
+  await page.getByLabel('Context face type').selectOption('triangles');
+  await menu.getByRole('menuitem', { name: 'Select Faces by Sides', exact: true }).click();
+  await expect(page.locator('#toast')).toContainText('Mesh has no logical triangles');
+
+  expect(await page.evaluate(() => ({
+    selection:[...(window as any).__forge.componentSelection],
+    undoDepth:(window as any).__forge.undoDepth,
+  }))).toEqual({
+    selection:[0,1,2,3,4,5],
+    undoDepth:initialUndoDepth,
   });
 });
 

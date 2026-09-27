@@ -60,7 +60,9 @@ clears the component selection. Outside text-entry fields, Ctrl+A is intercepted
 RMB -> **Select Linked**
 expands the current selection across each connected logical mesh island: vertices and edges follow
 logical polygon boundary edges, while faces cross only shared logical boundary edges. In Face mode,
-In Edge mode, RMB -> **Select Non-Manifold Edges** selects logical edges whose polygon-face use count
+In Face mode, RMB -> **Select Faces by Sides** selects logical Triangles, Quads or N-gons (5+ sides)
+from polygon boundary size rather than renderer tessellation; the default Cube therefore has six Quads, not
+twelve Triangles. In Edge mode, RMB -> **Select Non-Manifold Edges** selects logical edges whose polygon-face use count
 is not two: open boundaries (one face) and over-connected edges (three or more faces). RMB -> **Select Mesh Boundary**
 selects only open logical mesh edges used by exactly one logical polygon; closed surfaces such as the default Cube
 have no mesh boundary. In Face mode,
