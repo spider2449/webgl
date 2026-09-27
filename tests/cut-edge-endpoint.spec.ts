@@ -271,6 +271,68 @@ test('multi-bend Knife path creates true logical vertices and edges for every in
   plane.dispose();
 });
 
+test('multi-bend Knife path preserves a collinear inserted bend as logical topology', () => {
+  const plane = new THREE.PlaneGeometry(2, 2, 1, 1);
+  const input = buildTopology(plane.getAttribute('position').array, plane.index?.array, true);
+  const face = 0;
+  const boundary = input.polygons[face];
+  const start = boundary[0];
+  const end = boundary[2];
+  const startPoint = point(plane, input, start);
+  const endPoint = point(plane, input, end);
+  const first = startPoint.clone().lerp(endPoint, 0.3).add(new THREE.Vector3(0.14, -0.09, 0));
+  const second = startPoint.clone().lerp(endPoint, 0.62).add(new THREE.Vector3(-0.09, 0.13, 0));
+  const inserted = first.clone().lerp(second, 0.5);
+
+  const result = cutLogicalFaceViaPath(plane, {
+    face,
+    start: { kind: 'vertex', vertex: start },
+    interiors: [
+      first.toArray() as [number, number, number],
+      inserted.toArray() as [number, number, number],
+      second.toArray() as [number, number, number],
+    ],
+    end: { kind: 'vertex', vertex: end },
+  }, input.polygonTriangles);
+
+  const output = buildTopology(
+    result.geometry.getAttribute('position').array,
+    result.geometry.index?.array,
+    result.polygonTriangles,
+  );
+  expect(output.polygons).toHaveLength(2);
+  expect(output.logicalVertices).toHaveLength(7);
+  expect(output.polygonEdges).toHaveLength(8);
+
+  const find = (expected: THREE.Vector3) => output.logicalVertices.find(vertex =>
+    point(result.geometry, output, vertex).distanceToSquared(expected) < 1e-12
+  );
+  const mappedStart = find(startPoint);
+  const mappedFirst = find(first);
+  const mappedInserted = find(inserted);
+  const mappedSecond = find(second);
+  const mappedEnd = find(endPoint);
+  for (const vertex of [mappedStart, mappedFirst, mappedInserted, mappedSecond, mappedEnd]) {
+    expect(vertex).toBeDefined();
+  }
+
+  const hasEdge = (a: number | undefined, b: number | undefined) =>
+    output.polygonEdges.some(([x, y]) => (x === a && y === b) || (x === b && y === a));
+  expect(hasEdge(mappedStart, mappedFirst)).toBe(true);
+  expect(hasEdge(mappedFirst, mappedInserted)).toBe(true);
+  expect(hasEdge(mappedInserted, mappedSecond)).toBe(true);
+  expect(hasEdge(mappedSecond, mappedEnd)).toBe(true);
+  expect(output.polygons.filter(polygon => polygon.includes(mappedInserted!))).toHaveLength(2);
+
+  for (const faceVertices of output.faces) {
+    const [a, b, c] = faceVertices.map(vertex => point(result.geometry, output, vertex));
+    expect(b.sub(a).cross(c.sub(a)).lengthSq()).toBeGreaterThan(1e-16);
+  }
+
+  result.geometry.dispose();
+  plane.dispose();
+});
+
 test('edge-to-edge multi-bend Knife path preserves inserted boundary endpoints', () => {
   const plane = new THREE.PlaneGeometry(2, 2, 1, 1);
   const input = buildTopology(plane.getAttribute('position').array, plane.index?.array, true);
