@@ -316,6 +316,79 @@ export function growLogicalComponents(
   });
 }
 
+export function shrinkLogicalComponents(
+  topology: MeshTopology,
+  mode: ComponentMode,
+  selectedComponents: number[],
+) {
+  const selected = [...new Set(selectedComponents)];
+  if (!selected.length) return [];
+
+  if (mode === 'vertex') {
+    const logical = new Set(topology.logicalVertices);
+    if (selected.some(vertex => !logical.has(vertex))) throw new Error('Select valid logical vertices.');
+    const selectedSet = new Set(selected);
+    const neighbors = new Map<number, Set<number>>();
+    for (const [a, b] of topology.polygonEdges) {
+      const aNeighbors = neighbors.get(a) ?? new Set<number>();
+      aNeighbors.add(b);
+      neighbors.set(a, aNeighbors);
+      const bNeighbors = neighbors.get(b) ?? new Set<number>();
+      bNeighbors.add(a);
+      neighbors.set(b, bNeighbors);
+    }
+    return topology.logicalVertices.filter(vertex =>
+      selectedSet.has(vertex) &&
+      [...(neighbors.get(vertex) ?? [])].every(neighbor => selectedSet.has(neighbor))
+    );
+  }
+
+  if (mode === 'edge') {
+    if (selected.some(edge => !topology.polygonEdges[edge])) throw new Error('Select valid logical edges.');
+    const selectedSet = new Set(selected);
+    const vertexEdges = new Map<number, Set<number>>();
+    topology.polygonEdges.forEach(([a, b], edge) => {
+      for (const vertex of [a, b]) {
+        const edges = vertexEdges.get(vertex) ?? new Set<number>();
+        edges.add(edge);
+        vertexEdges.set(vertex, edges);
+      }
+    });
+
+    return topology.polygonEdges.flatMap(([a, b], edge) => {
+      if (!selectedSet.has(edge)) return [];
+      const adjacent = new Set<number>([
+        ...(vertexEdges.get(a) ?? []),
+        ...(vertexEdges.get(b) ?? []),
+      ]);
+      adjacent.delete(edge);
+      return [...adjacent].every(next => selectedSet.has(next)) ? [edge] : [];
+    });
+  }
+
+  if (selected.some(face => !topology.polygons[face])) throw new Error('Select valid logical faces.');
+
+  const selectedSet = new Set(selected);
+  const edgeFaces = new Map<string, number[]>();
+  topology.polygons.forEach((polygon, face) => {
+    for (let local = 0; local < polygon.length; local++) {
+      const key = edgeKey(polygon[local], polygon[(local + 1) % polygon.length]);
+      const faces = edgeFaces.get(key) ?? [];
+      faces.push(face);
+      edgeFaces.set(key, faces);
+    }
+  });
+
+  return topology.polygons.flatMap((polygon, face) => {
+    if (!selectedSet.has(face)) return [];
+    for (let local = 0; local < polygon.length; local++) {
+      const faces = edgeFaces.get(edgeKey(polygon[local], polygon[(local + 1) % polygon.length])) ?? [];
+      if (faces.some(next => next !== face && !selectedSet.has(next))) return [];
+    }
+    return [face];
+  });
+}
+
 export function logicalFaceBoundaryEdges(topology: MeshTopology, faces: number[]) {
   const selected = new Set(faces);
   if (!selected.size) return [];

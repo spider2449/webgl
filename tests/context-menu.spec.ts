@@ -232,6 +232,7 @@ test('Edit Mode RMB menu changes with Vertex, Edge and Face component mode', asy
   await expect(menu.getByRole('menuitem', { name: 'Scale S' })).toBeVisible();
   await expect(menu.getByRole('menuitem', { name: 'Select Linked' })).toBeVisible();
   await expect(menu.getByRole('menuitem', { name: 'Select More' })).toBeVisible();
+  await expect(menu.getByRole('menuitem', { name: 'Select Less' })).toBeVisible();
   await expect(menu.getByRole('menuitem', { name: 'Invert Selection' })).toBeVisible();
   await expect(menu.getByRole('menuitem', { name: 'Knife K' })).toBeVisible();
   await expect(menu.getByRole('menuitem', { name: 'Knife K' })).toBeEnabled();
@@ -258,6 +259,7 @@ test('Edit Mode RMB menu changes with Vertex, Edge and Face component mode', asy
   await expect(menu.getByRole('menuitem', { name: 'Scale S' })).toBeVisible();
   await expect(menu.getByRole('menuitem', { name: 'Select Linked' })).toBeVisible();
   await expect(menu.getByRole('menuitem', { name: 'Select More' })).toBeVisible();
+  await expect(menu.getByRole('menuitem', { name: 'Select Less' })).toBeVisible();
   await expect(menu.getByRole('menuitem', { name: 'Invert Selection' })).toBeVisible();
   await expect(menu.getByRole('menuitem', { name: 'Select Sharp Edges' })).toBeVisible();
   await expect(page.getByRole('spinbutton', { name: 'Context sharp angle', exact: true })).toHaveValue('30');
@@ -280,6 +282,7 @@ test('Edit Mode RMB menu changes with Vertex, Edge and Face component mode', asy
   await expect(menu.getByRole('menuitem', { name: 'Scale S' })).toBeVisible();
   await expect(menu.getByRole('menuitem', { name: 'Select Linked' })).toBeVisible();
   await expect(menu.getByRole('menuitem', { name: 'Select More' })).toBeVisible();
+  await expect(menu.getByRole('menuitem', { name: 'Select Less' })).toBeVisible();
   await expect(menu.getByRole('menuitem', { name: 'Invert Selection' })).toBeVisible();
   await expect(menu.getByRole('menuitem', { name: 'Select Faces by Sides' })).toBeVisible();
   await expect(page.getByLabel('Context face type')).toHaveValue('quads');
@@ -343,6 +346,45 @@ test('RMB Select Linked expands the current logical Cube island without history'
       const afterEdgeOverlayGeometry = await page.evaluate(() => (window as any).__forge.selectedEdgeOverlay.geometry.uuid);
       expect(afterEdgeOverlayGeometry).not.toBe(beforeEdgeOverlayGeometry);
     }
+  }
+});
+
+test('RMB Select Less shrinks one logical adjacency ring without history', async ({ page }) => {
+  await page.locator('#mode').selectOption('edit');
+  const initialUndoDepth = await page.evaluate(() => (window as any).__forge.undoDepth);
+
+  for (const mode of ['vertex', 'edge', 'face'] as const) {
+    await page.getByLabel('Mesh component').selectOption(mode);
+    await page.evaluate(() => (window as any).__forge.selectComponent(0));
+
+    await rightClickViewport(page);
+    let menu = page.locator('#viewport-context-menu');
+    await menu.getByRole('menuitem', { name: 'Select More', exact: true }).click();
+
+    await rightClickViewport(page);
+    menu = page.locator('#viewport-context-menu');
+    await expect(menu.getByRole('menuitem', { name: 'Select Less', exact: true })).toBeEnabled();
+    await menu.getByRole('menuitem', { name: 'Select Less', exact: true }).click();
+    await expect(page.locator('#toast')).toContainText('Selection shrunk to 1 logical components');
+
+    expect(await page.evaluate(currentMode => {
+      const e=(window as any).__forge;
+      return {
+        mode:e.componentMode,
+        selection:[...e.componentSelection],
+        edgeOverlay:currentMode === 'edge' ? e.selectedEdgeOverlay.geometry.instanceCount : null,
+        active:currentMode === 'edge' ? e.componentSelection.at(-1) : null,
+        activeOverlay:currentMode === 'edge' ? e.activeEdgeOverlay.geometry.instanceCount : null,
+        undoDepth:e.undoDepth,
+      };
+    }, mode)).toEqual({
+      mode,
+      selection:[0],
+      edgeOverlay:mode === 'edge' ? 1 : null,
+      active:mode === 'edge' ? 0 : null,
+      activeOverlay:mode === 'edge' ? 1 : null,
+      undoDepth:initialUndoDepth,
+    });
   }
 });
 

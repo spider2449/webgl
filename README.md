@@ -62,6 +62,7 @@ expands the current selection across each connected logical mesh island: vertice
 logical polygon boundary edges, while faces cross only shared logical boundary edges. RMB -> **Select More**
 grows the current logical selection by exactly one adjacency ring: vertices add logical-edge neighbors,
 edges add logical edges sharing an endpoint, and faces add faces sharing a logical boundary edge.
+RMB -> **Select Less** removes one logical boundary ring by dropping selected components that touch unselected logical neighbors; a Select More followed by Select Less returns the default Cube's single seed selection.
 Renderer triangulation diagonals never participate. In Face mode, RMB -> **Select Faces by Sides** selects logical Triangles, Quads or N-gons (5+ sides)
 from polygon boundary size rather than renderer tessellation; the default Cube therefore has six Quads, not
 twelve Triangles. **Select Coplanar Faces** expands the current face seed across shared logical polygon edges
