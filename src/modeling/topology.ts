@@ -264,6 +264,59 @@ export function linkedLogicalComponents(
   return topology.polygons.flatMap((_, face) => visited.has(face) ? [face] : []);
 }
 
+export function growLogicalComponents(
+  topology: MeshTopology,
+  mode: ComponentMode,
+  seeds: number[],
+) {
+  const uniqueSeeds = [...new Set(seeds)];
+  if (!uniqueSeeds.length) return [];
+
+  if (mode === 'vertex') {
+    const logical = new Set(topology.logicalVertices);
+    if (uniqueSeeds.some(vertex => !logical.has(vertex))) throw new Error('Select valid logical vertices.');
+    const result = new Set(uniqueSeeds);
+    for (const [a, b] of topology.polygonEdges) {
+      if (result.has(a) || result.has(b)) {
+        if (uniqueSeeds.includes(a) || uniqueSeeds.includes(b)) {
+          result.add(a);
+          result.add(b);
+        }
+      }
+    }
+    return topology.logicalVertices.filter(vertex => result.has(vertex));
+  }
+
+  if (mode === 'edge') {
+    if (uniqueSeeds.some(edge => !topology.polygonEdges[edge])) throw new Error('Select valid logical edges.');
+    const seedVertices = new Set<number>();
+    for (const edge of uniqueSeeds) {
+      for (const vertex of topology.polygonEdges[edge]) seedVertices.add(vertex);
+    }
+    return topology.polygonEdges.flatMap((edge, id) =>
+      uniqueSeeds.includes(id) || edge.some(vertex => seedVertices.has(vertex)) ? [id] : []
+    );
+  }
+
+  if (uniqueSeeds.some(face => !topology.polygons[face])) throw new Error('Select valid logical faces.');
+
+  const seedEdgeKeys = new Set<string>();
+  for (const face of uniqueSeeds) {
+    const polygon = topology.polygons[face];
+    for (let local = 0; local < polygon.length; local++) {
+      seedEdgeKeys.add(edgeKey(polygon[local], polygon[(local + 1) % polygon.length]));
+    }
+  }
+
+  return topology.polygons.flatMap((polygon, face) => {
+    if (uniqueSeeds.includes(face)) return [face];
+    for (let local = 0; local < polygon.length; local++) {
+      if (seedEdgeKeys.has(edgeKey(polygon[local], polygon[(local + 1) % polygon.length]))) return [face];
+    }
+    return [];
+  });
+}
+
 export function logicalFaceBoundaryEdges(topology: MeshTopology, faces: number[]) {
   const selected = new Set(faces);
   if (!selected.size) return [];
