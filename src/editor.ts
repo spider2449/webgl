@@ -1767,7 +1767,7 @@ export class Editor extends EventTarget {
     const endpoints = selectedEdgeIds.map(id => this.topology!.polygonEdges[id].map(v => this.topology!.vertices[v][0]) as [number, number]);
     const mesh = this.selected, original = mesh.geometry;
     const geometry = subdivideEdges(original, endpoints);
-    if (this.stats().vertices + geometry.getAttribute('position').count - midpointIndex > 2_000_000) {
+    if (this.stats().vertices + geometry.getAttribute('position').count - original.getAttribute('position').count > 2_000_000) {
       geometry.dispose();
       throw new Error('Subdivision would exceed the scene vertex limit.');
     }
