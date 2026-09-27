@@ -286,6 +286,110 @@ test('RMB Select Edge Loop restores the connected middle Loop Cut cycle without 
   });
 });
 
+test('double-click selects a logical edge loop and Shift-double-click toggles the whole loop', async ({ page }) => {
+  await page.locator('#mode').selectOption('edit');
+  await page.getByLabel('Mesh component').selectOption('edge');
+
+  await page.evaluate(() => {
+    const e = (window as any).__forge;
+    e.selectComponent(0);
+    (window as any).__forgeModelingSettings.loopPosition = 0.3;
+  });
+  await rightClickViewport(page);
+  await page.locator('#viewport-context-menu').getByRole('menuitem', { name: 'Loop Cut' }).click();
+  await page.waitForFunction(() => !(window as any).__forge.modelingBusy);
+  await expect(page.locator('#toast')).toContainText('Loop cut complete');
+
+  const target = await page.evaluate(() => {
+    const e = (window as any).__forge, t = e.meshTopology, mesh = e.selected;
+    const expected = [...e.componentSelection];
+    if (expected.length !== 4) throw new Error(`Expected four Loop Cut edges, got ${expected.length}`);
+    const position = mesh.geometry.getAttribute('position');
+
+    e.view('front');
+    mesh.updateWorldMatrix(true, false);
+    e.camera.updateMatrixWorld(true);
+
+    const edgeInfo = expected.map((edge: number) => {
+      const [a, b] = t.polygonEdges[edge];
+      const ai = t.vertices[a][0], bi = t.vertices[b][0];
+      const first = new THREE.Vector3(position.getX(ai), position.getY(ai), position.getZ(ai));
+      const second = new THREE.Vector3(position.getX(bi), position.getY(bi), position.getZ(bi));
+      return { edge, first, second, depth: (first.z + second.z) / 2 };
+    }).sort((a: any, b: any) => b.depth - a.depth)[0];
+
+    const midpoint = edgeInfo.first.clone().add(edgeInfo.second).multiplyScalar(0.5);
+    mesh.localToWorld(midpoint).project(e.camera);
+    const rect = e.host.getBoundingClientRect();
+    const unrelated = t.polygonEdges.findIndex((_: unknown, edge: number) => !expected.includes(edge));
+    if (unrelated < 0) throw new Error('Expected an unrelated logical edge.');
+
+    e.selectComponent(unrelated);
+    return {
+      x: rect.left + (midpoint.x + 1) * rect.width / 2,
+      y: rect.top + (1 - midpoint.y) * rect.height / 2,
+      seed: edgeInfo.edge,
+      expected,
+      unrelated,
+      undoDepth: e.undoDepth,
+    };
+  });
+
+  await page.mouse.dblclick(target.x, target.y);
+  expect(await page.evaluate(expected => {
+    const e = (window as any).__forge;
+    const selection = [...e.componentSelection];
+    return {
+      selection,
+      sameLoop: selection.length === expected.expected.length &&
+        selection.every((edge: number) => expected.expected.includes(edge)),
+      active: selection.at(-1),
+      undoDepth: e.undoDepth,
+    };
+  }, target)).toEqual({
+    selection: expect.any(Array),
+    sameLoop: true,
+    active: target.seed,
+    undoDepth: target.undoDepth,
+  });
+
+  await page.evaluate(unrelated => (window as any).__forge.selectComponent(unrelated), target.unrelated);
+  await page.keyboard.down('Shift');
+  await page.mouse.dblclick(target.x, target.y);
+  await page.keyboard.up('Shift');
+
+  expect(await page.evaluate(expected => {
+    const selection = [...(window as any).__forge.componentSelection];
+    return {
+      count: selection.length,
+      hasUnrelated: selection.includes(expected.unrelated),
+      hasLoop: expected.expected.every((edge: number) => selection.includes(edge)),
+      active: selection.at(-1),
+      undoDepth: (window as any).__forge.undoDepth,
+    };
+  }, target)).toEqual({
+    count: 5,
+    hasUnrelated: true,
+    hasLoop: true,
+    active: target.seed,
+    undoDepth: target.undoDepth,
+  });
+
+  await page.keyboard.down('Shift');
+  await page.mouse.dblclick(target.x, target.y);
+  await page.keyboard.up('Shift');
+
+  expect(await page.evaluate(unrelated => ({
+    selection: [...(window as any).__forge.componentSelection],
+    undoDepth: (window as any).__forge.undoDepth,
+    unrelated,
+  }), target.unrelated)).toEqual({
+    selection: [target.unrelated],
+    undoDepth: target.undoDepth,
+    unrelated: target.unrelated,
+  });
+});
+
 test('RMB Cut Face splits a Cube quad between two selected opposite vertices', async ({ page }) => {
   await page.locator('#mode').selectOption('edit');
   await page.getByLabel('Mesh component').selectOption('vertex');

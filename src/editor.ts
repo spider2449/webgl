@@ -500,6 +500,40 @@ export class Editor extends EventTarget {
       if (this.knifePendingSegmentClick?.pointerId === e.pointerId) this.knifePendingSegmentClick = null;
       if (this.boxSelectDrag?.pointerId === e.pointerId) this.cancelBoxSelection();
     });
+    this.renderer.domElement.addEventListener('dblclick', e => {
+      if (
+        e.button !== 0 ||
+        e.altKey ||
+        e.ctrlKey ||
+        !this.editMode ||
+        this.weightMode ||
+        this.componentMode !== 'edge' ||
+        !this.componentEdges ||
+        !this.topology ||
+        this.snapTargetPending ||
+        this.modelingBusy ||
+        this.playing ||
+        this.transform.dragging
+      ) return;
+
+      const rect = host.getBoundingClientRect();
+      this.raycaster.setFromCamera(
+        new THREE.Vector2(
+          (e.clientX - rect.left) / rect.width * 2 - 1,
+          -(e.clientY - rect.top) / rect.height * 2 + 1,
+        ),
+        this.camera,
+      );
+      this.raycaster.params.Line.threshold = this.camera.position.distanceTo(this.orbit.target) * 0.012;
+      const hit = this.raycaster.intersectObject(this.componentEdges, false)[0];
+      if (hit?.index === undefined) return;
+
+      const edge = Math.floor(hit.index / 2);
+      if (this.applyEdgeLoopSelection(edge, e.shiftKey) >= 2) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
+    });
     this.renderer.domElement.addEventListener('contextmenu', e => e.preventDefault());
     this.resizeObserver = new ResizeObserver(() => this.resize());
     this.resizeObserver.observe(host);
@@ -1592,19 +1626,43 @@ export class Editor extends EventTarget {
     this.selectComponentVertices(vertices);
     this.emit('component-selection');
   }
+  private applyEdgeLoopSelection(start: number, toggle = false) {
+    if (!this.topology || !this.topology.polygonEdges[start]) return 0;
+    const loop = logicalEdgeLoop(this.topology, start);
+    if (loop.length < 2) return loop.length;
+
+    this.modelingVersion++;
+    if (toggle) {
+      const remove = loop.every(edge => this.selectedComponents.has(edge));
+      for (const edge of loop) {
+        if (remove) this.selectedComponents.delete(edge);
+        else this.selectedComponents.add(edge);
+      }
+    } else {
+      this.selectedComponents = new Set(loop);
+    }
+
+    // Preserve the directly targeted seed as the active edge when it remains selected.
+    if (this.selectedComponents.has(start)) {
+      this.selectedComponents = new Set([
+        ...[...this.selectedComponents].filter(edge => edge !== start),
+        start,
+      ]);
+    }
+    this.selectedFace = null;
+    this.selectComponentVertices([...this.selectedComponents].flatMap(edge => this.topology!.polygonEdges[edge]));
+    this.emit('component-selection');
+    return loop.length;
+  }
+
   selectEdgeLoop() {
     if (!this.editMode || this.componentMode !== 'edge' || this.selectedComponents.size !== 1 || !this.topology || this.modelingBusy || this.playing || this.transform.dragging) {
       throw new Error('Select exactly one logical edge in Edit Mode first.');
     }
     const start = [...this.selectedComponents][0];
-    const loop = logicalEdgeLoop(this.topology, start);
-    if (loop.length < 2) throw new Error('Selected edge does not continue through a regular logical Quad loop.');
-    this.modelingVersion++;
-    this.selectedComponents = new Set([...loop.filter(edge => edge !== start), start]);
-    this.selectedFace = null;
-    this.selectComponentVertices([...this.selectedComponents].flatMap(edge => this.topology!.polygonEdges[edge]));
-    this.emit('component-selection');
-    return loop.length;
+    const count = this.applyEdgeLoopSelection(start);
+    if (count < 2) throw new Error('Selected edge does not continue through a regular logical Quad loop.');
+    return count;
   }
 
   private selectComponentVertices(vertices?: number[]) {
