@@ -171,3 +171,95 @@ export function buildTopology(
     polygonEdgeToEdge,
   };
 }
+
+
+export function linkedLogicalComponents(
+  topology: MeshTopology,
+  mode: ComponentMode,
+  seeds: number[],
+) {
+  const uniqueSeeds = [...new Set(seeds)];
+  if (!uniqueSeeds.length) return [];
+
+  if (mode === 'vertex') {
+    const logical = new Set(topology.logicalVertices);
+    if (uniqueSeeds.some(vertex => !logical.has(vertex))) throw new Error('Select valid logical vertices.');
+
+    const neighbors = new Map<number, number[]>();
+    for (const [a, b] of topology.polygonEdges) {
+      const aNeighbors = neighbors.get(a) ?? [];
+      aNeighbors.push(b);
+      neighbors.set(a, aNeighbors);
+      const bNeighbors = neighbors.get(b) ?? [];
+      bNeighbors.push(a);
+      neighbors.set(b, bNeighbors);
+    }
+
+    const visited = new Set<number>();
+    const queue = [...uniqueSeeds];
+    while (queue.length) {
+      const vertex = queue.shift()!;
+      if (visited.has(vertex)) continue;
+      visited.add(vertex);
+      for (const next of neighbors.get(vertex) ?? []) if (!visited.has(next)) queue.push(next);
+    }
+    return topology.logicalVertices.filter(vertex => visited.has(vertex));
+  }
+
+  if (mode === 'edge') {
+    if (uniqueSeeds.some(edge => !topology.polygonEdges[edge])) throw new Error('Select valid logical edges.');
+
+    const vertexEdges = new Map<number, number[]>();
+    topology.polygonEdges.forEach(([a, b], edge) => {
+      for (const vertex of [a, b]) {
+        const list = vertexEdges.get(vertex) ?? [];
+        list.push(edge);
+        vertexEdges.set(vertex, list);
+      }
+    });
+
+    const visited = new Set<number>();
+    const queue = [...uniqueSeeds];
+    while (queue.length) {
+      const edge = queue.shift()!;
+      if (visited.has(edge)) continue;
+      visited.add(edge);
+      for (const vertex of topology.polygonEdges[edge]) {
+        for (const next of vertexEdges.get(vertex) ?? []) if (!visited.has(next)) queue.push(next);
+      }
+    }
+    return topology.polygonEdges.flatMap((_, edge) => visited.has(edge) ? [edge] : []);
+  }
+
+  if (uniqueSeeds.some(face => !topology.polygons[face])) throw new Error('Select valid logical faces.');
+
+  const edgeFaces = new Map<string, number[]>();
+  topology.polygons.forEach((polygon, face) => {
+    for (let local = 0; local < polygon.length; local++) {
+      const key = edgeKey(polygon[local], polygon[(local + 1) % polygon.length]);
+      const list = edgeFaces.get(key) ?? [];
+      list.push(face);
+      edgeFaces.set(key, list);
+    }
+  });
+
+  const neighbors = new Map<number, number[]>();
+  for (const faces of edgeFaces.values()) {
+    if (faces.length < 2) continue;
+    for (const face of faces) {
+      const list = neighbors.get(face) ?? [];
+      for (const other of faces) if (other !== face && !list.includes(other)) list.push(other);
+      neighbors.set(face, list);
+    }
+  }
+
+  const visited = new Set<number>();
+  const queue = [...uniqueSeeds];
+  while (queue.length) {
+    const face = queue.shift()!;
+    if (visited.has(face)) continue;
+    visited.add(face);
+    for (const next of neighbors.get(face) ?? []) if (!visited.has(next)) queue.push(next);
+  }
+  return topology.polygons.flatMap((_, face) => visited.has(face) ? [face] : []);
+}
