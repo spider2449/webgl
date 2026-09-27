@@ -298,12 +298,20 @@ test('RMB Select Linked expands the current logical Cube island without history'
         mode: e.componentMode,
         count: selection.length,
         active: currentMode === 'edge' ? selection.at(-1) : null,
+        selectedOverlaySegments: currentMode === 'edge'
+          ? (e.selectedEdgeOverlay.geometry.getAttribute('position')?.count ?? 0) / 2
+          : null,
+        activeOverlaySegments: currentMode === 'edge'
+          ? e.activeEdgeOverlay.geometry.instanceCount
+          : null,
         undoDepth: e.undoDepth,
       };
     }, mode)).toEqual({
       mode,
       count: expected,
       active: mode === 'edge' ? 0 : null,
+      selectedOverlaySegments: mode === 'edge' ? 12 : null,
+      activeOverlaySegments: mode === 'edge' ? 1 : null,
       undoDepth: initialUndoDepth,
     });
   }
