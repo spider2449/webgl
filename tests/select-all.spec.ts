@@ -65,8 +65,8 @@ test('Edit Mode context exposes Select All and Deselect All with correct enablem
     const viewport = page.locator('#viewport canvas');
     await viewport.click({ button: 'right', position: { x: 320, y: 220 } });
     const menu = page.locator('#viewport-context-menu');
-    await expect(menu.getByRole('menuitem', { name: 'Select All A' })).toBeEnabled();
-    await expect(menu.getByRole('menuitem', { name: 'Deselect All Alt A' })).toBeDisabled();
+    await expect(menu.getByRole('menuitem', { name: 'Select All A', exact: true })).toBeEnabled();
+    await expect(menu.getByRole('menuitem', { name: 'Deselect All Alt A', exact: true })).toBeDisabled();
     await page.keyboard.press('Escape');
 
     await page.evaluate(() => (window as any).__forge.selectComponent(0));
