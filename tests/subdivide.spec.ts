@@ -75,7 +75,11 @@ test('viewport selected edge subdivides, keeps split edges selected and restores
     for (const v of edge) point.add(m.position.clone().fromBufferAttribute(a,t.vertices[v][0])); point.multiplyScalar(0.5);
     const midpoint=point.toArray(); m.updateWorldMatrix(true,true); e.camera.updateMatrixWorld(true); m.localToWorld(point).project(e.camera);
     const rect=e.host.getBoundingClientRect();
-    return {x:rect.left+(point.x+1)*rect.width/2,y:rect.top+(1-point.y)*rect.height/2,midpoint,bufferCount:a.count,before:e.snapshot()};
+    const originalVertices=t.logicalVertices.map((v:number)=>{
+      const i=t.vertices[v][0];
+      return [a.getX(i),a.getY(i),a.getZ(i)];
+    });
+    return {x:rect.left+(point.x+1)*rect.width/2,y:rect.top+(1-point.y)*rect.height/2,midpoint,originalVertices,before:e.snapshot()};
   });
   await page.mouse.click(target.x,target.y);
   await page.evaluate(() => (window as any).__forgeCommands.subdivideEdges());
@@ -84,8 +88,14 @@ test('viewport selected edge subdivides, keeps split edges selected and restores
   await expect(page.getByLabel('Mesh component')).toHaveValue('edge');
   const result=await page.evaluate((target)=>{
     const e=(window as any).__forge, a=e.selected.geometry.attributes.position, t=e.topology;
-    const midpointVertices=[...new Set(t.bufferToVertex.slice(target.bufferCount))];
-    const midpointPositions=midpointVertices.map((v:number)=>[a.getX(t.vertices[v][0]),a.getY(t.vertices[v][0]),a.getZ(t.vertices[v][0])]);
+    const key=(value:number[])=>value.join(',');
+    const original=new Set(target.originalVertices.map((value:number[])=>key(value)));
+    const midpointPositions=t.logicalVertices
+      .map((v:number)=>{
+        const i=t.vertices[v][0];
+        return [a.getX(i),a.getY(i),a.getZ(i)];
+      })
+      .filter((value:number[])=>!original.has(key(value)));
     const selectedEdges=[...e.selectedComponents];
     const selected=[...e.vertexIndices], beforeMove=Array.from(a.array) as number[], center=e.componentCenter.toArray();
     e.transform.dispatchEvent({type:'dragging-changed',value:true});
@@ -112,7 +122,8 @@ test('viewport selected edge subdivides, keeps split edges selected and restores
     };
   }, target);
   expect(result.center).toEqual(target.midpoint);
-  expect(result.midpointPositions).toContainEqual(target.midpoint);
+  expect(result.midpointPositions).toHaveLength(1);
+  expect(result.midpointPositions).toEqual([target.midpoint]);
   expect(result.selectedEdges).toHaveLength(2);
   expect(result.selected.length).toBeGreaterThanOrEqual(3);
   expect(result.triangles).toBe(14);
