@@ -70,7 +70,7 @@ test('viewport selected edge subdivides, keeps split edges selected and restores
   await page.getByLabel('Mesh component').selectOption('edge');
   const target=await page.evaluate(()=>{
     const e=(window as any).__forge,m=e.selected,t=e.topology,a=m.geometry.attributes.position;
-    const edge=t.edges.find((vs:number[])=>vs.every(v=>a.getZ(t.vertices[v][0])===1 && a.getY(t.vertices[v][0])===1));
+    const edge=t.polygonEdges.find((vs:number[])=>vs.every(v=>a.getZ(t.vertices[v][0])===1 && a.getY(t.vertices[v][0])===1));
     const point=m.position.clone().set(0,0,0);
     for (const v of edge) point.add(m.position.clone().fromBufferAttribute(a,t.vertices[v][0])); point.multiplyScalar(0.5);
     const midpoint=point.toArray(); m.updateWorldMatrix(true,true); e.camera.updateMatrixWorld(true); m.localToWorld(point).project(e.camera);
@@ -94,13 +94,31 @@ test('viewport selected edge subdivides, keeps split edges selected and restores
     const afterMove=Array.from(a.array), after=e.snapshot(), triangles=e.stats().triangles;
     e.undo(); e.undo(); const undone=e.snapshot(); e.redo(); e.redo(); const redone=e.snapshot();
     e.load(JSON.parse(after));
-    return {center,midpointPositions,selectedEdges,selected,beforeMove,afterMove,after,triangles,undone,redone,restored:e.snapshot()};
+    return {
+      center,
+      midpointPositions,
+      selectedEdges,
+      selected,
+      beforeMove,
+      afterMove,
+      after,
+      triangles,
+      polygonSizes: t.polygons.map((polygon:number[])=>polygon.length).sort((x:number,y:number)=>x-y),
+      polygonGroups: e.selected.userData.forgePolygonTriangles?.length,
+      logicalEdges: t.polygonEdges.length,
+      undone,
+      redone,
+      restored:e.snapshot(),
+    };
   }, target);
   expect(result.center).toEqual(target.midpoint);
   expect(result.midpointPositions).toContainEqual(target.midpoint);
   expect(result.selectedEdges).toHaveLength(2);
   expect(result.selected.length).toBeGreaterThanOrEqual(3);
   expect(result.triangles).toBe(14);
+  expect(result.polygonSizes).toEqual([4,4,4,4,5,5]);
+  expect(result.polygonGroups).toBe(6);
+  expect(result.logicalEdges).toBe(13);
   result.afterMove.forEach((v:any,i:number)=>expect(v).toBeCloseTo(result.beforeMove[i]+(i%3===0&&result.selected.includes(i/3)?0.2:0),5));
   expect(result.undone).toBe(target.before); expect(result.redone).toBe(result.after); expect(result.restored).toBe(result.after);
 });
