@@ -4,7 +4,7 @@ test('geometry statistics toggle shows logical scene and selected counts', async
   await page.goto('/');
   await page.waitForFunction(() => (window as any).__forge?.selected);
 
-  const overlay = page.getByLabel('Geometry statistics');
+  const overlay = page.locator('#geometry-statistics');
   const toggle = page.getByRole('button', { name: 'Toggle geometry statistics' });
   await expect(overlay).toBeHidden();
   await expect(toggle).toHaveAttribute('aria-pressed', 'false');
