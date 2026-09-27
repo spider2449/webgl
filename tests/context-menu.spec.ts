@@ -285,6 +285,9 @@ test('RMB Select Linked expands the current logical Cube island without history'
   for (const [mode, expected] of [['vertex', 8], ['edge', 12], ['face', 6]] as const) {
     await page.getByLabel('Mesh component').selectOption(mode);
     await page.evaluate(() => (window as any).__forge.selectComponent(0));
+    const beforeEdgeOverlayGeometry = mode === 'edge'
+      ? await page.evaluate(() => (window as any).__forge.selectedEdgeOverlay.geometry.uuid)
+      : null;
     await rightClickViewport(page);
     const menu = page.locator('#viewport-context-menu');
     await expect(menu.getByRole('menuitem', { name: 'Select Linked' })).toBeEnabled();
@@ -299,10 +302,16 @@ test('RMB Select Linked expands the current logical Cube island without history'
         count: selection.length,
         active: currentMode === 'edge' ? selection.at(-1) : null,
         selectedOverlaySegments: currentMode === 'edge'
-          ? (e.selectedEdgeOverlay.geometry.getAttribute('position')?.count ?? 0) / 2
+          ? e.selectedEdgeOverlay.geometry.instanceCount
+          : null,
+        selectedOverlayWidth: currentMode === 'edge'
+          ? e.selectedEdgeOverlay.material.linewidth
           : null,
         activeOverlaySegments: currentMode === 'edge'
           ? e.activeEdgeOverlay.geometry.instanceCount
+          : null,
+        overlayGeometry: currentMode === 'edge'
+          ? e.selectedEdgeOverlay.geometry.uuid
           : null,
         undoDepth: e.undoDepth,
       };
@@ -311,9 +320,15 @@ test('RMB Select Linked expands the current logical Cube island without history'
       count: expected,
       active: mode === 'edge' ? 0 : null,
       selectedOverlaySegments: mode === 'edge' ? 12 : null,
+      selectedOverlayWidth: mode === 'edge' ? 4 : null,
       activeOverlaySegments: mode === 'edge' ? 1 : null,
+      overlayGeometry: mode === 'edge' ? expect.any(String) : null,
       undoDepth: initialUndoDepth,
     });
+    if (mode === 'edge') {
+      const afterEdgeOverlayGeometry = await page.evaluate(() => (window as any).__forge.selectedEdgeOverlay.geometry.uuid);
+      expect(afterEdgeOverlayGeometry).not.toBe(beforeEdgeOverlayGeometry);
+    }
   }
 });
 
