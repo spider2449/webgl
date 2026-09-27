@@ -1977,6 +1977,13 @@ editor.addEventListener('mode', () => {
   if (knifeActive && !editor.modelingBusy && (!editor.editMode || editor.componentMode !== 'vertex')) cancelKnife();
 });
 
+function selectFaceBoundaryEdges() {
+  try {
+    const count = editor.selectFaceBoundaryEdges();
+    toast(`Selected ${count} logical boundary edges.`);
+  } catch (error) { toast((error as Error).message); }
+}
+
 function selectLinkedComponents() {
   try {
     const count = editor.selectLinkedComponents();
@@ -2014,6 +2021,7 @@ const modelingCommands = {
   knife: startKnifeCut,
   cutFace: cutFaceBetweenSelectedVertices,
   selectLinked: selectLinkedComponents,
+  selectFaceBoundaryEdges,
   deleteComponents: deleteSelectedComponents,
 };
 
@@ -2097,6 +2105,7 @@ function viewportContextCommands(mode: ViewportContextMode): ViewportContextComm
     { label: 'Rotate', shortcut: 'R', action: () => tool('rotate'), enabled: hasComponents },
     { label: 'Scale', shortcut: 'S', action: () => tool('scale'), enabled: hasComponents },
     { label: 'Select Linked', action: modelingCommands.selectLinked, enabled: hasComponents },
+    { label: 'Select Boundary Edges', action: modelingCommands.selectFaceBoundaryEdges, enabled: hasComponents },
     { label: 'Extrude Face', action: modelingCommands.extrudeFace, enabled: oneComponent, separatorBefore: true },
     { label: 'Extrude Region', action: modelingCommands.extrudeRegion, enabled: hasComponents },
     { label: 'Inset Face', action: modelingCommands.insetFace, enabled: oneComponent },

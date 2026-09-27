@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 import * as THREE from 'three';
 import { bevelEdges, bevelLogicalEdges, cutLogicalFace, deleteLogicalComponents, extrudeLogicalFace, insetLogicalFace, loopCut, loopCutLogicalEdge, subdivideLogicalEdges, editUV } from '../src/modeling/modeling';
-import { buildTopology, linkedLogicalComponents } from '../src/modeling/topology';
+import { buildTopology, linkedLogicalComponents, logicalFaceBoundaryEdges } from '../src/modeling/topology';
 import { evaluateModifiers } from '../src/modeling/modifiers';
 
 function topology(g: THREE.BufferGeometry) { return buildTopology(g.getAttribute('position').array, g.index?.array); }
@@ -93,6 +93,38 @@ test('linked logical traversal expands connected islands without renderer diagon
   expect(linkedLogicalComponents(cube, 'edge', [0])).toHaveLength(12);
   expect(linkedLogicalComponents(cube, 'face', [0])).toHaveLength(6);
   expect(() => linkedLogicalComponents(cube, 'edge', [-1])).toThrow(/valid logical edges/);
+  box.dispose();
+});
+
+test('logical face boundary selects only region perimeter edges', () => {
+  const box = new THREE.BoxGeometry(2, 2, 2);
+  const topology = buildTopology(box.getAttribute('position').array, box.index?.array, true);
+
+  expect(logicalFaceBoundaryEdges(topology, [0])).toHaveLength(4);
+
+  const edgeKey = (a: number, b: number) => `${Math.min(a, b)}:${Math.max(a, b)}`;
+  const uses = new Map<string, number[]>();
+  topology.polygons.forEach((polygon, face) => {
+    for (let local = 0; local < polygon.length; local++) {
+      const key = edgeKey(polygon[local], polygon[(local + 1) % polygon.length]);
+      const list = uses.get(key) ?? [];
+      list.push(face);
+      uses.set(key, list);
+    }
+  });
+  const shared = [...uses.values()].find(faces => faces.length === 2)!;
+  const adjacentBoundary = logicalFaceBoundaryEdges(topology, shared);
+  expect(adjacentBoundary).toHaveLength(6);
+
+  const boundaryKeys = new Set(adjacentBoundary.map(edge => edgeKey(...topology.polygonEdges[edge])));
+  const sharedKey = [...uses.entries()].find(([, faces]) =>
+    faces.length === 2 && faces[0] === shared[0] && faces[1] === shared[1]
+  )![0];
+  expect(boundaryKeys.has(sharedKey)).toBe(false);
+
+  expect(logicalFaceBoundaryEdges(topology, topology.polygons.map((_, face) => face))).toEqual([]);
+  expect(() => logicalFaceBoundaryEdges(topology, [-1])).toThrow(/valid logical faces/);
+
   box.dispose();
 });
 

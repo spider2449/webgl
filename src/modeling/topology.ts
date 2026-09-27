@@ -262,3 +262,23 @@ export function linkedLogicalComponents(
   }
   return topology.polygons.flatMap((_, face) => visited.has(face) ? [face] : []);
 }
+
+export function logicalFaceBoundaryEdges(topology: MeshTopology, faces: number[]) {
+  const selected = new Set(faces);
+  if (!selected.size) return [];
+  if ([...selected].some(face => !topology.polygons[face])) throw new Error('Select valid logical faces.');
+
+  const edgeByKey = new Map(topology.polygonEdges.map((edge, id) => [edgeKey(edge[0], edge[1]), id]));
+  const selectedUses = new Map<number, number>();
+
+  for (const face of selected) {
+    const polygon = topology.polygons[face];
+    for (let local = 0; local < polygon.length; local++) {
+      const edge = edgeByKey.get(edgeKey(polygon[local], polygon[(local + 1) % polygon.length]));
+      if (edge === undefined) throw new Error('Logical face boundary edge is missing.');
+      selectedUses.set(edge, (selectedUses.get(edge) ?? 0) + 1);
+    }
+  }
+
+  return topology.polygonEdges.flatMap((_, edge) => selectedUses.get(edge) === 1 ? [edge] : []);
+}

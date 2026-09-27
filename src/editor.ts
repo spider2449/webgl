@@ -10,7 +10,7 @@ import { clone as cloneSkeleton } from 'three/addons/utils/SkeletonUtils.js';
 import { createGrid, setGridPlane } from './viewport/grid';
 import { insetTriangle } from './modeling/extrude';
 import { extrudeLogicalFace } from './modeling/modeling';
-import { buildTopology, linkedLogicalComponents, type MeshTopology, type ComponentMode } from './modeling/topology';
+import { buildTopology, linkedLogicalComponents, logicalFaceBoundaryEdges, type MeshTopology, type ComponentMode } from './modeling/topology';
 import { proportionalWeights } from './modeling/proportional';
 import { subdivideEdges } from './modeling/subdivide';
 import { extrudeRegion } from './modeling/extrude-region';
@@ -1596,6 +1596,31 @@ export class Editor extends EventTarget {
     this.selectComponentVertices(vertices);
     this.emit('component-selection');
   }
+  selectFaceBoundaryEdges() {
+    if (
+      !this.editMode ||
+      this.weightMode ||
+      this.componentMode !== 'face' ||
+      !this.topology ||
+      !this.selectedComponents.size ||
+      this.modelingBusy ||
+      this.playing ||
+      this.transform.dragging
+    ) {
+      throw new Error('Select one or more logical faces in Edit Mode first.');
+    }
+
+    const boundary = logicalFaceBoundaryEdges(this.topology, [...this.selectedComponents]);
+    if (!boundary.length) throw new Error('Selected faces have no boundary edges.');
+
+    this.setComponentMode('edge');
+    this.selectedComponents = new Set(boundary);
+    this.selectedFace = null;
+    this.selectComponentVertices(boundary.flatMap(edge => this.topology!.polygonEdges[edge]));
+    this.emit('component-selection');
+    return boundary.length;
+  }
+
   selectLinkedComponents() {
     if (!this.editMode || this.weightMode || !this.topology || !this.selectedComponents.size || this.playing || this.transform.dragging) {
       throw new Error('Select one or more logical components in Edit Mode first.');
