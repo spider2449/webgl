@@ -3542,8 +3542,21 @@ document.addEventListener('keydown', e => {
   }
   if (typingField || e.target instanceof HTMLSelectElement || dialogOpen) return;
   if (e.ctrlKey || e.metaKey) {
-    if (['s','o','z','y','n'].includes(key)) e.preventDefault();
-    if (key === 's') showSaveDialog(); else if (key === 'o') $('#project-input').click(); else if (key === 'z') e.shiftKey ? editor.redo() : editor.undo(); else if (key === 'y') editor.redo(); else if (key === 'n') $<HTMLDialogElement>('#new-dialog').showModal();
+    if (['s','o','z','y','n','a'].includes(key)) e.preventDefault();
+    if (key === 's') showSaveDialog();
+    else if (key === 'o') $('#project-input').click();
+    else if (key === 'z') e.shiftKey ? editor.redo() : editor.undo();
+    else if (key === 'y') editor.redo();
+    else if (key === 'n') $<HTMLDialogElement>('#new-dialog').showModal();
+    else if (
+      key === 'a' &&
+      editor.editMode &&
+      !editor.weightMode &&
+      !knifeActive &&
+      !editor.snapTargetPending &&
+      !editor.modelingBusy &&
+      !editor.transform.dragging
+    ) modelingCommands.selectAll();
     return;
   }
   if (
