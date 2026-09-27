@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 import * as THREE from 'three';
 import { bevelEdges, bevelLogicalEdges, cutLogicalFace, deleteLogicalComponents, extrudeLogicalFace, insetLogicalFace, loopCut, loopCutLogicalEdge, subdivideLogicalEdges, editUV } from '../src/modeling/modeling';
-import { buildTopology, linkedLogicalComponents, logicalCoplanarFaces, logicalFaceBoundaryEdges, logicalFacesBySides, logicalMeshBoundaryEdges, logicalNonManifoldEdges, logicalSharpEdges } from '../src/modeling/topology';
+import { buildTopology, growLogicalComponents, linkedLogicalComponents, logicalCoplanarFaces, logicalFaceBoundaryEdges, logicalFacesBySides, logicalMeshBoundaryEdges, logicalNonManifoldEdges, logicalSharpEdges } from '../src/modeling/topology';
 import { evaluateModifiers } from '../src/modeling/modifiers';
 
 function topology(g: THREE.BufferGeometry) { return buildTopology(g.getAttribute('position').array, g.index?.array); }
@@ -53,6 +53,27 @@ test('logical quad topology keeps renderer triangles but removes selectable diag
   expect(explicit.polygons).toEqual(pt.polygons);
   expect(explicit.polygonEdges).toEqual(pt.polygonEdges);
   expect(explicit.triangleToPolygon).toEqual(pt.triangleToPolygon);
+});
+
+test('Select More grows one logical adjacency ring without flooding the mesh', () => {
+  const box = new THREE.BoxGeometry(2, 2, 2);
+  const cube = buildTopology(box.getAttribute('position').array, box.index?.array, true);
+
+  expect(growLogicalComponents(cube, 'vertex', [cube.logicalVertices[0]])).toHaveLength(4);
+  expect(growLogicalComponents(cube, 'edge', [0])).toHaveLength(5);
+  expect(growLogicalComponents(cube, 'face', [0])).toHaveLength(5);
+
+  expect(growLogicalComponents(cube, 'vertex', [cube.logicalVertices[0]])).not.toHaveLength(8);
+  expect(growLogicalComponents(cube, 'edge', [0])).not.toHaveLength(12);
+  expect(growLogicalComponents(cube, 'face', [0])).not.toHaveLength(6);
+
+  const plane = new THREE.PlaneGeometry(2, 1, 2, 1);
+  const segmented = buildTopology(plane.getAttribute('position').array, plane.index?.array, true);
+  expect(segmented.polygons).toHaveLength(2);
+  expect(growLogicalComponents(segmented, 'face', [0])).toEqual([0, 1]);
+
+  box.dispose();
+  plane.dispose();
 });
 
 test('linked logical traversal expands connected islands without renderer diagonals', () => {
