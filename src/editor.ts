@@ -95,7 +95,7 @@ export class Editor extends EventTarget {
   private topology: MeshTopology | null = null;
   private componentEdges: THREE.LineSegments | null = null;
   private selectedVertexOverlay: THREE.Points | null = null;
-  private selectedEdgeOverlay: THREE.LineSegments | null = null;
+  private selectedEdgeOverlay: LineSegments2 | null = null;
   private activeEdgeOverlay: LineSegments2 | null = null;
   private selectedFaceOverlay: THREE.Mesh | null = null;
   private knifePreviewPoint: THREE.Points | null = null;
@@ -785,6 +785,7 @@ export class Editor extends EventTarget {
   resize() {
     const { width, height } = this.host.getBoundingClientRect();
     this.renderer.setSize(width, height);
+    if (this.selectedEdgeOverlay) (this.selectedEdgeOverlay.material as LineMaterial).resolution.set(width, height);
     if (this.activeEdgeOverlay) (this.activeEdgeOverlay.material as LineMaterial).resolution.set(width, height);
     if (this.knifePreviewLine) (this.knifePreviewLine.material as LineMaterial).resolution.set(width, height);
     if (this.knifePendingSegmentOverlay) (this.knifePendingSegmentOverlay.material as LineMaterial).resolution.set(width, height);
@@ -1377,12 +1378,9 @@ export class Editor extends EventTarget {
       this.selectedVertexOverlay.userData.forgeEditorHelper = true;
       this.selectedVertexOverlay.renderOrder = 12;
 
-      const selectedEdgeMaterial = new THREE.LineBasicMaterial({
-        color: 0xffa94d,
-        depthTest: false,
-        depthWrite: false,
-      });
-      this.selectedEdgeOverlay = new THREE.LineSegments(new THREE.BufferGeometry(), selectedEdgeMaterial);
+      const selectedEdgeMaterial = new LineMaterial({ color: 0xffa94d, linewidth: 4, worldUnits: false, depthTest: false, depthWrite: false });
+      selectedEdgeMaterial.resolution.copy(this.renderer.getSize(new THREE.Vector2()));
+      this.selectedEdgeOverlay = new LineSegments2(new LineSegmentsGeometry(), selectedEdgeMaterial);
       this.selectedEdgeOverlay.userData.forgeEditorHelper = true;
       this.selectedEdgeOverlay.renderOrder = 13;
       this.selectedEdgeOverlay.frustumCulled = false;
@@ -1550,7 +1548,11 @@ export class Editor extends EventTarget {
       }
 
       this.selectedVertexOverlay.geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertexValues, 3));
-      this.selectedEdgeOverlay.geometry.setAttribute('position', new THREE.Float32BufferAttribute(edgeValues, 3));
+      const selectedEdgeGeometry = new LineSegmentsGeometry();
+      selectedEdgeGeometry.setPositions(edgeValues);
+      const previousSelectedEdgeGeometry = this.selectedEdgeOverlay.geometry;
+      this.selectedEdgeOverlay.geometry = selectedEdgeGeometry;
+      previousSelectedEdgeGeometry.dispose();
       (this.activeEdgeOverlay.geometry as LineSegmentsGeometry).setPositions(activeEdgeValues);
       this.selectedFaceOverlay.geometry.setAttribute('position', new THREE.Float32BufferAttribute(faceValues, 3));
       this.selectedVertexOverlay.visible = this.componentMode === 'vertex' && vertexValues.length > 0;
