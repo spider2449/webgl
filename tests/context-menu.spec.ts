@@ -382,6 +382,24 @@ test('RMB Invert Selection complements logical components without history', asyn
     await expect(menu.getByRole('menuitem', { name: 'Invert Selection' })).toBeEnabled();
     await menu.getByRole('menuitem', { name: 'Invert Selection' }).click();
     expect(await page.evaluate(() => (window as any).__forge.componentSelection.length)).toBe(total);
+
+    await rightClickViewport(page);
+    menu = page.locator('#viewport-context-menu');
+    await menu.getByRole('menuitem', { name: 'Invert Selection' }).click();
+    expect(await page.evaluate(currentMode => {
+      const e=(window as any).__forge;
+      return {
+        count:e.componentSelection.length,
+        selectedOverlay:currentMode === 'edge' ? e.selectedEdgeOverlay.geometry.instanceCount : null,
+        activeOverlay:currentMode === 'edge' ? e.activeEdgeOverlay.geometry.instanceCount : null,
+        undoDepth:e.undoDepth,
+      };
+    }, mode)).toEqual({
+      count:0,
+      selectedOverlay:mode === 'edge' ? 0 : null,
+      activeOverlay:mode === 'edge' ? 0 : null,
+      undoDepth:initialUndoDepth,
+    });
   }
 });
 
