@@ -1068,7 +1068,8 @@ export function loopCutLogicalEdge(
       const existing = splitFaces.get(use.face);
       if (existing !== undefined) {
         if (existing.local % 2 !== use.local % 2) throw new Error('Loop Cut ring intersects itself.');
-        if (Math.abs(existing.factor - localFactor) > 1e-9) {
+        const expectedFactor = existing.local === use.local ? existing.factor : 1 - existing.factor;
+        if (Math.abs(expectedFactor - localFactor) > 1e-9) {
           throw new Error('Loop Cut ring has inconsistent edge orientation.');
         }
         continue;
