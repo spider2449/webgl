@@ -102,10 +102,14 @@ export class Editor extends EventTarget {
   private knifePreviewLine: LineSegments2 | null = null;
   private knifePendingPoint: THREE.Points | null = null;
   private knifePendingLine: THREE.Line | null = null;
+  private knifePendingSegmentOverlay: LineSegments2 | null = null;
   private knifePendingPath: THREE.Vector3[] = [];
   private knifePendingLinePointCount = 0;
   private knifePendingActiveIndex: number | null = null;
   private knifePendingHoverIndex: number | null = null;
+  private knifePendingActiveSegment: number | null = null;
+  private knifePendingHoverSegment: number | null = null;
+  private knifePendingSegmentClick: { pointerId: number; segment: number; point: THREE.Vector3; startX: number; startY: number; moved: boolean } | null = null;
   private knifePendingDrag: { pointerId: number; index: number; startX: number; startY: number; moved: boolean } | null = null;
   private knifePreviewAnchor: THREE.Vector3 | null = null;
   private knifePreviewHover: THREE.Vector3 | null = null;
@@ -750,6 +754,7 @@ export class Editor extends EventTarget {
     if (this.selectedEdgeOverlay) (this.selectedEdgeOverlay.material as LineMaterial).resolution.set(width, height);
     if (this.activeEdgeOverlay) (this.activeEdgeOverlay.material as LineMaterial).resolution.set(width, height);
     if (this.knifePreviewLine) (this.knifePreviewLine.material as LineMaterial).resolution.set(width, height);
+    if (this.knifePendingSegmentOverlay) (this.knifePendingSegmentOverlay.material as LineMaterial).resolution.set(width, height);
     this.perspective.aspect = width / height;
     this.perspective.updateProjectionMatrix();
     const extent = 7;
@@ -1288,7 +1293,7 @@ export class Editor extends EventTarget {
       this.componentEdges?.geometry.dispose();
       if (this.componentEdges) (this.componentEdges.material as THREE.Material).dispose();
       this.componentEdges = null;
-      for (const overlay of [this.selectedVertexOverlay, this.selectedEdgeOverlay, this.activeEdgeOverlay, this.selectedFaceOverlay, this.knifePreviewPoint, this.knifePreviewLine, this.knifePendingPoint, this.knifePendingLine]) {
+      for (const overlay of [this.selectedVertexOverlay, this.selectedEdgeOverlay, this.activeEdgeOverlay, this.selectedFaceOverlay, this.knifePreviewPoint, this.knifePreviewLine, this.knifePendingPoint, this.knifePendingLine, this.knifePendingSegmentOverlay]) {
         overlay?.geometry.dispose();
         if (overlay) (overlay.material as THREE.Material).dispose();
       }
@@ -1300,10 +1305,14 @@ export class Editor extends EventTarget {
       this.knifePreviewLine = null;
       this.knifePendingPoint = null;
       this.knifePendingLine = null;
+      this.knifePendingSegmentOverlay = null;
       this.knifePendingPath = [];
       this.knifePendingLinePointCount = 0;
       this.knifePendingActiveIndex = null;
       this.knifePendingHoverIndex = null;
+      this.knifePendingActiveSegment = null;
+      this.knifePendingHoverSegment = null;
+      this.knifePendingSegmentClick = null;
       this.knifePendingDrag = null;
       this.knifePreviewAnchor = null;
       this.knifePreviewHover = null;
@@ -1388,6 +1397,20 @@ export class Editor extends EventTarget {
       this.knifePendingLine.frustumCulled = false;
       this.knifePendingLine.visible = false;
 
+      const knifePendingSegmentMaterial = new LineMaterial({
+        color: 0xffd27a,
+        linewidth: 5,
+        worldUnits: false,
+        depthTest: false,
+        depthWrite: false,
+      });
+      knifePendingSegmentMaterial.resolution.copy(this.renderer.getSize(new THREE.Vector2()));
+      this.knifePendingSegmentOverlay = new LineSegments2(new LineSegmentsGeometry(), knifePendingSegmentMaterial);
+      this.knifePendingSegmentOverlay.userData.forgeEditorHelper = true;
+      this.knifePendingSegmentOverlay.renderOrder = 18;
+      this.knifePendingSegmentOverlay.frustumCulled = false;
+      this.knifePendingSegmentOverlay.visible = false;
+
       this.vertexPoints.add(
         this.componentEdges,
         this.selectedVertexOverlay,
@@ -1395,6 +1418,7 @@ export class Editor extends EventTarget {
         this.activeEdgeOverlay,
         this.selectedFaceOverlay,
         this.knifePendingLine,
+        this.knifePendingSegmentOverlay,
         this.knifePendingPoint,
         this.knifePreviewLine,
         this.knifePreviewPoint,
@@ -1893,10 +1917,38 @@ export class Editor extends EventTarget {
     this.knifePendingPoint.geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
   }
 
+  private refreshKnifePendingSegmentOverlay() {
+    if (!this.knifePendingSegmentOverlay) return;
+    const segmentCount = Math.max(0, this.knifePendingPath.length - 1);
+    const segment = this.knifePendingHoverSegment ?? this.knifePendingActiveSegment;
+    if (segment === null || segment < 0 || segment >= segmentCount) {
+      this.knifePendingSegmentOverlay.visible = false;
+      return;
+    }
+    const a = this.knifePendingPath[segment];
+    const b = this.knifePendingPath[segment + 1];
+    (this.knifePendingSegmentOverlay.geometry as LineSegmentsGeometry).setPositions([
+      a.x, a.y, a.z,
+      b.x, b.y, b.z,
+    ]);
+    const material = this.knifePendingSegmentOverlay.material as LineMaterial;
+    material.color.setHex(this.knifePendingHoverSegment !== null ? 0xffe7a8 : 0xffb454);
+    this.knifePendingSegmentOverlay.visible = true;
+  }
+
+  setKnifePendingActiveSegment(index: number | null) {
+    const count = Math.max(0, this.knifePendingPath.length - 1);
+    this.knifePendingActiveSegment = index === null || !count ? null : Math.min(Math.max(index, 0), count - 1);
+    this.refreshKnifePendingSegmentOverlay();
+    this.invalidate();
+  }
+
   setKnifePendingActive(index: number | null) {
     const count = Math.max(0, this.knifePendingPath.length - 1);
     this.knifePendingActiveIndex = index === null || !count ? null : Math.min(Math.max(index, 0), count - 1);
+    if (this.knifePendingActiveIndex !== null) this.knifePendingActiveSegment = null;
     this.refreshKnifePendingPointColors();
+    this.refreshKnifePendingSegmentOverlay();
     this.invalidate();
   }
 
@@ -1925,12 +1977,17 @@ export class Editor extends EventTarget {
   setKnifePendingPath(points: [number, number, number][]) {
     this.knifePendingPath = points.map(point => new THREE.Vector3(...point));
     const bendCount = Math.max(0, this.knifePendingPath.length - 1);
+    const segmentCount = bendCount;
     if (!bendCount) {
       this.knifePendingActiveIndex = null;
       this.knifePendingHoverIndex = null;
+      this.knifePendingActiveSegment = null;
+      this.knifePendingHoverSegment = null;
     } else {
       if (this.knifePendingActiveIndex !== null) this.knifePendingActiveIndex = Math.min(this.knifePendingActiveIndex, bendCount - 1);
       if (this.knifePendingHoverIndex !== null && this.knifePendingHoverIndex >= bendCount) this.knifePendingHoverIndex = null;
+      if (this.knifePendingActiveSegment !== null && this.knifePendingActiveSegment >= segmentCount) this.knifePendingActiveSegment = segmentCount - 1;
+      if (this.knifePendingHoverSegment !== null && this.knifePendingHoverSegment >= segmentCount) this.knifePendingHoverSegment = null;
     }
 
     if (this.knifePendingPoint) {
@@ -1949,6 +2006,7 @@ export class Editor extends EventTarget {
     }
 
     this.refreshKnifePendingLine();
+    this.refreshKnifePendingSegmentOverlay();
     this.invalidate();
   }
 
@@ -1986,6 +2044,8 @@ export class Editor extends EventTarget {
       pendingLinePointCount: this.knifePendingLinePointCount,
       pendingActiveIndex: this.knifePendingActiveIndex,
       pendingHoverIndex: this.knifePendingHoverIndex,
+      pendingActiveSegment: this.knifePendingActiveSegment,
+      pendingHoverSegment: this.knifePendingHoverSegment,
       target: this.knifePreviewTarget ? { ...this.knifePreviewTarget } : null,
       validity: this.knifePreviewValidity,
       lockedVertex: this.knifeLockedVertex,
