@@ -271,6 +271,68 @@ test('multi-bend Knife path creates true logical vertices and edges for every in
   plane.dispose();
 });
 
+test('multi-bend Knife path preserves a collinear inserted bend as logical topology', () => {
+  const plane = new THREE.PlaneGeometry(2, 2, 1, 1);
+  const input = buildTopology(plane.getAttribute('position').array, plane.index?.array, true);
+  const face = 0;
+  const boundary = input.polygons[face];
+  const start = boundary[0];
+  const end = boundary[2];
+  const startPoint = point(plane, input, start);
+  const endPoint = point(plane, input, end);
+  const first = startPoint.clone().lerp(endPoint, 0.3).add(new THREE.Vector3(0.14, -0.09, 0));
+  const second = startPoint.clone().lerp(endPoint, 0.62).add(new THREE.Vector3(-0.09, 0.13, 0));
+  const inserted = first.clone().lerp(second, 0.5);
+
+  const result = cutLogicalFaceViaPath(plane, {
+    face,
+    start: { kind: 'vertex', vertex: start },
+    interiors: [
+      first.toArray() as [number, number, number],
+      inserted.toArray() as [number, number, number],
+      second.toArray() as [number, number, number],
+    ],
+    end: { kind: 'vertex', vertex: end },
+  }, input.polygonTriangles);
+
+  const output = buildTopology(
+    result.geometry.getAttribute('position').array,
+    result.geometry.index?.array,
+    result.polygonTriangles,
+  );
+  expect(output.polygons).toHaveLength(2);
+  expect(output.logicalVertices).toHaveLength(7);
+  expect(output.polygonEdges).toHaveLength(8);
+
+  const find = (expected: THREE.Vector3) => output.logicalVertices.find(vertex =>
+    point(result.geometry, output, vertex).distanceToSquared(expected) < 1e-12
+  );
+  const mappedStart = find(startPoint);
+  const mappedFirst = find(first);
+  const mappedInserted = find(inserted);
+  const mappedSecond = find(second);
+  const mappedEnd = find(endPoint);
+  for (const vertex of [mappedStart, mappedFirst, mappedInserted, mappedSecond, mappedEnd]) {
+    expect(vertex).toBeDefined();
+  }
+
+  const hasEdge = (a: number | undefined, b: number | undefined) =>
+    output.polygonEdges.some(([x, y]) => (x === a && y === b) || (x === b && y === a));
+  expect(hasEdge(mappedStart, mappedFirst)).toBe(true);
+  expect(hasEdge(mappedFirst, mappedInserted)).toBe(true);
+  expect(hasEdge(mappedInserted, mappedSecond)).toBe(true);
+  expect(hasEdge(mappedSecond, mappedEnd)).toBe(true);
+  expect(output.polygons.filter(polygon => polygon.includes(mappedInserted!))).toHaveLength(2);
+
+  for (const faceVertices of output.faces) {
+    const [a, b, c] = faceVertices.map(vertex => point(result.geometry, output, vertex));
+    expect(b.sub(a).cross(c.sub(a)).lengthSq()).toBeGreaterThan(1e-16);
+  }
+
+  result.geometry.dispose();
+  plane.dispose();
+});
+
 test('edge-to-edge multi-bend Knife path preserves inserted boundary endpoints', () => {
   const plane = new THREE.PlaneGeometry(2, 2, 1, 1);
   const input = buildTopology(plane.getAttribute('position').array, plane.index?.array, true);
@@ -1716,5 +1778,136 @@ test('viewport Knife can select, drag, delete, undo, and redo any pending bend',
   expect(result.snapshot).not.toBe(target.before);
   expect(result.movedFound).toBe(true);
   expect(result.secondFound).toBe(true);
+  await page.keyboard.press('Escape');
+});
+
+
+test('viewport Knife can insert a bend on a pending segment and navigate bends with Tab', async ({ page }) => {
+  await page.goto('/');
+  await page.waitForFunction(() => (window as any).__forge?.selected);
+  await page.evaluate(() => (window as any).__forge.view('front'));
+  await page.locator('#mode').selectOption('edit');
+  await page.getByLabel('Mesh component').selectOption('vertex');
+
+  const target = await page.evaluate(() => {
+    const e = (window as any).__forge;
+    const topology = e.meshTopology;
+    const mesh = e.selected;
+    const position = mesh.geometry.getAttribute('position');
+    const face = topology.polygons.findIndex((polygon: number[]) =>
+      polygon.every((vertex: number) => position.getZ(topology.vertices[vertex][0]) === 1)
+    );
+    if (face < 0) throw new Error('Expected a front logical quad.');
+
+    const boundary = topology.polygons[face];
+    const local = (vertex: number) =>
+      mesh.position.clone().fromBufferAttribute(position, topology.vertices[vertex][0]);
+    const start = local(boundary[0]);
+    const end = local(boundary[2]);
+    const bend1 = start.clone().lerp(end, 0.25).add(mesh.position.clone().set(0.12, -0.08, 0));
+    const bend2 = start.clone().lerp(end, 0.5).add(mesh.position.clone().set(-0.08, 0.12, 0));
+    const bend3 = start.clone().lerp(end, 0.72).add(mesh.position.clone().set(0.1, -0.05, 0));
+    const inserted = bend1.clone().lerp(bend2, 0.5);
+
+    const rect = e.host.getBoundingClientRect();
+    const screen = (point: any) => {
+      mesh.updateWorldMatrix(true, true);
+      e.camera.updateMatrixWorld(true);
+      const projected = mesh.localToWorld(point.clone()).project(e.camera);
+      return {
+        local: point.toArray(),
+        x: rect.left + (projected.x + 1) * rect.width / 2,
+        y: rect.top + (1 - projected.y) * rect.height / 2,
+      };
+    };
+
+    return {
+      before: e.snapshot(),
+      start: screen(start),
+      end: screen(end),
+      bend1: screen(bend1),
+      bend2: screen(bend2),
+      bend3: screen(bend3),
+      inserted: screen(inserted),
+    };
+  });
+
+  await page.keyboard.press('k');
+  await page.mouse.click(target.start.x, target.start.y);
+  await page.mouse.click(target.bend1.x, target.bend1.y);
+  await page.mouse.click(target.bend2.x, target.bend2.y);
+  await page.mouse.click(target.bend3.x, target.bend3.y);
+
+  expect(await page.evaluate(() => (window as any).__forge.snapshot())).toBe(target.before);
+
+  await page.mouse.move(target.inserted.x, target.inserted.y);
+  await page.waitForFunction(() => (window as any).__forge.knifePreviewState.pendingHoverSegment === 1);
+
+  let pending = await page.evaluate(() => (window as any).__forge.knifePreviewState);
+  expect(pending.pendingPath).toHaveLength(4);
+  expect(pending.pendingLinePointCount).toBe(4);
+  expect(pending.pendingHoverSegment).toBe(1);
+
+  await page.mouse.click(target.inserted.x, target.inserted.y);
+  await expect(page.locator('#toast')).toContainText('Knife bend inserted on pending segment');
+
+  pending = await page.evaluate(() => (window as any).__forge.knifePreviewState);
+  expect(pending.pendingPath).toHaveLength(5);
+  expect(pending.pendingLinePointCount).toBe(5);
+  expect(pending.pendingActiveIndex).toBe(1);
+  pending.pendingPath[2].forEach((value: number, index: number) =>
+    expect(value).toBeCloseTo(target.inserted.local[index], 4)
+  );
+
+  await page.keyboard.press('Tab');
+  await expect(page.locator('#toast')).toContainText('Knife bend 3 of 4 selected');
+  expect((await page.evaluate(() => (window as any).__forge.knifePreviewState)).pendingActiveIndex).toBe(2);
+
+  await page.keyboard.press('Shift+Tab');
+  await expect(page.locator('#toast')).toContainText('Knife bend 2 of 4 selected');
+  expect((await page.evaluate(() => (window as any).__forge.knifePreviewState)).pendingActiveIndex).toBe(1);
+
+  await page.keyboard.press('Control+z');
+  await expect(page.locator('#toast')).toContainText('Pending Knife edit undone');
+  pending = await page.evaluate(() => (window as any).__forge.knifePreviewState);
+  expect(pending.pendingPath).toHaveLength(4);
+  expect(pending.pendingLinePointCount).toBe(4);
+
+  await page.keyboard.press('Control+y');
+  await expect(page.locator('#toast')).toContainText('Pending Knife edit redone');
+  pending = await page.evaluate(() => (window as any).__forge.knifePreviewState);
+  expect(pending.pendingPath).toHaveLength(5);
+  expect(pending.pendingLinePointCount).toBe(5);
+  expect(pending.pendingActiveIndex).toBe(1);
+
+  await page.mouse.click(target.end.x, target.end.y);
+  await page.waitForFunction(() => !(window as any).__forge.modelingBusy && (window as any).__forge.snapTargetPending);
+  await expect(page.locator('#toast')).toContainText('Knife segment complete');
+
+  const result = await page.evaluate(expected => {
+    const e = (window as any).__forge;
+    const topology = e.meshTopology;
+    const position = e.selected.geometry.getAttribute('position');
+    const insertedVertex = topology.logicalVertices.find((vertex: number) => {
+      const raw = topology.vertices[vertex][0];
+      return Math.hypot(
+        position.getX(raw) - expected[0],
+        position.getY(raw) - expected[1],
+        position.getZ(raw) - expected[2],
+      ) < 1e-5;
+    });
+    return {
+      snapshot: e.snapshot(),
+      insertedFound: insertedVertex !== undefined,
+      insertedUses: insertedVertex === undefined
+        ? 0
+        : topology.polygons.filter((polygon: number[]) => polygon.includes(insertedVertex)).length,
+    };
+  }, target.inserted.local);
+
+  expect(result.snapshot).not.toBe(target.before);
+  expect(result.insertedFound).toBe(true);
+  expect(result.insertedUses).toBe(2);
+
   await page.keyboard.press('Escape');
 });

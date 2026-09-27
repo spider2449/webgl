@@ -1398,6 +1398,7 @@ function syncKnifePendingPresentation() {
     ...(points.length ? [[...knifeAnchor.position] as [number, number, number]] : []),
     ...points.map(point => [...point] as [number, number, number]),
   ]);
+  editor.setKnifePendingActiveSegment(null);
   editor.setKnifePendingActive(
     points.length && knifeInteriorActiveIndex !== null
       ? Math.min(Math.max(knifeInteriorActiveIndex, 0), points.length - 1)
@@ -1549,6 +1550,43 @@ function deleteKnifePendingActiveBend() {
   }
   syncKnifePendingPresentation();
   armKnife('Pending Knife bend deleted.');
+  return true;
+}
+
+function cycleKnifePendingActive(direction: 1 | -1) {
+  if (!knifeActive || !knifeInteriorPath?.points.length) return false;
+  const count = knifeInteriorPath.points.length;
+  const current = knifeInteriorActiveIndex ?? (direction > 0 ? -1 : 0);
+  knifeInteriorActiveIndex = (current + direction + count) % count;
+  editor.setKnifePendingActiveSegment(null);
+  editor.setKnifePendingActive(knifeInteriorActiveIndex);
+  armKnife(`Knife bend ${knifeInteriorActiveIndex + 1} of ${count} selected.`);
+  return true;
+}
+
+function insertKnifePendingBend(segment: number, position: [number, number, number]) {
+  if (!knifeActive || !knifeAnchor || !knifeInteriorPath?.points.length) return false;
+  if (!Number.isInteger(segment) || segment < 0 || segment >= knifeInteriorPath.points.length) {
+    toast('Pending Knife segment is no longer valid.');
+    return true;
+  }
+
+  const points = knifeInteriorPath.points.map(point => [...point] as [number, number, number]);
+  points.splice(segment, 0, [...position]);
+
+  try {
+    validateKnifePendingPoints(knifeInteriorPath.face, points);
+  } catch (error) {
+    toast(`Cannot insert Knife bend on that segment: ${(error as Error).message}`);
+    syncKnifePendingPresentation();
+    return true;
+  }
+
+  pushKnifePendingEdit();
+  knifeInteriorPath = { face: knifeInteriorPath.face, points };
+  knifeInteriorActiveIndex = segment;
+  syncKnifePendingPresentation();
+  armKnife('Knife bend inserted on pending segment.');
   return true;
 }
 
@@ -1860,6 +1898,12 @@ editor.addEventListener('knife-pending-active', event => {
   if (!knifeInteriorPath?.points.length) return;
   knifeInteriorActiveIndex = index === null ? null : Math.min(Math.max(index, 0), knifeInteriorPath.points.length - 1);
   editor.setKnifePendingActive(knifeInteriorActiveIndex);
+});
+
+editor.addEventListener('knife-pending-segment-insert', event => {
+  const detail = (event as CustomEvent<{ segment: number; position: [number, number, number] }>).detail;
+  if (!detail) return;
+  insertKnifePendingBend(detail.segment, detail.position);
 });
 
 editor.addEventListener('knife-pending-drag-preview', event => {
@@ -3328,6 +3372,17 @@ document.addEventListener('keydown', e => {
   if (isEnter && knifeActive && !typingField && !dialogOpen) {
     e.preventDefault();
     finishKnifeFromKeyboard();
+    return;
+  }
+  if (
+    key === 'tab' &&
+    knifeActive &&
+    knifeInteriorPath?.points.length &&
+    !typingField &&
+    !dialogOpen
+  ) {
+    e.preventDefault();
+    cycleKnifePendingActive(e.shiftKey ? -1 : 1);
     return;
   }
   if (

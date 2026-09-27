@@ -172,6 +172,82 @@ function triangulateBoundary(
   const extent = Math.max(maxX - minX, maxY - minY, 1);
   const epsilon = extent * extent * 1e-12;
 
+  // Modeling boundaries may intentionally contain collinear logical vertices,
+  // for example when a pending Knife segment gets a new bend inserted directly
+  // on that segment. Renderer tessellation must preserve those vertices without
+  // emitting a zero-area triangle. Temporarily bridge over one truly collinear
+  // boundary vertex, tessellate the reduced polygon, then split the renderer
+  // triangle that owns the temporary boundary edge so the logical vertex is
+  // represented by non-degenerate triangles on both sides of that edge.
+  if (corners.length > 3) {
+    for (let current = 0; current < corners.length; current++) {
+      const previous = (current + corners.length - 1) % corners.length;
+      const next = (current + 1) % corners.length;
+      const span = points[next].clone().sub(points[previous]);
+      const spanLengthSq = span.lengthSq();
+      if (spanLengthSq <= 1e-16) continue;
+
+      const offset = points[current].clone().sub(points[previous]);
+      const t = offset.dot(span) / spanLengthSq;
+      if (!Number.isFinite(t) || t <= 1e-8 || t >= 1 - 1e-8) continue;
+
+      const closest = points[previous].clone().addScaledVector(span, t);
+      if (closest.distanceToSquared(points[current]) > Math.max(spanLengthSq, 1) * 1e-12) continue;
+
+      const previousCorner = corners[previous];
+      const currentCorner = corners[current];
+      const nextCorner = corners[next];
+      const temporaryEdge = positionEdgeKey(previousCorner, nextCorner);
+      const reducedCorners = corners.filter((_, index) => index !== current);
+      const reducedNormals = referenceNormals?.length === corners.length
+        ? referenceNormals.filter((_, index) => index !== current)
+        : referenceNormals;
+      let reducedForbidden = forbiddenDiagonals;
+      if (forbiddenDiagonals?.has(temporaryEdge)) {
+        reducedForbidden = new Set(forbiddenDiagonals);
+        reducedForbidden.delete(temporaryEdge);
+      }
+
+      const triangles = triangulateBoundary(reducedCorners, reducedNormals, reducedForbidden);
+      const owner = triangles.findIndex(triangle =>
+        triangle.includes(previousCorner) && triangle.includes(nextCorner)
+      );
+      if (owner < 0) throw new Error('Result polygon cannot preserve its collinear boundary vertex.');
+
+      const triangle = triangles[owner];
+      const previousIndex = triangle.indexOf(previousCorner);
+      const nextIndex = triangle.indexOf(nextCorner);
+      const third = triangle.find(corner => corner !== previousCorner && corner !== nextCorner);
+      if (!third) throw new Error('Result polygon cannot preserve its collinear boundary vertex.');
+
+      let replacement: Corner[][];
+      if ((previousIndex + 1) % 3 === nextIndex) {
+        replacement = [
+          [previousCorner, currentCorner, third],
+          [currentCorner, nextCorner, third],
+        ];
+      } else if ((nextIndex + 1) % 3 === previousIndex) {
+        replacement = [
+          [nextCorner, currentCorner, third],
+          [currentCorner, previousCorner, third],
+        ];
+      } else {
+        throw new Error('Result polygon cannot preserve its collinear boundary vertex.');
+      }
+
+      if (forbiddenDiagonals && replacement.some(renderTriangle =>
+        renderTriangle.some((corner, index) =>
+          forbiddenDiagonals.has(positionEdgeKey(corner, renderTriangle[(index + 1) % renderTriangle.length]))
+        )
+      )) {
+        throw new Error('Result polygon cannot be retessellated without recreating a deleted edge.');
+      }
+
+      triangles.splice(owner, 1, ...replacement);
+      return triangles;
+    }
+  }
+
   const remaining = corners.map((_, index) => index);
   const triangles: Corner[][] = [];
   while (remaining.length > 3) {
