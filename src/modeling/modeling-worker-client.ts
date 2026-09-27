@@ -5,7 +5,7 @@ export type KnifeBoundaryTarget =
   | { kind: 'edge'; edge: number; t: number };
 export type ModelingOperation =
   | { kind: 'bevel'; edges: number[]; width: number; polygonTriangles?: number[][] }
-  | { kind: 'loop'; edge: number; polygonTriangles?: number[][] }
+  | { kind: 'loop'; edge: number; factor: number; polygonTriangles?: number[][] }
   | { kind: 'uv'; faces: number[]; operation: 'project' | 'transform'; values: number[] }
   | { kind: 'modifiers'; items: Modifier[] }
   | { kind: 'extrude'; face: number; distance: number; polygonTriangles?: number[][] }

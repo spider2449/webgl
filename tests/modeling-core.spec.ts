@@ -247,6 +247,57 @@ test('logical Cube loop cut follows opposite quad edges without renderer-triangl
   expect(cut.geometry.boundingBox!.max.toArray()).toEqual([1, 1, 1]);
 });
 
+test('logical Cube loop cut preserves an off-center position across reversed shared-edge winding', () => {
+  const box = new THREE.BoxGeometry(2, 2, 2);
+  const before = JSON.stringify(box.toJSON());
+  const input = buildTopology(box.getAttribute('position').array, box.index?.array, true);
+  const selectedEdge = input.polygonEdges[0];
+  const sourcePosition = box.getAttribute('position');
+  const start = new THREE.Vector3().fromBufferAttribute(sourcePosition, input.vertices[selectedEdge[0]][0]);
+  const end = new THREE.Vector3().fromBufferAttribute(sourcePosition, input.vertices[selectedEdge[1]][0]);
+  const expected = start.clone().lerp(end, 0.25);
+  const delta = end.clone().sub(start);
+  const axis = [Math.abs(delta.x), Math.abs(delta.y), Math.abs(delta.z)]
+    .reduce((best, value, index, values) => value > values[best] ? index : best, 0);
+  const originalPoints = input.logicalVertices.map(vertex =>
+    new THREE.Vector3().fromBufferAttribute(sourcePosition, input.vertices[vertex][0])
+  );
+
+  const cut = loopCutLogicalEdge(box, 0, input.polygonTriangles, 0.25);
+  expect(JSON.stringify(box.toJSON())).toBe(before);
+  closed(cut.geometry);
+
+  const output = buildTopology(
+    cut.geometry.getAttribute('position').array,
+    cut.geometry.index?.array,
+    cut.polygonTriangles,
+  );
+  const position = cut.geometry.getAttribute('position');
+  expect(output.polygons).toHaveLength(10);
+  expect(output.polygons.every(polygon => polygon.length === 4)).toBe(true);
+  expect(output.vertices).toHaveLength(12);
+  expect(output.faces).toHaveLength(20);
+  expect(output.polygonEdges).toHaveLength(20);
+  expect(output.logicalVertices.some(vertex =>
+    new THREE.Vector3().fromBufferAttribute(position, output.vertices[vertex][0]).distanceToSquared(expected) < 1e-12
+  )).toBe(true);
+
+  const inserted = output.logicalVertices
+    .map(vertex => new THREE.Vector3().fromBufferAttribute(position, output.vertices[vertex][0]))
+    .filter(point => !originalPoints.some(original => original.distanceToSquared(point) < 1e-12));
+  expect(inserted).toHaveLength(4);
+  expect(inserted.every(point =>
+    Math.abs(point.getComponent(axis) - expected.getComponent(axis)) < 1e-6
+  )).toBe(true);
+
+  for (const invalid of [NaN, 0, 0.009, 0.991, 1]) {
+    expect(() => loopCutLogicalEdge(box, 0, input.polygonTriangles, invalid)).toThrow(/between 0.01 and 0.99/);
+  }
+
+  cut.geometry.dispose();
+  box.dispose();
+});
+
 test('Delete Vertex removes the point from affected face boundaries and retessellates those faces', () => {
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute('position', new THREE.Float32BufferAttribute([

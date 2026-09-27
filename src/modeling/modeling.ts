@@ -1010,12 +1010,16 @@ export function loopCutLogicalEdge(
   source: THREE.BufferGeometry,
   edge: number,
   polygonTriangles?: number[][],
+  factor = 0.5,
 ) {
   const inspection = inspectGeometry(source, polygonTriangles ?? false);
   const { topology } = inspection;
   const { polygons } = logicalSurface(source, inspection);
   if (!Number.isInteger(edge) || edge < 0 || !topology.polygonEdges[edge]) {
     throw new Error('Select one valid logical quad boundary edge.');
+  }
+  if (!Number.isFinite(factor) || factor < 0.01 || factor > 0.99) {
+    throw new Error('Loop Cut position must be between 0.01 and 0.99.');
   }
 
   const uses = new Map<string, { face: number; local: number }[]>();
@@ -1029,43 +1033,71 @@ export function loopCutLogicalEdge(
     });
   });
 
+  // polygonEdges are stored in canonical min->max vertex order. Carry the
+  // cut factor in that canonical orientation while traversing the quad ring.
+  // Each face converts it back to its own directed boundary orientation. The
+  // opposite boundary edge runs in the reverse direction around the quad, so
+  // that edge uses 1 - localFactor before the canonical factor is propagated
+  // into the neighboring face. This matters away from 0.5 because a midpoint
+  // hides both reversals.
   const start = edgeKey(...topology.polygonEdges[edge]);
-  const queue = [start];
-  const visitedEdges = new Set<string>();
-  const splitFaces = new Map<number, number>();
+  const queue: { key: string; factor: number }[] = [{ key: start, factor }];
+  const visitedEdges = new Map<string, number>();
+  const splitFaces = new Map<number, { local: number; factor: number }>();
 
   while (queue.length) {
-    const key = queue.pop()!;
-    if (visitedEdges.has(key)) continue;
-    visitedEdges.add(key);
-    const edgeUses = uses.get(key) ?? [];
+    const current = queue.pop()!;
+    const visitedFactor = visitedEdges.get(current.key);
+    if (visitedFactor !== undefined) {
+      if (Math.abs(visitedFactor - current.factor) > 1e-9) {
+        throw new Error('Loop Cut ring has inconsistent edge orientation.');
+      }
+      continue;
+    }
+    visitedEdges.set(current.key, current.factor);
+
+    const edgeUses = uses.get(current.key) ?? [];
     if (!edgeUses.length) throw new Error('Loop Cut cannot find the selected logical edge.');
     for (const use of edgeUses) {
       const vertices = topology.polygons[use.face];
       if (vertices.length !== 4) throw new Error('Loop Cut stops at triangles or n-gons; the selected ring must pass through quads.');
+
+      const localA = vertices[use.local];
+      const localB = vertices[(use.local + 1) % 4];
+      const localFactor = localA < localB ? current.factor : 1 - current.factor;
       const existing = splitFaces.get(use.face);
       if (existing !== undefined) {
-        if (existing % 2 !== use.local % 2) throw new Error('Loop Cut ring intersects itself.');
+        if (existing.local % 2 !== use.local % 2) throw new Error('Loop Cut ring intersects itself.');
+        const expectedFactor = existing.local === use.local ? existing.factor : 1 - existing.factor;
+        if (Math.abs(expectedFactor - localFactor) > 1e-9) {
+          throw new Error('Loop Cut ring has inconsistent edge orientation.');
+        }
         continue;
       }
-      splitFaces.set(use.face, use.local);
+
+      splitFaces.set(use.face, { local: use.local, factor: localFactor });
       const opposite = (use.local + 2) % 4;
-      queue.push(edgeKey(vertices[opposite], vertices[(opposite + 1) % 4]));
+      const oppositeA = vertices[opposite];
+      const oppositeB = vertices[(opposite + 1) % 4];
+      const oppositeLocalFactor = 1 - localFactor;
+      const oppositeFactor = oppositeA < oppositeB ? oppositeLocalFactor : 1 - oppositeLocalFactor;
+      queue.push({ key: edgeKey(oppositeA, oppositeB), factor: oppositeFactor });
     }
   }
   if (!splitFaces.size) throw new Error('No logical quad ring found.');
 
   const extras: Polygon[] = [];
   const output = polygons.map((polygon, face) => {
-    const local = splitFaces.get(face);
-    if (local === undefined) return polygon;
+    const split = splitFaces.get(face);
+    if (!split) return polygon;
+    const { local, factor: localFactor } = split;
     const corners = polygon.corners;
     const a = corners[local];
     const b = corners[(local + 1) % 4];
     const c = corners[(local + 2) % 4];
     const d = corners[(local + 3) % 4];
-    const entry = interpolate(a, b, 0.5);
-    const opposite = interpolate(c, d, 0.5);
+    const entry = interpolate(a, b, localFactor);
+    const opposite = interpolate(c, d, 1 - localFactor);
     extras.push({ material: polygon.material, corners: [entry, b, c, opposite] });
     return { material: polygon.material, corners: [a, entry, opposite, d] };
   });
