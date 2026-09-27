@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 import * as THREE from 'three';
 import { bevelEdges, bevelLogicalEdges, cutLogicalFace, deleteLogicalComponents, extrudeLogicalFace, insetLogicalFace, loopCut, loopCutLogicalEdge, subdivideLogicalEdges, editUV } from '../src/modeling/modeling';
-import { buildTopology, linkedLogicalComponents, logicalCoplanarFaces, logicalFaceBoundaryEdges, logicalFacesBySides, logicalMeshBoundaryEdges, logicalNonManifoldEdges } from '../src/modeling/topology';
+import { buildTopology, linkedLogicalComponents, logicalCoplanarFaces, logicalFaceBoundaryEdges, logicalFacesBySides, logicalMeshBoundaryEdges, logicalNonManifoldEdges, logicalSharpEdges } from '../src/modeling/topology';
 import { evaluateModifiers } from '../src/modeling/modifiers';
 
 function topology(g: THREE.BufferGeometry) { return buildTopology(g.getAttribute('position').array, g.index?.array); }
@@ -94,6 +94,43 @@ test('linked logical traversal expands connected islands without renderer diagon
   expect(linkedLogicalComponents(cube, 'face', [0])).toHaveLength(6);
   expect(() => linkedLogicalComponents(cube, 'edge', [-1])).toThrow(/valid logical edges/);
   box.dispose();
+});
+
+test('logical sharp edge selection uses polygon face angles and excludes renderer diagonals', () => {
+  const box = new THREE.BoxGeometry(2, 2, 2);
+  const cube = buildTopology(
+    box.getAttribute('position').array,
+    box.index?.array,
+    true,
+  );
+  expect(cube.polygonEdges).toHaveLength(12);
+  expect(logicalSharpEdges(
+    cube,
+    box.getAttribute('position').array,
+    THREE.MathUtils.degToRad(30),
+  )).toHaveLength(12);
+  expect(logicalSharpEdges(
+    cube,
+    box.getAttribute('position').array,
+    THREE.MathUtils.degToRad(91),
+  )).toEqual([]);
+
+  const plane = new THREE.PlaneGeometry(2, 1, 2, 1);
+  const planeTopology = buildTopology(
+    plane.getAttribute('position').array,
+    plane.index?.array,
+    true,
+  );
+  expect(planeTopology.polygons).toHaveLength(2);
+  expect(planeTopology.polygonEdges).toHaveLength(7);
+  expect(logicalSharpEdges(
+    planeTopology,
+    plane.getAttribute('position').array,
+    THREE.MathUtils.degToRad(30),
+  )).toEqual([]);
+
+  box.dispose();
+  plane.dispose();
 });
 
 test('logical coplanar selection expands only across connected same-plane polygon edges', () => {

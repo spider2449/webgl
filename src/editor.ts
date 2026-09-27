@@ -10,7 +10,7 @@ import { clone as cloneSkeleton } from 'three/addons/utils/SkeletonUtils.js';
 import { createGrid, setGridPlane } from './viewport/grid';
 import { insetTriangle } from './modeling/extrude';
 import { extrudeLogicalFace } from './modeling/modeling';
-import { buildTopology, linkedLogicalComponents, logicalCoplanarFaces, logicalFaceBoundaryEdges, logicalFacesBySides, logicalMeshBoundaryEdges, logicalNonManifoldEdges, type MeshTopology, type ComponentMode, type FaceSideKind } from './modeling/topology';
+import { buildTopology, linkedLogicalComponents, logicalCoplanarFaces, logicalFaceBoundaryEdges, logicalFacesBySides, logicalMeshBoundaryEdges, logicalNonManifoldEdges, logicalSharpEdges, type MeshTopology, type ComponentMode, type FaceSideKind } from './modeling/topology';
 import { proportionalWeights } from './modeling/proportional';
 import { subdivideEdges } from './modeling/subdivide';
 import { extrudeRegion } from './modeling/extrude-region';
@@ -1734,6 +1734,45 @@ export class Editor extends EventTarget {
     this.selectComponentVertices(faces.flatMap(face => this.topology!.polygons[face]));
     this.emit('component-selection');
     return faces.length;
+  }
+
+  selectSharpEdges(minimumAngleDegrees: number) {
+    if (
+      !this.editMode ||
+      this.weightMode ||
+      this.componentMode !== 'edge' ||
+      !this.topology ||
+      !(this.selected instanceof THREE.Mesh) ||
+      this.modelingBusy ||
+      this.playing ||
+      this.transform.dragging
+    ) {
+      throw new Error('Enter mesh Edge Edit Mode before selecting sharp edges.');
+    }
+    if (!Number.isFinite(minimumAngleDegrees) || minimumAngleDegrees < 0 || minimumAngleDegrees > 180) {
+      throw new Error('Sharp edge angle must be between 0 and 180 degrees.');
+    }
+
+    const position = this.selected.geometry.getAttribute('position');
+    if (!(position instanceof THREE.BufferAttribute) || position.itemSize !== 3) {
+      throw new Error('Sharp edge selection requires standard mesh positions.');
+    }
+    const edges = logicalSharpEdges(
+      this.topology,
+      position.array,
+      THREE.MathUtils.degToRad(minimumAngleDegrees),
+    );
+    if (!edges.length) {
+      const angle = Number(minimumAngleDegrees.toFixed(3));
+      throw new Error(`Mesh has no sharp logical manifold edges at or above ${angle}°.`);
+    }
+
+    this.modelingVersion++;
+    this.selectedComponents = new Set(edges);
+    this.selectedFace = null;
+    this.selectComponentVertices(edges.flatMap(edge => this.topology!.polygonEdges[edge]));
+    this.emit('component-selection');
+    return edges.length;
   }
 
   selectNonManifoldEdges() {

@@ -301,6 +301,76 @@ export function logicalNonManifoldEdges(topology: MeshTopology) {
   return topology.polygonEdges.flatMap((_, edge) => (uses.get(edge) ?? 0) !== 2 ? [edge] : []);
 }
 
+export function logicalSharpEdges(
+  topology: MeshTopology,
+  positions: ArrayLike<number>,
+  minimumAngleRadians: number,
+) {
+  if (!Number.isFinite(minimumAngleRadians) || minimumAngleRadians < 0 || minimumAngleRadians > Math.PI) {
+    throw new Error('Sharp edge angle must be between 0 and 180 degrees.');
+  }
+
+  const point = (vertex: number) => {
+    const buffer = topology.vertices[vertex]?.[0];
+    if (buffer === undefined || !Number.isInteger(buffer)) {
+      throw new Error('Logical edge positions are invalid.');
+    }
+    const offset = buffer * 3;
+    const value: [number, number, number] = [
+      Number(positions[offset]),
+      Number(positions[offset + 1]),
+      Number(positions[offset + 2]),
+    ];
+    if (value.some(component => !Number.isFinite(component))) {
+      throw new Error('Logical edge positions are invalid.');
+    }
+    return value;
+  };
+  const dot = (a: [number, number, number], b: [number, number, number]) =>
+    a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+
+  const normalCache = new Map<number, [number, number, number]>();
+  const normal = (face: number) => {
+    const cached = normalCache.get(face);
+    if (cached) return cached;
+    const polygon = topology.polygons[face];
+    if (!polygon) throw new Error('Logical edge references an invalid polygon.');
+    const points = polygon.map(point);
+    let nx = 0, ny = 0, nz = 0;
+    for (let i = 0; i < points.length; i++) {
+      const a = points[i], b = points[(i + 1) % points.length];
+      nx += (a[1] - b[1]) * (a[2] + b[2]);
+      ny += (a[2] - b[2]) * (a[0] + b[0]);
+      nz += (a[0] - b[0]) * (a[1] + b[1]);
+    }
+    const length = Math.hypot(nx, ny, nz);
+    if (!Number.isFinite(length) || length < 1e-12) {
+      throw new Error('Cannot classify a degenerate logical face angle.');
+    }
+    const value: [number, number, number] = [nx / length, ny / length, nz / length];
+    normalCache.set(face, value);
+    return value;
+  };
+
+  const edgeFaces = new Map<string, number[]>();
+  topology.polygons.forEach((polygon, face) => {
+    for (let local = 0; local < polygon.length; local++) {
+      const key = edgeKey(polygon[local], polygon[(local + 1) % polygon.length]);
+      const faces = edgeFaces.get(key) ?? [];
+      faces.push(face);
+      edgeFaces.set(key, faces);
+    }
+  });
+
+  const maximumDot = Math.cos(minimumAngleRadians);
+  return topology.polygonEdges.flatMap((edge, id) => {
+    const faces = edgeFaces.get(edgeKey(edge[0], edge[1])) ?? [];
+    if (faces.length !== 2) return [];
+    const faceDot = Math.max(-1, Math.min(1, dot(normal(faces[0]), normal(faces[1]))));
+    return faceDot <= maximumDot + 1e-12 ? [id] : [];
+  });
+}
+
 export function logicalFacesBySides(topology: MeshTopology, kind: FaceSideKind) {
   return topology.polygons.flatMap((polygon, face) => {
     const matches =

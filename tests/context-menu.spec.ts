@@ -257,6 +257,8 @@ test('Edit Mode RMB menu changes with Vertex, Edge and Face component mode', asy
   await expect(menu.getByRole('menuitem', { name: 'Scale S' })).toBeVisible();
   await expect(menu.getByRole('menuitem', { name: 'Select Linked' })).toBeVisible();
   await expect(menu.getByRole('menuitem', { name: 'Invert Selection' })).toBeVisible();
+  await expect(menu.getByRole('menuitem', { name: 'Select Sharp Edges' })).toBeVisible();
+  await expect(page.getByRole('spinbutton', { name: 'Context sharp angle', exact: true })).toHaveValue('30');
   await expect(menu.getByRole('menuitem', { name: 'Select Non-Manifold Edges' })).toBeVisible();
   await expect(menu.getByRole('menuitem', { name: 'Select Mesh Boundary' })).toBeVisible();
   await expect(menu.getByRole('menuitem', { name: 'Bevel Edges' })).toBeVisible();
@@ -406,6 +408,88 @@ test('RMB Invert Selection complements logical components without history', asyn
       undoDepth:initialUndoDepth,
     });
   }
+});
+
+test('RMB Select Sharp Edges uses a session angle threshold and preserves no-match selection', async ({ page }) => {
+  await page.getByRole('button', { name: 'Toggle geometry statistics' }).click();
+  await page.locator('#mode').selectOption('edit');
+  await page.getByLabel('Mesh component').selectOption('edge');
+  await page.evaluate(() => (window as any).__forge.selectComponent(0));
+  const initialUndoDepth = await page.evaluate(() => (window as any).__forge.undoDepth);
+
+  await rightClickViewport(page);
+  let menu = page.locator('#viewport-context-menu');
+  const sharpAngle = page.getByRole('spinbutton', { name: 'Context sharp angle', exact: true });
+  await expect(sharpAngle).toHaveValue('30');
+  await sharpAngle.fill('91');
+  await sharpAngle.press('Enter');
+  await expect(page.locator('#toast')).toContainText('Mesh has no sharp logical manifold edges at or above 91°');
+
+  expect(await page.evaluate(() => ({
+    selection:[...(window as any).__forge.componentSelection],
+    undoDepth:(window as any).__forge.undoDepth,
+  }))).toEqual({
+    selection:[0],
+    undoDepth:initialUndoDepth,
+  });
+
+  await rightClickViewport(page);
+  menu = page.locator('#viewport-context-menu');
+  await expect(page.getByRole('spinbutton', { name: 'Context sharp angle', exact: true })).toHaveValue('91');
+  await page.getByRole('spinbutton', { name: 'Context sharp angle', exact: true }).fill('30');
+  await page.getByRole('spinbutton', { name: 'Context sharp angle', exact: true }).press('Enter');
+  await expect(page.locator('#toast')).toContainText('Selected 12 sharp logical edges at 30° or greater');
+
+  expect(await page.evaluate(() => {
+    const e=(window as any).__forge;
+    return {
+      count:e.componentSelection.length,
+      overlay:e.selectedEdgeOverlay.geometry.instanceCount,
+      overlayWidth:e.selectedEdgeOverlay.material.linewidth,
+      active:e.componentSelection.at(-1),
+      activeOverlay:e.activeEdgeOverlay.geometry.instanceCount,
+      activeWidth:e.activeEdgeOverlay.material.linewidth,
+      undoDepth:e.undoDepth,
+    };
+  })).toEqual({
+    count:12,
+    overlay:12,
+    overlayWidth:4,
+    active:11,
+    activeOverlay:1,
+    activeWidth:6,
+    undoDepth:initialUndoDepth,
+  });
+  await expect(page.locator('#geometry-statistics-selected')).toHaveText('Obj 1 · V 8 · E 12 · F 6 · T 12');
+
+  await page.locator('#mode').selectOption('object');
+  await page.locator('[data-menu="add-menu"]').click();
+  await page.locator('[data-primitive="plane"]').click();
+  await page.getByLabel('Primitive Segments X').fill('2');
+  await page.getByLabel('Primitive Segments X').press('Enter');
+  await page.locator('#mode').selectOption('edit');
+  await page.getByLabel('Mesh component').selectOption('edge');
+  await page.evaluate(() => (window as any).__forge.selectComponent(0));
+  const planeBefore = await page.evaluate(() => ({
+    selection:[...(window as any).__forge.componentSelection],
+    undoDepth:(window as any).__forge.undoDepth,
+  }));
+
+  await rightClickViewport(page);
+  menu = page.locator('#viewport-context-menu');
+  await expect(page.getByRole('spinbutton', { name: 'Context sharp angle', exact: true })).toHaveValue('30');
+  await menu.getByRole('menuitem', { name: 'Select Sharp Edges', exact: true }).click();
+  await expect(page.locator('#toast')).toContainText('Mesh has no sharp logical manifold edges at or above 30°');
+
+  expect(await page.evaluate(() => ({
+    logicalEdges:(window as any).__forge.meshTopology.polygonEdges.length,
+    selection:[...(window as any).__forge.componentSelection],
+    undoDepth:(window as any).__forge.undoDepth,
+  }))).toEqual({
+    logicalEdges:7,
+    selection:planeBefore.selection,
+    undoDepth:planeBefore.undoDepth,
+  });
 });
 
 test('RMB Select Non-Manifold Edges selects open logical edges and preserves closed-manifold selection', async ({ page }) => {
