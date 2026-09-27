@@ -34,6 +34,8 @@ export type ScalarKey = {
 };
 export type AnimationTrackMap = Partial<Record<ScalarAnimationChannel, ScalarKey[]>>;
 export type AnimationRange = { start: number; end: number };
+export type GeometryCounts = { objects: number; vertices: number; edges: number; faces: number; triangles: number };
+export type GeometryStatistics = { all: GeometryCounts; selected: GeometryCounts };
 export type Project = { format: 'forge-studio'; version: 1; name: string; animationRange?: AnimationRange; previewRange?: AnimationRange; scene: ReturnType<THREE.Group['toJSON']> };
 const MAX_HISTORY_BYTES = 24 * 1024 * 1024;
 const MAX_ANIMATION_FRAME = 100_000;
@@ -3655,6 +3657,116 @@ export class Editor extends EventTarget {
       object.scale.set(scale[0], scale[1], scale[2]);
     });
     this.updateSelection();
+  }
+
+  private meshGeometryCounts(mesh: THREE.Mesh): Omit<GeometryCounts, 'objects'> {
+    const position = mesh.geometry.getAttribute('position');
+    if (!position) return { vertices: 0, edges: 0, faces: 0, triangles: 0 };
+    const primitiveKind = (mesh.userData.forgePrimitive as { kind?: string } | undefined)?.kind;
+    const storedPolygons = this.storedPolygonTriangles(mesh);
+    const pairTriangles =
+      storedPolygons === undefined &&
+      (mesh.userData.forgeLogicalQuads === true || primitiveKind === 'cube' || primitiveKind === 'plane');
+    const topology = buildTopology(position.array, mesh.geometry.index?.array, storedPolygons ?? pairTriangles);
+    return {
+      vertices: topology.logicalVertices.length,
+      edges: topology.polygonEdges.length,
+      faces: topology.polygons.length,
+      triangles: topology.faces.length,
+    };
+  }
+
+  private objectGeometryCounts(objects: Iterable<THREE.Object3D>): GeometryCounts {
+    const counts: GeometryCounts = { objects: 0, vertices: 0, edges: 0, faces: 0, triangles: 0 };
+    for (const object of objects) {
+      counts.objects++;
+      object.traverse(child => {
+        if (!(child instanceof THREE.Mesh) || child.userData.forgeEditorHelper === true) return;
+        const geometry = this.meshGeometryCounts(child);
+        counts.vertices += geometry.vertices;
+        counts.edges += geometry.edges;
+        counts.faces += geometry.faces;
+        counts.triangles += geometry.triangles;
+      });
+    }
+    return counts;
+  }
+
+  private editSelectionGeometryCounts(): GeometryCounts {
+    const counts: GeometryCounts = {
+      objects: this.selected ? 1 : 0,
+      vertices: 0,
+      edges: 0,
+      faces: 0,
+      triangles: 0,
+    };
+    if (!this.topology || !(this.selected instanceof THREE.Mesh)) return counts;
+
+    const selectedVertices = new Set<number>();
+    const selectedEdges = new Set<number>();
+    const selectedFaces = new Set<number>();
+    const selected = this.selectedComponents;
+    const edgeKey = (a: number, b: number) => `${Math.min(a, b)}:${Math.max(a, b)}`;
+    const edgeByKey = new Map(this.topology.polygonEdges.map((edge, id) => [edgeKey(edge[0], edge[1]), id]));
+
+    if (this.componentMode === 'vertex') {
+      selected.forEach(vertex => selectedVertices.add(vertex));
+      this.topology.polygonEdges.forEach(([a, b], edge) => {
+        if (selectedVertices.has(a) && selectedVertices.has(b)) selectedEdges.add(edge);
+      });
+      this.topology.polygons.forEach((polygon, face) => {
+        if (polygon.every(vertex => selectedVertices.has(vertex))) selectedFaces.add(face);
+      });
+    } else if (this.componentMode === 'edge') {
+      selected.forEach(edge => {
+        if (!this.topology!.polygonEdges[edge]) return;
+        selectedEdges.add(edge);
+        this.topology!.polygonEdges[edge].forEach(vertex => selectedVertices.add(vertex));
+      });
+      this.topology.polygons.forEach((polygon, face) => {
+        const complete = polygon.every((vertex, local) => {
+          const next = polygon[(local + 1) % polygon.length];
+          const edge = edgeByKey.get(edgeKey(vertex, next));
+          return edge !== undefined && selectedEdges.has(edge);
+        });
+        if (complete) selectedFaces.add(face);
+      });
+    } else {
+      selected.forEach(face => {
+        const polygon = this.topology!.polygons[face];
+        if (!polygon) return;
+        selectedFaces.add(face);
+        polygon.forEach(vertex => selectedVertices.add(vertex));
+        polygon.forEach((vertex, local) => {
+          const next = polygon[(local + 1) % polygon.length];
+          const edge = edgeByKey.get(edgeKey(vertex, next));
+          if (edge !== undefined) selectedEdges.add(edge);
+        });
+      });
+    }
+
+    counts.vertices = selectedVertices.size;
+    counts.edges = selectedEdges.size;
+    counts.faces = selectedFaces.size;
+    counts.triangles = [...selectedFaces].reduce(
+      (sum, face) => sum + (this.topology!.polygonTriangles[face]?.length ?? 0),
+      0,
+    );
+    return counts;
+  }
+
+  geometryStatistics(): GeometryStatistics {
+    const roots: THREE.Object3D[] = [];
+    for (const child of this.content.children) {
+      if (this.isCollection(child)) roots.push(...child.children);
+      else roots.push(child);
+    }
+    return {
+      all: this.objectGeometryCounts(roots),
+      selected: this.editMode && !this.weightMode
+        ? this.editSelectionGeometryCounts()
+        : this.objectGeometryCounts(this.selectedObjects),
+    };
   }
 
   stats() {
