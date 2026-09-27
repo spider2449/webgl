@@ -59,8 +59,10 @@ to select every logical component in the active Vertex, Edge or Face mode; **Alt
 clears the component selection. Outside text-entry fields, Ctrl+A is intercepted by the editor so the browser does not highlight the whole UI; in Object Mode it remains a no-op. These shortcuts do not alter Object Mode selection.
 RMB -> **Select Linked**
 expands the current selection across each connected logical mesh island: vertices and edges follow
-logical polygon boundary edges, while faces cross only shared logical boundary edges. In Face mode,
-In Face mode, RMB -> **Select Faces by Sides** selects logical Triangles, Quads or N-gons (5+ sides)
+logical polygon boundary edges, while faces cross only shared logical boundary edges. RMB -> **Select More**
+grows the current logical selection by exactly one adjacency ring: vertices add logical-edge neighbors,
+edges add logical edges sharing an endpoint, and faces add faces sharing a logical boundary edge.
+Renderer triangulation diagonals never participate. In Face mode, RMB -> **Select Faces by Sides** selects logical Triangles, Quads or N-gons (5+ sides)
 from polygon boundary size rather than renderer tessellation; the default Cube therefore has six Quads, not
 twelve Triangles. **Select Coplanar Faces** expands the current face seed across shared logical polygon edges
 only while adjacent faces remain on the same consistently oriented plane, which is useful before Extrude Region.
