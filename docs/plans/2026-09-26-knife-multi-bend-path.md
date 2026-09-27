@@ -47,6 +47,8 @@ Pending-path edits share one local history:
 
 The mesh remains unchanged throughout all pending-path editing. Knife stays active so the edited path can still be completed on the logical face boundary.
 
+The pending path is rendered as one continuous viewport polyline from the boundary start through every pending bend. While any bend is dragged, that rendered polyline temporarily substitutes the drag candidate so both adjacent legs update together; releasing an invalid candidate restores the canonical pending path.
+
 ## Topology representation
 
 A completed path divides one logical polygon into two polygons.
