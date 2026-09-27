@@ -85,7 +85,7 @@ $('#app').innerHTML = `
   </main>
   <footer class="statusbar"><span class="status-ready"><span></span> Ready</span><span id="scene-stats">1 object · 24 vertices · 12 triangles</span><div class="status-spacer"></div><span class="navigation-help"><kbd>MMB</kbd> Orbit <kbd>Shift MMB</kbd> Pan <kbd>RMB</kbd> Context <kbd>Scroll</kbd> Zoom</span><span class="webgl-label">WebGL 2</span>${button('help','help-circle','Keyboard shortcuts')}</footer>
   <div class="toast hidden" id="toast" role="status"></div>
-  <dialog id="help-dialog"><div class="dialog-heading"><span>Make yourself at home.</span>${button('close-help','x','Close shortcuts')}</div><p>A familiar workflow, right in your browser.</p><div class="shortcut-grid">${[['Select','Q'],['Move / Rotate / Scale','G / R / S'],['Frame selection','F'],['Duplicate','Shift D'],['Linked duplicate','Alt D'],['Delete','Delete'],['Object / Edit mode','Tab'],['Insert keyframe','I'],['Play / Pause','Space'],['Front / Right / Top','1 / 3 / 7'],['Perspective / Orthographic','5'],['Undo / Redo','Ctrl Z / Ctrl Shift Z'],['Save / Open project','Ctrl S / Ctrl O'],['Orbit','Middle mouse / Alt drag'],['Pan','Shift MMB'],['Context menu','Right mouse']].map(([label,key])=>`<span>${label}</span><kbd>${key}</kbd>`).join('')}</div><p class="dialog-note">Modeling uses logical vertices, edges and polygon faces. Renderer triangulation remains display-only. Additional Blender-style operators are being added incrementally.</p></dialog>
+  <dialog id="help-dialog"><div class="dialog-heading"><span>Make yourself at home.</span>${button('close-help','x','Close shortcuts')}</div><p>A familiar workflow, right in your browser.</p><div class="shortcut-grid">${[['Select','Q'],['Move / Rotate / Scale','G / R / S'],['Select all components','A / Ctrl A'],['Deselect all components','Alt A'],['Frame selection','F'],['Duplicate','Shift D'],['Linked duplicate','Alt D'],['Delete','Delete'],['Object / Edit mode','Tab'],['Insert keyframe','I'],['Play / Pause','Space'],['Front / Right / Top','1 / 3 / 7'],['Perspective / Orthographic','5'],['Undo / Redo','Ctrl Z / Ctrl Shift Z'],['Save / Open project','Ctrl S / Ctrl O'],['Orbit','Middle mouse / Alt drag'],['Pan','Shift MMB'],['Context menu','Right mouse']].map(([label,key])=>`<span>${label}</span><kbd>${key}</kbd>`).join('')}</div><p class="dialog-note">Modeling uses logical vertices, edges and polygon faces. Renderer triangulation remains display-only. Additional Blender-style operators are being added incrementally.</p></dialog>
   <dialog id="new-dialog"><div class="dialog-heading"><span>Create a new scene?</span></div><p>Download your project first if you want to keep a permanent copy. You can undo this action in the current session.</p><div class="dialog-actions"><button id="cancel-new">Cancel</button><button id="confirm-new" class="primary-button">New scene</button></div></dialog>
   <dialog id="save-dialog">
     <form id="save-form" method="dialog">
@@ -2010,6 +2010,15 @@ editor.addEventListener('mode', () => {
   if (knifeActive && !editor.modelingBusy && (!editor.editMode || editor.componentMode !== 'vertex')) cancelKnife();
 });
 
+function selectAllComponents(selected: boolean) {
+  try {
+    const count = editor.setAllComponentSelection(selected);
+    toast(selected
+      ? `Selected all ${count} logical components.`
+      : 'Component selection cleared.');
+  } catch (error) { toast((error as Error).message); }
+}
+
 function invertComponentSelection() {
   try {
     const count = editor.invertComponentSelection();
@@ -2061,6 +2070,8 @@ const modelingCommands = {
   knife: startKnifeCut,
   cutFace: cutFaceBetweenSelectedVertices,
   selectLinked: selectLinkedComponents,
+  selectAll: () => selectAllComponents(true),
+  deselectAll: () => selectAllComponents(false),
   invertSelection: invertComponentSelection,
   selectFaceBoundaryEdges,
   deleteComponents: deleteSelectedComponents,
@@ -2119,7 +2130,9 @@ function viewportContextCommands(mode: ViewportContextMode): ViewportContextComm
   const oneComponent = () => editor.componentSelection.length === 1 && !editor.modelingBusy;
   const twoComponents = () => editor.componentSelection.length === 2 && !editor.modelingBusy;
   const knifeReady = () => editor.componentSelection.length <= 1 && !editor.modelingBusy;
-  const canInvertComponents = () => !!editor.meshTopology && !editor.modelingBusy;
+  const canSelectComponents = () => !!editor.meshTopology && !editor.modelingBusy;
+  const canDeselectComponents = () => editor.componentSelection.length > 0 && !editor.modelingBusy;
+  const canInvertComponents = canSelectComponents;
   const hasObject = () => !!editor.selected && !editor.modelingBusy;
 
   if (mode === 'vertex') return [
@@ -2127,6 +2140,8 @@ function viewportContextCommands(mode: ViewportContextMode): ViewportContextComm
     { label: 'Rotate', shortcut: 'R', action: () => tool('rotate'), enabled: hasComponents },
     { label: 'Scale', shortcut: 'S', action: () => tool('scale'), enabled: hasComponents },
     { label: 'Select Linked', action: modelingCommands.selectLinked, enabled: hasComponents },
+    { label: 'Select All', shortcut: 'A', action: modelingCommands.selectAll, enabled: canSelectComponents },
+    { label: 'Deselect All', shortcut: 'Alt A', action: modelingCommands.deselectAll, enabled: canDeselectComponents },
     { label: 'Invert Selection', action: modelingCommands.invertSelection, enabled: canInvertComponents },
     { label: 'Knife', shortcut: 'K', action: modelingCommands.knife, enabled: knifeReady, separatorBefore: true },
     { label: 'Cut Face', action: modelingCommands.cutFace, enabled: twoComponents },
@@ -2138,6 +2153,8 @@ function viewportContextCommands(mode: ViewportContextMode): ViewportContextComm
     { label: 'Rotate', shortcut: 'R', action: () => tool('rotate'), enabled: hasComponents },
     { label: 'Scale', shortcut: 'S', action: () => tool('scale'), enabled: hasComponents },
     { label: 'Select Linked', action: modelingCommands.selectLinked, enabled: hasComponents },
+    { label: 'Select All', shortcut: 'A', action: modelingCommands.selectAll, enabled: canSelectComponents },
+    { label: 'Deselect All', shortcut: 'Alt A', action: modelingCommands.deselectAll, enabled: canDeselectComponents },
     { label: 'Invert Selection', action: modelingCommands.invertSelection, enabled: canInvertComponents },
     { label: 'Bevel Edges', action: modelingCommands.bevelEdges, enabled: hasComponents, separatorBefore: true },
     { label: 'Subdivide Edges', action: modelingCommands.subdivideEdges, enabled: hasComponents },
@@ -2149,6 +2166,8 @@ function viewportContextCommands(mode: ViewportContextMode): ViewportContextComm
     { label: 'Rotate', shortcut: 'R', action: () => tool('rotate'), enabled: hasComponents },
     { label: 'Scale', shortcut: 'S', action: () => tool('scale'), enabled: hasComponents },
     { label: 'Select Linked', action: modelingCommands.selectLinked, enabled: hasComponents },
+    { label: 'Select All', shortcut: 'A', action: modelingCommands.selectAll, enabled: canSelectComponents },
+    { label: 'Deselect All', shortcut: 'Alt A', action: modelingCommands.deselectAll, enabled: canDeselectComponents },
     { label: 'Invert Selection', action: modelingCommands.invertSelection, enabled: canInvertComponents },
     { label: 'Select Boundary Edges', action: modelingCommands.selectFaceBoundaryEdges, enabled: hasComponents },
     { label: 'Extrude Face', action: modelingCommands.extrudeFace, enabled: oneComponent, separatorBefore: true },
@@ -2422,6 +2441,10 @@ viewportContextMenu.addEventListener('keydown', event => {
       closeViewportContextMenu();
       editor.renderer.domElement.focus();
     }
+    return;
+  }
+  if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'a') {
+    event.preventDefault();
     return;
   }
   const items = [...viewportContextMenu.querySelectorAll<HTMLButtonElement>('button:not(:disabled)')];
@@ -3523,8 +3546,35 @@ document.addEventListener('keydown', e => {
   }
   if (typingField || e.target instanceof HTMLSelectElement || dialogOpen) return;
   if (e.ctrlKey || e.metaKey) {
-    if (['s','o','z','y','n'].includes(key)) e.preventDefault();
-    if (key === 's') showSaveDialog(); else if (key === 'o') $('#project-input').click(); else if (key === 'z') e.shiftKey ? editor.redo() : editor.undo(); else if (key === 'y') editor.redo(); else if (key === 'n') $<HTMLDialogElement>('#new-dialog').showModal();
+    if (['s','o','z','y','n','a'].includes(key)) e.preventDefault();
+    if (key === 's') showSaveDialog();
+    else if (key === 'o') $('#project-input').click();
+    else if (key === 'z') e.shiftKey ? editor.redo() : editor.undo();
+    else if (key === 'y') editor.redo();
+    else if (key === 'n') $<HTMLDialogElement>('#new-dialog').showModal();
+    else if (
+      key === 'a' &&
+      editor.editMode &&
+      !editor.weightMode &&
+      !knifeActive &&
+      !editor.snapTargetPending &&
+      !editor.modelingBusy &&
+      !editor.transform.dragging
+    ) modelingCommands.selectAll();
+    return;
+  }
+  if (
+    key === 'a' &&
+    editor.editMode &&
+    !editor.weightMode &&
+    !knifeActive &&
+    !editor.snapTargetPending &&
+    !editor.modelingBusy &&
+    !editor.transform.dragging
+  ) {
+    e.preventDefault();
+    if (e.altKey) modelingCommands.deselectAll();
+    else modelingCommands.selectAll();
     return;
   }
   if (key === 'alt') editor.orbit.mouseButtons.LEFT = THREE.MOUSE.ROTATE;

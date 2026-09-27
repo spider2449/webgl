@@ -1604,6 +1604,44 @@ export class Editor extends EventTarget {
     this.selectComponentVertices(vertices);
     this.emit('component-selection');
   }
+  setAllComponentSelection(selected: boolean) {
+    if (
+      !this.editMode ||
+      this.weightMode ||
+      !this.topology ||
+      this.modelingBusy ||
+      this.playing ||
+      this.transform.dragging
+    ) {
+      throw new Error('Enter mesh Edit Mode before changing all component selection.');
+    }
+
+    const components = selected
+      ? this.componentMode === 'vertex'
+        ? [...this.topology.logicalVertices]
+        : this.componentMode === 'edge'
+          ? this.topology.polygonEdges.map((_, edge) => edge)
+          : this.topology.polygons.map((_, face) => face)
+      : [];
+
+    this.modelingVersion++;
+    this.selectedComponents = new Set(components);
+    this.selectedFace =
+      this.componentMode === 'face' && components.length === 1
+        ? components[0]
+        : null;
+    const vertices = components.flatMap(id =>
+      this.componentMode === 'vertex'
+        ? [id]
+        : this.componentMode === 'edge'
+          ? this.topology!.polygonEdges[id]
+          : this.topology!.polygons[id]
+    );
+    this.selectComponentVertices(vertices);
+    this.emit('component-selection');
+    return components.length;
+  }
+
   invertComponentSelection() {
     if (
       !this.editMode ||
