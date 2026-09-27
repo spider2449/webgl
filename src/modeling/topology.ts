@@ -275,13 +275,12 @@ export function growLogicalComponents(
   if (mode === 'vertex') {
     const logical = new Set(topology.logicalVertices);
     if (uniqueSeeds.some(vertex => !logical.has(vertex))) throw new Error('Select valid logical vertices.');
+    const seedSet = new Set(uniqueSeeds);
     const result = new Set(uniqueSeeds);
     for (const [a, b] of topology.polygonEdges) {
-      if (result.has(a) || result.has(b)) {
-        if (uniqueSeeds.includes(a) || uniqueSeeds.includes(b)) {
-          result.add(a);
-          result.add(b);
-        }
+      if (seedSet.has(a) || seedSet.has(b)) {
+        result.add(a);
+        result.add(b);
       }
     }
     return topology.logicalVertices.filter(vertex => result.has(vertex));
