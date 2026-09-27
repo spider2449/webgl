@@ -1977,6 +1977,13 @@ editor.addEventListener('mode', () => {
   if (knifeActive && !editor.modelingBusy && (!editor.editMode || editor.componentMode !== 'vertex')) cancelKnife();
 });
 
+function invertComponentSelection() {
+  try {
+    const count = editor.invertComponentSelection();
+    toast(`Selection inverted; ${count} logical components selected.`);
+  } catch (error) { toast((error as Error).message); }
+}
+
 function selectFaceBoundaryEdges() {
   try {
     const count = editor.selectFaceBoundaryEdges();
@@ -2021,6 +2028,7 @@ const modelingCommands = {
   knife: startKnifeCut,
   cutFace: cutFaceBetweenSelectedVertices,
   selectLinked: selectLinkedComponents,
+  invertSelection: invertComponentSelection,
   selectFaceBoundaryEdges,
   deleteComponents: deleteSelectedComponents,
 };
@@ -2078,6 +2086,7 @@ function viewportContextCommands(mode: ViewportContextMode): ViewportContextComm
   const oneComponent = () => editor.componentSelection.length === 1 && !editor.modelingBusy;
   const twoComponents = () => editor.componentSelection.length === 2 && !editor.modelingBusy;
   const knifeReady = () => editor.componentSelection.length <= 1 && !editor.modelingBusy;
+  const canInvertComponents = () => !!editor.meshTopology && !editor.modelingBusy;
   const hasObject = () => !!editor.selected && !editor.modelingBusy;
 
   if (mode === 'vertex') return [
@@ -2085,6 +2094,7 @@ function viewportContextCommands(mode: ViewportContextMode): ViewportContextComm
     { label: 'Rotate', shortcut: 'R', action: () => tool('rotate'), enabled: hasComponents },
     { label: 'Scale', shortcut: 'S', action: () => tool('scale'), enabled: hasComponents },
     { label: 'Select Linked', action: modelingCommands.selectLinked, enabled: hasComponents },
+    { label: 'Invert Selection', action: modelingCommands.invertSelection, enabled: canInvertComponents },
     { label: 'Knife', shortcut: 'K', action: modelingCommands.knife, enabled: knifeReady, separatorBefore: true },
     { label: 'Cut Face', action: modelingCommands.cutFace, enabled: twoComponents },
     { label: 'Snap Selection…', action: modelingCommands.vertexSnap, enabled: hasComponents },
@@ -2095,6 +2105,7 @@ function viewportContextCommands(mode: ViewportContextMode): ViewportContextComm
     { label: 'Rotate', shortcut: 'R', action: () => tool('rotate'), enabled: hasComponents },
     { label: 'Scale', shortcut: 'S', action: () => tool('scale'), enabled: hasComponents },
     { label: 'Select Linked', action: modelingCommands.selectLinked, enabled: hasComponents },
+    { label: 'Invert Selection', action: modelingCommands.invertSelection, enabled: canInvertComponents },
     { label: 'Bevel Edges', action: modelingCommands.bevelEdges, enabled: hasComponents, separatorBefore: true },
     { label: 'Subdivide Edges', action: modelingCommands.subdivideEdges, enabled: hasComponents },
     { label: 'Loop Cut', action: modelingCommands.loopCut, enabled: oneComponent },
@@ -2105,6 +2116,7 @@ function viewportContextCommands(mode: ViewportContextMode): ViewportContextComm
     { label: 'Rotate', shortcut: 'R', action: () => tool('rotate'), enabled: hasComponents },
     { label: 'Scale', shortcut: 'S', action: () => tool('scale'), enabled: hasComponents },
     { label: 'Select Linked', action: modelingCommands.selectLinked, enabled: hasComponents },
+    { label: 'Invert Selection', action: modelingCommands.invertSelection, enabled: canInvertComponents },
     { label: 'Select Boundary Edges', action: modelingCommands.selectFaceBoundaryEdges, enabled: hasComponents },
     { label: 'Extrude Face', action: modelingCommands.extrudeFace, enabled: oneComponent, separatorBefore: true },
     { label: 'Extrude Region', action: modelingCommands.extrudeRegion, enabled: hasComponents },

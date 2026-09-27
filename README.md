@@ -54,7 +54,9 @@ Switching component modes or leaving Edit Mode clears the selection. RMB -> **Se
 expands the current selection across each connected logical mesh island: vertices and edges follow
 logical polygon boundary edges, while faces cross only shared logical boundary edges. In Face mode,
 RMB -> **Select Boundary Edges** converts the selected face region to its logical perimeter edges;
-shared interior edges are omitted. Renderer triangulation diagonals never participate. Selection is
+shared interior edges are omitted. RMB -> **Invert Selection** replaces the current selection with its
+logical complement in the active Vertex, Edge or Face mode; an empty selection therefore becomes all
+logical components in that mode. Renderer triangulation diagonals never participate. Selection is
 temporary and these selection commands do not add an Undo step; moved geometry still supports undo/redo
 and project saving. **Extrude Face** and **Inset Face**
 require exactly one selected logical face and keep the resulting cap/inner polygon selected.
