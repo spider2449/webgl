@@ -1625,6 +1625,33 @@ export class Editor extends EventTarget {
       }) as [[number, number, number], [number, number, number]]
     );
   }
+  private captureLogicalVertexPositionKeys() {
+    if (!this.topology || !(this.selected instanceof THREE.Mesh)) return new Set<string>();
+    const positions = this.selected.geometry.getAttribute('position');
+    return new Set(this.topology.logicalVertices.map(vertex => {
+      const index = this.topology!.vertices[vertex][0];
+      return `${positions.getX(index)},${positions.getY(index)},${positions.getZ(index)}`;
+    }));
+  }
+
+  private restoreLoopCutSelection(oldVertexPositions: Set<string>) {
+    if (!this.topology || !(this.selected instanceof THREE.Mesh)) return;
+    this.setComponentMode('edge');
+    const positions = this.selected.geometry.getAttribute('position');
+    const insertedVertices = new Set(this.topology.logicalVertices.filter(vertex => {
+      const index = this.topology!.vertices[vertex][0];
+      const key = `${positions.getX(index)},${positions.getY(index)},${positions.getZ(index)}`;
+      return !oldVertexPositions.has(key);
+    }));
+    const loopEdges = this.topology.polygonEdges.flatMap(([a, b], id) =>
+      insertedVertices.has(a) && insertedVertices.has(b) ? [id] : []
+    );
+    this.selectedComponents = new Set(loopEdges);
+    this.selectedFace = null;
+    this.selectComponentVertices(loopEdges.flatMap(id => this.topology!.polygonEdges[id]));
+    this.emit('component-selection');
+  }
+
   private restoreSubdivisionSelection(mode: ComponentMode, oldEdges: [[number, number, number], [number, number, number]][], midpointIndex: number) {
     if (!this.topology || !(this.selected instanceof THREE.Mesh)) return;
     this.setComponentMode(mode);
@@ -2232,6 +2259,9 @@ export class Editor extends EventTarget {
       if (total > 2_000_000) throw new Error('Modeling exceeds the scene vertex budget.');
       const oldMode = this.componentMode, oldSelection = this.componentSelection;
       const oldEdges = oldMode === 'edge' ? this.captureSubdivisionEdges(oldSelection) : [];
+      const oldLogicalVertexPositions = operation.kind === 'loop'
+        ? this.captureLogicalVertexPositionKeys()
+        : new Set<string>();
       const midpoint = meshes[0].geometry.getAttribute('position').count;
       this.setEditMode(false);
       meshes.forEach((mesh, i) => {
@@ -2258,7 +2288,9 @@ export class Editor extends EventTarget {
           this.restoreSubdivisionSelection(oldMode, oldEdges, midpoint);
         } else if (operation.kind === 'subdivide-all') {
           this.setComponentMode(oldMode);
-        } else if (operation.kind === 'loop' || operation.kind === 'delete-components' || operation.kind === 'cut-face' || operation.kind === 'cut-face-edge' || operation.kind === 'cut-face-edges' || operation.kind === 'cut-face-via-point' || operation.kind === 'cut-face-via-path') {
+        } else if (operation.kind === 'loop') {
+          this.restoreLoopCutSelection(oldLogicalVertexPositions);
+        } else if (operation.kind === 'delete-components' || operation.kind === 'cut-face' || operation.kind === 'cut-face-edge' || operation.kind === 'cut-face-edges' || operation.kind === 'cut-face-via-point' || operation.kind === 'cut-face-via-path') {
           this.setComponentMode(oldMode);
         } else if (['uv', 'inset', 'extrude', 'region'].includes(operation.kind)) {
           const restoredFaces =

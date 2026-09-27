@@ -328,10 +328,14 @@ test('RMB Loop Cut splits the default Cube logical quad ring at the configured p
     const end = [p.getX(bi), p.getY(bi), p.getZ(bi)];
     const delta = end.map((value, index) => Math.abs(value - start[index]));
     const axis = delta.indexOf(Math.max(...delta));
+    const originalVertices = t.logicalVertices.map((vertex: number) => {
+      const i = t.vertices[vertex][0];
+      return `${p.getX(i)},${p.getY(i)},${p.getZ(i)}`;
+    });
     e.selectComponent(0);
     (window as any).__forgeModelingSettings.loopPosition = 0.3;
     const point = start.map((value, index) => value + (end[index] - value) * 0.3);
-    return { point, axis, coordinate: point[axis] };
+    return { point, axis, coordinate: point[axis], originalVertices };
   });
   await rightClickViewport(page);
   await page.locator('#viewport-context-menu').getByRole('menuitem', { name: 'Loop Cut' }).click();
@@ -353,6 +357,14 @@ test('RMB Loop Cut splits the default Cube logical quad ring at the configured p
       const values = [p.getX(i), p.getY(i), p.getZ(i)];
       return Math.abs(values[expectedLoop.axis] - expectedLoop.coordinate) < 1e-6;
     }).length;
+    const original = new Set(expectedLoop.originalVertices);
+    const selection = [...e.componentSelection];
+    const selectedLoopEdges = selection.every((edgeId: number) =>
+      t.polygonEdges[edgeId].every((vertex: number) => {
+        const i = t.vertices[vertex][0];
+        return !original.has(`${p.getX(i)},${p.getY(i)},${p.getZ(i)}`);
+      })
+    );
     return {
       polygons: t.polygons.length,
       vertices: t.vertices.length,
@@ -362,6 +374,8 @@ test('RMB Loop Cut splits the default Cube logical quad ring at the configured p
       mode: e.componentMode,
       positioned,
       aligned,
+      selectionCount: selection.length,
+      selectedLoopEdges,
     };
   }, expected)).toEqual({
     polygons: 10,
@@ -372,6 +386,8 @@ test('RMB Loop Cut splits the default Cube logical quad ring at the configured p
     mode: 'edge',
     positioned: true,
     aligned: 4,
+    selectionCount: 4,
+    selectedLoopEdges: true,
   });
 });
 
