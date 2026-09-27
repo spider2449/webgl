@@ -101,9 +101,12 @@ export class Editor extends EventTarget {
   private knifePreviewPoint: THREE.Points | null = null;
   private knifePreviewLine: LineSegments2 | null = null;
   private knifePendingPoint: THREE.Points | null = null;
-  private knifePendingLine: LineSegments2 | null = null;
+  private knifePendingLine: THREE.Line | null = null;
   private knifePendingPath: THREE.Vector3[] = [];
-  private knifePendingDrag: { pointerId: number } | null = null;
+  private knifePendingLinePointCount = 0;
+  private knifePendingActiveIndex: number | null = null;
+  private knifePendingHoverIndex: number | null = null;
+  private knifePendingDrag: { pointerId: number; index: number; startX: number; startY: number; moved: boolean } | null = null;
   private knifePreviewAnchor: THREE.Vector3 | null = null;
   private knifePreviewHover: THREE.Vector3 | null = null;
   private knifePreviewTarget: KnifePickTarget | null = null;
@@ -263,13 +266,17 @@ export class Editor extends EventTarget {
         );
         const threshold = this.camera.position.distanceTo(this.orbit.target) * 0.018;
         this.raycaster.params.Points.threshold = threshold;
-        const hit = this.raycaster.intersectObject(this.knifePendingPoint, false)
-          .find(candidate => candidate.index === this.knifePendingPath.length - 2);
-        if (hit) {
-          this.knifePendingDrag = { pointerId: e.pointerId };
+        const hit = this.raycaster.intersectObject(this.knifePendingPoint, false)[0];
+        if (hit?.index !== undefined) {
+          const index = hit.index;
+          this.knifePendingActiveIndex = index;
+          this.knifePendingHoverIndex = index;
+          this.refreshKnifePendingPointColors();
+          this.dispatchEvent(new CustomEvent('knife-pending-active', { detail: index }));
+          this.knifePendingDrag = { pointerId: e.pointerId, index, startX: e.clientX, startY: e.clientY, moved: false };
           this.suppressClick = true;
           this.orbit.enabled = false;
-          const previous = this.knifePendingPath.at(-2);
+          const previous = this.knifePendingPath[index];
           this.setKnifePreviewAnchor(previous ? previous.toArray() as [number, number, number] : null);
           this.setKnifePreview(null, 'knife-pending-drag-preview');
           return;
@@ -302,6 +309,9 @@ export class Editor extends EventTarget {
     this.renderer.domElement.addEventListener('pointermove', e => {
       if (this.knifePendingDrag) {
         if (this.knifePendingDrag.pointerId !== e.pointerId || this.modelingBusy) return;
+        if (Math.hypot(e.clientX - this.knifePendingDrag.startX, e.clientY - this.knifePendingDrag.startY) > 3) {
+          this.knifePendingDrag.moved = true;
+        }
         const rect = host.getBoundingClientRect();
         this.raycaster.setFromCamera(
           new THREE.Vector2(
@@ -310,7 +320,30 @@ export class Editor extends EventTarget {
           ),
           this.camera,
         );
-        this.setKnifePreview(this.pickKnifeFaceTarget(), 'knife-pending-drag-preview');
+        const pick = this.pickKnifeFaceTarget();
+        this.refreshKnifePendingLine(this.knifePendingDrag.index, pick?.point ?? null);
+        this.dispatchEvent(new CustomEvent('knife-pending-drag-preview', {
+          detail: { index: this.knifePendingDrag.index, target: pick?.detail ?? null },
+        }));
+        this.knifePreviewTarget = pick?.detail ?? null;
+        this.knifePreviewHover = pick?.point.clone() ?? null;
+        if (this.knifePreviewPoint) {
+          if (pick) {
+            this.knifePreviewPoint.geometry.setAttribute('position', new THREE.Float32BufferAttribute(pick.point.toArray(), 3));
+            this.knifePreviewPoint.geometry.computeBoundingSphere();
+            this.knifePreviewPoint.visible = true;
+          } else this.knifePreviewPoint.visible = false;
+        }
+        if (this.knifePreviewLine) {
+          if (this.knifePreviewAnchor && pick) {
+            (this.knifePreviewLine.geometry as LineSegmentsGeometry).setPositions([
+              this.knifePreviewAnchor.x, this.knifePreviewAnchor.y, this.knifePreviewAnchor.z,
+              pick.point.x, pick.point.y, pick.point.z,
+            ]);
+            this.knifePreviewLine.visible = true;
+          } else this.knifePreviewLine.visible = false;
+        }
+        this.invalidate();
         return;
       }
       if (!this.snapTargetPending || this.snapTargetKind !== 'knife' || this.modelingBusy || this.transform.dragging) return;
@@ -323,9 +356,17 @@ export class Editor extends EventTarget {
         this.camera,
       );
       const threshold = this.camera.position.distanceTo(this.orbit.target) * 0.012;
+      if (this.knifePendingPoint?.visible) {
+        this.raycaster.params.Points.threshold = threshold * 1.5;
+        const pendingHit = this.raycaster.intersectObject(this.knifePendingPoint, false)[0];
+        this.knifePendingHoverIndex = pendingHit?.index ?? null;
+        this.refreshKnifePendingPointColors();
+      }
       this.setKnifePreview(this.pickKnifeTarget(threshold, 'hover'));
     });
     this.renderer.domElement.addEventListener('pointerleave', () => {
+      this.knifePendingHoverIndex = null;
+      this.refreshKnifePendingPointColors();
       if (!this.knifePendingDrag && this.snapTargetPending && this.snapTargetKind === 'knife') this.setKnifePreview(null);
     });
     this.renderer.domElement.addEventListener('pointerup', e => {
@@ -339,8 +380,11 @@ export class Editor extends EventTarget {
           this.camera,
         );
         const pick = this.pickKnifeFaceTarget();
+        const drag = this.knifePendingDrag;
         this.knifePendingDrag = null;
-        this.dispatchEvent(new CustomEvent('knife-pending-drag-commit', { detail: pick?.detail ?? null }));
+        this.dispatchEvent(new CustomEvent('knife-pending-drag-commit', {
+          detail: { index: drag.index, target: pick?.detail ?? null, moved: drag.moved },
+        }));
         this.orbit.enabled = true;
         const last = this.knifePendingPath.at(-1);
         this.setKnifePreviewAnchor(last ? last.toArray() as [number, number, number] : null);
@@ -706,7 +750,6 @@ export class Editor extends EventTarget {
     if (this.selectedEdgeOverlay) (this.selectedEdgeOverlay.material as LineMaterial).resolution.set(width, height);
     if (this.activeEdgeOverlay) (this.activeEdgeOverlay.material as LineMaterial).resolution.set(width, height);
     if (this.knifePreviewLine) (this.knifePreviewLine.material as LineMaterial).resolution.set(width, height);
-    if (this.knifePendingLine) (this.knifePendingLine.material as LineMaterial).resolution.set(width, height);
     this.perspective.aspect = width / height;
     this.perspective.updateProjectionMatrix();
     const extent = 7;
@@ -1258,6 +1301,10 @@ export class Editor extends EventTarget {
       this.knifePendingPoint = null;
       this.knifePendingLine = null;
       this.knifePendingPath = [];
+      this.knifePendingLinePointCount = 0;
+      this.knifePendingActiveIndex = null;
+      this.knifePendingHoverIndex = null;
+      this.knifePendingDrag = null;
       this.knifePreviewAnchor = null;
       this.knifePreviewHover = null;
       this.knifePreviewTarget = null;
@@ -1324,15 +1371,18 @@ export class Editor extends EventTarget {
 
       this.knifePendingPoint = new THREE.Points(
         new THREE.BufferGeometry(),
-        new THREE.PointsMaterial({ color: 0x7ee787, size: 12, sizeAttenuation: false, depthTest: false, depthWrite: false }),
+        new THREE.PointsMaterial({ color: 0xffffff, vertexColors: true, size: 12, sizeAttenuation: false, depthTest: false, depthWrite: false }),
       );
       this.knifePendingPoint.userData.forgeEditorHelper = true;
       this.knifePendingPoint.renderOrder = 17;
       this.knifePendingPoint.visible = false;
 
-      const knifePendingMaterial = new LineMaterial({ color: 0x62d982, linewidth: 3, worldUnits: false, depthTest: false, depthWrite: false });
-      knifePendingMaterial.resolution.copy(this.renderer.getSize(new THREE.Vector2()));
-      this.knifePendingLine = new LineSegments2(new LineSegmentsGeometry(), knifePendingMaterial);
+      const knifePendingMaterial = new THREE.LineBasicMaterial({
+        color: 0x62d982,
+        depthTest: false,
+        depthWrite: false,
+      });
+      this.knifePendingLine = new THREE.Line(new THREE.BufferGeometry(), knifePendingMaterial);
       this.knifePendingLine.userData.forgeEditorHelper = true;
       this.knifePendingLine.renderOrder = 16;
       this.knifePendingLine.frustumCulled = false;
@@ -1828,8 +1878,60 @@ export class Editor extends EventTarget {
     this.invalidate();
   }
 
+  private refreshKnifePendingPointColors() {
+    if (!this.knifePendingPoint) return;
+    const bends = this.knifePendingPath.slice(1);
+    if (!bends.length) return;
+    const colors: number[] = [];
+    for (let index = 0; index < bends.length; index++) {
+      const active = index === this.knifePendingActiveIndex;
+      const hover = index === this.knifePendingHoverIndex;
+      if (active) colors.push(1, 0.72, 0.25);
+      else if (hover) colors.push(1, 0.9, 0.5);
+      else colors.push(0.494, 0.906, 0.529);
+    }
+    this.knifePendingPoint.geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+  }
+
+  setKnifePendingActive(index: number | null) {
+    const count = Math.max(0, this.knifePendingPath.length - 1);
+    this.knifePendingActiveIndex = index === null || !count ? null : Math.min(Math.max(index, 0), count - 1);
+    this.refreshKnifePendingPointColors();
+    this.invalidate();
+  }
+
+  private refreshKnifePendingLine(overrideIndex: number | null = null, overridePoint: THREE.Vector3 | null = null) {
+    if (!this.knifePendingLine) return;
+    if (this.knifePendingPath.length < 2) {
+      this.knifePendingLine.visible = false;
+      this.knifePendingLinePointCount = 0;
+      return;
+    }
+    const path = this.knifePendingPath.map((point, pathIndex) => {
+      const bendIndex = pathIndex - 1;
+      return overrideIndex !== null && bendIndex === overrideIndex && overridePoint
+        ? overridePoint
+        : point;
+    });
+    this.knifePendingLine.geometry.setAttribute(
+      'position',
+      new THREE.Float32BufferAttribute(path.flatMap(point => point.toArray()), 3),
+    );
+    this.knifePendingLine.geometry.computeBoundingSphere();
+    this.knifePendingLinePointCount = path.length;
+    this.knifePendingLine.visible = true;
+  }
+
   setKnifePendingPath(points: [number, number, number][]) {
     this.knifePendingPath = points.map(point => new THREE.Vector3(...point));
+    const bendCount = Math.max(0, this.knifePendingPath.length - 1);
+    if (!bendCount) {
+      this.knifePendingActiveIndex = null;
+      this.knifePendingHoverIndex = null;
+    } else {
+      if (this.knifePendingActiveIndex !== null) this.knifePendingActiveIndex = Math.min(this.knifePendingActiveIndex, bendCount - 1);
+      if (this.knifePendingHoverIndex !== null && this.knifePendingHoverIndex >= bendCount) this.knifePendingHoverIndex = null;
+    }
 
     if (this.knifePendingPoint) {
       const bends = this.knifePendingPath.slice(1);
@@ -1840,25 +1942,13 @@ export class Editor extends EventTarget {
         );
         this.knifePendingPoint.geometry.computeBoundingSphere();
         this.knifePendingPoint.visible = true;
+        this.refreshKnifePendingPointColors();
       } else {
         this.knifePendingPoint.visible = false;
       }
     }
 
-    if (this.knifePendingLine) {
-      if (this.knifePendingPath.length >= 2) {
-        const segments: number[] = [];
-        for (let index = 0; index + 1 < this.knifePendingPath.length; index++) {
-          const a = this.knifePendingPath[index];
-          const b = this.knifePendingPath[index + 1];
-          segments.push(a.x, a.y, a.z, b.x, b.y, b.z);
-        }
-        (this.knifePendingLine.geometry as LineSegmentsGeometry).setPositions(segments);
-        this.knifePendingLine.visible = true;
-      } else {
-        this.knifePendingLine.visible = false;
-      }
-    }
+    this.refreshKnifePendingLine();
     this.invalidate();
   }
 
@@ -1893,6 +1983,9 @@ export class Editor extends EventTarget {
       pendingBend: this.knifePendingPath.at(-1)?.toArray() ?? null,
       pendingPointVisible: this.knifePendingPoint?.visible ?? false,
       pendingLineVisible: this.knifePendingLine?.visible ?? false,
+      pendingLinePointCount: this.knifePendingLinePointCount,
+      pendingActiveIndex: this.knifePendingActiveIndex,
+      pendingHoverIndex: this.knifePendingHoverIndex,
       target: this.knifePreviewTarget ? { ...this.knifePreviewTarget } : null,
       validity: this.knifePreviewValidity,
       lockedVertex: this.knifeLockedVertex,
