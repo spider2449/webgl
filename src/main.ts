@@ -2010,6 +2010,15 @@ editor.addEventListener('mode', () => {
   if (knifeActive && !editor.modelingBusy && (!editor.editMode || editor.componentMode !== 'vertex')) cancelKnife();
 });
 
+function selectAllComponents(selected: boolean) {
+  try {
+    const count = editor.setAllComponentSelection(selected);
+    toast(selected
+      ? `Selected all ${count} logical components.`
+      : 'Component selection cleared.');
+  } catch (error) { toast((error as Error).message); }
+}
+
 function invertComponentSelection() {
   try {
     const count = editor.invertComponentSelection();
@@ -2061,6 +2070,8 @@ const modelingCommands = {
   knife: startKnifeCut,
   cutFace: cutFaceBetweenSelectedVertices,
   selectLinked: selectLinkedComponents,
+  selectAll: () => selectAllComponents(true),
+  deselectAll: () => selectAllComponents(false),
   invertSelection: invertComponentSelection,
   selectFaceBoundaryEdges,
   deleteComponents: deleteSelectedComponents,
@@ -2119,7 +2130,9 @@ function viewportContextCommands(mode: ViewportContextMode): ViewportContextComm
   const oneComponent = () => editor.componentSelection.length === 1 && !editor.modelingBusy;
   const twoComponents = () => editor.componentSelection.length === 2 && !editor.modelingBusy;
   const knifeReady = () => editor.componentSelection.length <= 1 && !editor.modelingBusy;
-  const canInvertComponents = () => !!editor.meshTopology && !editor.modelingBusy;
+  const canSelectComponents = () => !!editor.meshTopology && !editor.modelingBusy;
+  const canDeselectComponents = () => editor.componentSelection.length > 0 && !editor.modelingBusy;
+  const canInvertComponents = canSelectComponents;
   const hasObject = () => !!editor.selected && !editor.modelingBusy;
 
   if (mode === 'vertex') return [
@@ -2127,6 +2140,8 @@ function viewportContextCommands(mode: ViewportContextMode): ViewportContextComm
     { label: 'Rotate', shortcut: 'R', action: () => tool('rotate'), enabled: hasComponents },
     { label: 'Scale', shortcut: 'S', action: () => tool('scale'), enabled: hasComponents },
     { label: 'Select Linked', action: modelingCommands.selectLinked, enabled: hasComponents },
+    { label: 'Select All', shortcut: 'A', action: modelingCommands.selectAll, enabled: canSelectComponents },
+    { label: 'Deselect All', shortcut: 'Alt A', action: modelingCommands.deselectAll, enabled: canDeselectComponents },
     { label: 'Invert Selection', action: modelingCommands.invertSelection, enabled: canInvertComponents },
     { label: 'Knife', shortcut: 'K', action: modelingCommands.knife, enabled: knifeReady, separatorBefore: true },
     { label: 'Cut Face', action: modelingCommands.cutFace, enabled: twoComponents },
@@ -2138,6 +2153,8 @@ function viewportContextCommands(mode: ViewportContextMode): ViewportContextComm
     { label: 'Rotate', shortcut: 'R', action: () => tool('rotate'), enabled: hasComponents },
     { label: 'Scale', shortcut: 'S', action: () => tool('scale'), enabled: hasComponents },
     { label: 'Select Linked', action: modelingCommands.selectLinked, enabled: hasComponents },
+    { label: 'Select All', shortcut: 'A', action: modelingCommands.selectAll, enabled: canSelectComponents },
+    { label: 'Deselect All', shortcut: 'Alt A', action: modelingCommands.deselectAll, enabled: canDeselectComponents },
     { label: 'Invert Selection', action: modelingCommands.invertSelection, enabled: canInvertComponents },
     { label: 'Bevel Edges', action: modelingCommands.bevelEdges, enabled: hasComponents, separatorBefore: true },
     { label: 'Subdivide Edges', action: modelingCommands.subdivideEdges, enabled: hasComponents },
@@ -2149,6 +2166,8 @@ function viewportContextCommands(mode: ViewportContextMode): ViewportContextComm
     { label: 'Rotate', shortcut: 'R', action: () => tool('rotate'), enabled: hasComponents },
     { label: 'Scale', shortcut: 'S', action: () => tool('scale'), enabled: hasComponents },
     { label: 'Select Linked', action: modelingCommands.selectLinked, enabled: hasComponents },
+    { label: 'Select All', shortcut: 'A', action: modelingCommands.selectAll, enabled: canSelectComponents },
+    { label: 'Deselect All', shortcut: 'Alt A', action: modelingCommands.deselectAll, enabled: canDeselectComponents },
     { label: 'Invert Selection', action: modelingCommands.invertSelection, enabled: canInvertComponents },
     { label: 'Select Boundary Edges', action: modelingCommands.selectFaceBoundaryEdges, enabled: hasComponents },
     { label: 'Extrude Face', action: modelingCommands.extrudeFace, enabled: oneComponent, separatorBefore: true },
@@ -3525,6 +3544,20 @@ document.addEventListener('keydown', e => {
   if (e.ctrlKey || e.metaKey) {
     if (['s','o','z','y','n'].includes(key)) e.preventDefault();
     if (key === 's') showSaveDialog(); else if (key === 'o') $('#project-input').click(); else if (key === 'z') e.shiftKey ? editor.redo() : editor.undo(); else if (key === 'y') editor.redo(); else if (key === 'n') $<HTMLDialogElement>('#new-dialog').showModal();
+    return;
+  }
+  if (
+    key === 'a' &&
+    editor.editMode &&
+    !editor.weightMode &&
+    !knifeActive &&
+    !editor.snapTargetPending &&
+    !editor.modelingBusy &&
+    !editor.transform.dragging
+  ) {
+    e.preventDefault();
+    if (e.altKey) modelingCommands.deselectAll();
+    else modelingCommands.selectAll();
     return;
   }
   if (key === 'alt') editor.orbit.mouseButtons.LEFT = THREE.MOUSE.ROTATE;
