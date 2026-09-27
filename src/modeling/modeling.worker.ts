@@ -95,7 +95,7 @@ self.onmessage = (event: MessageEvent<{ source: ReturnType<THREE.BufferGeometry[
       }
       case 'region': result = extrudeRegion(source, op.faces, op.distance); break;
       case 'subdivide': {
-        const subdivision = subdivideLogicalEdges(source, op.edges, op.polygonTriangles);
+        const subdivision = subdivideLogicalEdges(source, op.edges, op.polygonTriangles, op.cuts ?? 1);
         result = subdivision.geometry;
         logicalGroups = subdivision.polygonTriangles;
         break;
