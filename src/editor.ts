@@ -95,6 +95,12 @@ export class Editor extends EventTarget {
   private selectedFace: number | null = null;
   private selectedComponents = new Set<number>();
   private topology: MeshTopology | null = null;
+  private readonly geometryCountCache = new WeakMap<THREE.Mesh, {
+    geometry: THREE.BufferGeometry;
+    polygonSource: unknown;
+    pairTriangles: boolean;
+    counts: Omit<GeometryCounts, 'objects'>;
+  }>();
   private componentEdges: THREE.LineSegments | null = null;
   private selectedVertexOverlay: THREE.Points | null = null;
   private selectedEdgeOverlay: LineSegments2 | null = null;
@@ -3663,17 +3669,33 @@ export class Editor extends EventTarget {
     const position = mesh.geometry.getAttribute('position');
     if (!position) return { vertices: 0, edges: 0, faces: 0, triangles: 0 };
     const primitiveKind = (mesh.userData.forgePrimitive as { kind?: string } | undefined)?.kind;
+    const polygonSource = mesh.userData.forgePolygonTriangles;
     const storedPolygons = this.storedPolygonTriangles(mesh);
     const pairTriangles =
       storedPolygons === undefined &&
       (mesh.userData.forgeLogicalQuads === true || primitiveKind === 'cube' || primitiveKind === 'plane');
+    const cached = this.geometryCountCache.get(mesh);
+    if (
+      cached &&
+      cached.geometry === mesh.geometry &&
+      cached.polygonSource === polygonSource &&
+      cached.pairTriangles === pairTriangles
+    ) return cached.counts;
+
     const topology = buildTopology(position.array, mesh.geometry.index?.array, storedPolygons ?? pairTriangles);
-    return {
+    const counts = {
       vertices: topology.logicalVertices.length,
       edges: topology.polygonEdges.length,
       faces: topology.polygons.length,
       triangles: topology.faces.length,
     };
+    this.geometryCountCache.set(mesh, {
+      geometry: mesh.geometry,
+      polygonSource,
+      pairTriangles,
+      counts,
+    });
+    return counts;
   }
 
   private objectGeometryCounts(objects: Iterable<THREE.Object3D>): GeometryCounts {
