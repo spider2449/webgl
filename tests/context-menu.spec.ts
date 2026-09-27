@@ -324,29 +324,35 @@ test('RMB Loop Cut splits the default Cube logical quad ring at the configured p
     const e = (window as any).__forge, t = e.meshTopology, p = e.selected.geometry.getAttribute('position');
     const [a, b] = t.polygonEdges[0];
     const ai = t.vertices[a][0], bi = t.vertices[b][0];
+    const start = [p.getX(ai), p.getY(ai), p.getZ(ai)];
+    const end = [p.getX(bi), p.getY(bi), p.getZ(bi)];
+    const delta = end.map((value, index) => Math.abs(value - start[index]));
+    const axis = delta.indexOf(Math.max(...delta));
     e.selectComponent(0);
     (window as any).__forgeModelingSettings.loopPosition = 0.3;
-    return [
-      p.getX(ai) + (p.getX(bi) - p.getX(ai)) * 0.3,
-      p.getY(ai) + (p.getY(bi) - p.getY(ai)) * 0.3,
-      p.getZ(ai) + (p.getZ(bi) - p.getZ(ai)) * 0.3,
-    ];
+    const point = start.map((value, index) => value + (end[index] - value) * 0.3);
+    return { point, axis, coordinate: point[axis] };
   });
   await rightClickViewport(page);
   await page.locator('#viewport-context-menu').getByRole('menuitem', { name: 'Loop Cut' }).click();
   await page.waitForFunction(() => !(window as any).__forge.modelingBusy);
   await expect(page.locator('#toast')).toContainText('Loop cut complete');
-  expect(await page.evaluate(expectedPoint => {
+  expect(await page.evaluate(expectedLoop => {
     const e = (window as any).__forge, t = e.meshTopology;
     const p = e.selected.geometry.getAttribute('position');
     const positioned = t.logicalVertices.some((vertex: number) => {
       const i = t.vertices[vertex][0];
       return Math.hypot(
-        p.getX(i) - expectedPoint[0],
-        p.getY(i) - expectedPoint[1],
-        p.getZ(i) - expectedPoint[2],
+        p.getX(i) - expectedLoop.point[0],
+        p.getY(i) - expectedLoop.point[1],
+        p.getZ(i) - expectedLoop.point[2],
       ) < 1e-6;
     });
+    const aligned = t.logicalVertices.filter((vertex: number) => {
+      const i = t.vertices[vertex][0];
+      const values = [p.getX(i), p.getY(i), p.getZ(i)];
+      return Math.abs(values[expectedLoop.axis] - expectedLoop.coordinate) < 1e-6;
+    }).length;
     return {
       polygons: t.polygons.length,
       vertices: t.vertices.length,
@@ -355,6 +361,7 @@ test('RMB Loop Cut splits the default Cube logical quad ring at the configured p
       stored: e.selected.userData.forgePolygonTriangles?.length,
       mode: e.componentMode,
       positioned,
+      aligned,
     };
   }, expected)).toEqual({
     polygons: 10,
@@ -364,6 +371,7 @@ test('RMB Loop Cut splits the default Cube logical quad ring at the configured p
     stored: 10,
     mode: 'edge',
     positioned: true,
+    aligned: 4,
   });
 });
 

@@ -1035,10 +1035,11 @@ export function loopCutLogicalEdge(
 
   // polygonEdges are stored in canonical min->max vertex order. Carry the
   // cut factor in that canonical orientation while traversing the quad ring.
-  // Each face converts it back to its own directed boundary orientation, then
-  // propagates the same local factor to the opposite edge. This matters away
-  // from 0.5 because adjacent manifold polygons traverse a shared edge in
-  // opposite directions.
+  // Each face converts it back to its own directed boundary orientation. The
+  // opposite boundary edge runs in the reverse direction around the quad, so
+  // that edge uses 1 - localFactor before the canonical factor is propagated
+  // into the neighboring face. This matters away from 0.5 because a midpoint
+  // hides both reversals.
   const start = edgeKey(...topology.polygonEdges[edge]);
   const queue: { key: string; factor: number }[] = [{ key: start, factor }];
   const visitedEdges = new Map<string, number>();
@@ -1077,7 +1078,8 @@ export function loopCutLogicalEdge(
       const opposite = (use.local + 2) % 4;
       const oppositeA = vertices[opposite];
       const oppositeB = vertices[(opposite + 1) % 4];
-      const oppositeFactor = oppositeA < oppositeB ? localFactor : 1 - localFactor;
+      const oppositeLocalFactor = 1 - localFactor;
+      const oppositeFactor = oppositeA < oppositeB ? oppositeLocalFactor : 1 - oppositeLocalFactor;
       queue.push({ key: edgeKey(oppositeA, oppositeB), factor: oppositeFactor });
     }
   }
@@ -1094,7 +1096,7 @@ export function loopCutLogicalEdge(
     const c = corners[(local + 2) % 4];
     const d = corners[(local + 3) % 4];
     const entry = interpolate(a, b, localFactor);
-    const opposite = interpolate(c, d, localFactor);
+    const opposite = interpolate(c, d, 1 - localFactor);
     extras.push({ material: polygon.material, corners: [entry, b, c, opposite] });
     return { material: polygon.material, corners: [a, entry, opposite, d] };
   });

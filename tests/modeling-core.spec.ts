@@ -256,6 +256,12 @@ test('logical Cube loop cut preserves an off-center position across reversed sha
   const start = new THREE.Vector3().fromBufferAttribute(sourcePosition, input.vertices[selectedEdge[0]][0]);
   const end = new THREE.Vector3().fromBufferAttribute(sourcePosition, input.vertices[selectedEdge[1]][0]);
   const expected = start.clone().lerp(end, 0.25);
+  const delta = end.clone().sub(start);
+  const axis = [Math.abs(delta.x), Math.abs(delta.y), Math.abs(delta.z)]
+    .reduce((best, value, index, values) => value > values[best] ? index : best, 0);
+  const originalPoints = input.logicalVertices.map(vertex =>
+    new THREE.Vector3().fromBufferAttribute(sourcePosition, input.vertices[vertex][0])
+  );
 
   const cut = loopCutLogicalEdge(box, 0, input.polygonTriangles, 0.25);
   expect(JSON.stringify(box.toJSON())).toBe(before);
@@ -274,6 +280,14 @@ test('logical Cube loop cut preserves an off-center position across reversed sha
   expect(output.polygonEdges).toHaveLength(20);
   expect(output.logicalVertices.some(vertex =>
     new THREE.Vector3().fromBufferAttribute(position, output.vertices[vertex][0]).distanceToSquared(expected) < 1e-12
+  )).toBe(true);
+
+  const inserted = output.logicalVertices
+    .map(vertex => new THREE.Vector3().fromBufferAttribute(position, output.vertices[vertex][0]))
+    .filter(point => !originalPoints.some(original => original.distanceToSquared(point) < 1e-12));
+  expect(inserted).toHaveLength(4);
+  expect(inserted.every(point =>
+    Math.abs(point.getComponent(axis) - expected.getComponent(axis)) < 1e-6
   )).toBe(true);
 
   for (const invalid of [NaN, 0, 0.009, 0.991, 1]) {

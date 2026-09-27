@@ -23,7 +23,7 @@ A midpoint hides that fact because `0.5 === 1 - 0.5`. Off-center cuts must there
 
 1. store each traversed physical edge in canonical min->max logical-vertex order;
 2. convert the canonical factor into the current face's directed boundary orientation;
-3. use the same face-local factor on the opposite quad edge;
+3. invert it on the opposite quad edge because that boundary edge runs in the reverse direction around the face;
 4. convert that opposite point back into canonical edge orientation before crossing into the neighboring face.
 
 This guarantees both sides of a shared logical edge generate the same split vertex and prevents cracks.
@@ -33,8 +33,8 @@ This guarantees both sides of a shared logical edge generate the same split vert
 - polygon-native `loopCutLogicalEdge`
 - modeling worker operation payload
 - RMB Loop Position numeric + range control
-- core topology regression at an off-center factor
-- viewport/worker regression proving the configured factor reaches the final logical topology
+- core topology regression at an off-center factor, including one common cut plane for all four new Cube loop vertices
+- viewport/worker regression proving the configured factor reaches the final logical topology and does not zig-zag across faces
 
 ## Deliberate limits
 
@@ -61,7 +61,7 @@ Manual check:
 3. RMB -> Loop Cut.
 4. Change Loop Position to `0.25`.
 5. Run Loop Cut.
-6. Confirm the ring is visibly off-center and remains closed across all affected faces.
+6. Confirm the ring is visibly off-center, horizontal/planar across the Cube, and remains closed across all affected faces.
 7. Undo.
 8. Repeat with `0.75`; confirm the cut moves to the complementary side.
 9. Re-enter Edit Mode and confirm all resulting faces are logical quads and renderer diagonals remain non-selectable.
