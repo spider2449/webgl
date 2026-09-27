@@ -1079,6 +1079,7 @@ const modelingToolSettings = {
   insetDistance: 0.1,
   bevelWidth: 0.1,
   loopPosition: 0.5,
+  subdivideCuts: 1,
   get snapTarget() { return modelingSnapTarget; },
   set snapTarget(value: 'vertex' | 'edge' | 'surface') {
     if (editor.snapTargetPending && value !== modelingSnapTarget) editor.cancelVertexSnap();
@@ -1131,6 +1132,7 @@ async function subdivideSelectedEdges() {
     await editor.runModeling({
       kind: 'subdivide',
       edges: editor.componentSelection,
+      cuts: modelingToolSettings.subdivideCuts,
       polygonTriangles: editor.meshTopology.polygonTriangles.map(group => [...group]),
     });
     toast('Edges subdivided. Split edge segments selected.');
@@ -2220,6 +2222,19 @@ function contextParameterBefore(mode: ViewportContextMode, command: ViewportCont
     get: () => modelingToolSettings.bevelWidth,
     set: value => { modelingToolSettings.bevelWidth = value; },
     run: modelingCommands.bevelEdges,
+  };
+  if (mode === 'edge' && command.label === 'Subdivide Edges') return {
+    kind: 'number',
+    label: 'Cuts',
+    ariaLabel: 'Context subdivision cuts',
+    min: 1,
+    max: 32,
+    sliderMin: 1,
+    sliderMax: 8,
+    step: 1,
+    get: () => modelingToolSettings.subdivideCuts,
+    set: value => { modelingToolSettings.subdivideCuts = Math.round(value); },
+    run: modelingCommands.subdivideEdges,
   };
   if (mode === 'edge' && command.label === 'Loop Cut') return {
     kind: 'number',
