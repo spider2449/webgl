@@ -2029,6 +2029,13 @@ function invertComponentSelection() {
   } catch (error) { toast((error as Error).message); }
 }
 
+function selectCoplanarFaces() {
+  try {
+    const count = editor.selectCoplanarFaces();
+    toast(`Selected ${count} connected coplanar logical faces.`);
+  } catch (error) { toast((error as Error).message); }
+}
+
 function selectFacesBySides() {
   try {
     const kind = modelingToolSettings.faceSideKind;
@@ -2099,6 +2106,7 @@ const modelingCommands = {
   selectAll: () => selectAllComponents(true),
   deselectAll: () => selectAllComponents(false),
   invertSelection: invertComponentSelection,
+  selectCoplanarFaces,
   selectFacesBySides,
   selectNonManifoldEdges,
   selectMeshBoundaryEdges,
@@ -2201,6 +2209,7 @@ function viewportContextCommands(mode: ViewportContextMode): ViewportContextComm
     { label: 'Deselect All', shortcut: 'Alt A', action: modelingCommands.deselectAll, enabled: canDeselectComponents },
     { label: 'Invert Selection', action: modelingCommands.invertSelection, enabled: canInvertComponents },
     { label: 'Select Faces by Sides', action: modelingCommands.selectFacesBySides, enabled: canSelectComponents },
+    { label: 'Select Coplanar Faces', action: modelingCommands.selectCoplanarFaces, enabled: hasComponents },
     { label: 'Select Boundary Edges', action: modelingCommands.selectFaceBoundaryEdges, enabled: hasComponents },
     { label: 'Extrude Face', action: modelingCommands.extrudeFace, enabled: oneComponent, separatorBefore: true },
     { label: 'Extrude Region', action: modelingCommands.extrudeRegion, enabled: hasComponents },

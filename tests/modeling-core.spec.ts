@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 import * as THREE from 'three';
 import { bevelEdges, bevelLogicalEdges, cutLogicalFace, deleteLogicalComponents, extrudeLogicalFace, insetLogicalFace, loopCut, loopCutLogicalEdge, subdivideLogicalEdges, editUV } from '../src/modeling/modeling';
-import { buildTopology, linkedLogicalComponents, logicalFaceBoundaryEdges, logicalFacesBySides, logicalMeshBoundaryEdges, logicalNonManifoldEdges } from '../src/modeling/topology';
+import { buildTopology, linkedLogicalComponents, logicalCoplanarFaces, logicalFaceBoundaryEdges, logicalFacesBySides, logicalMeshBoundaryEdges, logicalNonManifoldEdges } from '../src/modeling/topology';
 import { evaluateModifiers } from '../src/modeling/modifiers';
 
 function topology(g: THREE.BufferGeometry) { return buildTopology(g.getAttribute('position').array, g.index?.array); }
@@ -93,6 +93,41 @@ test('linked logical traversal expands connected islands without renderer diagon
   expect(linkedLogicalComponents(cube, 'edge', [0])).toHaveLength(12);
   expect(linkedLogicalComponents(cube, 'face', [0])).toHaveLength(6);
   expect(() => linkedLogicalComponents(cube, 'edge', [-1])).toThrow(/valid logical edges/);
+  box.dispose();
+});
+
+test('logical coplanar selection expands only across connected same-plane polygon edges', () => {
+  const plane = new THREE.PlaneGeometry(2, 1, 2, 1);
+  const planeTopology = buildTopology(
+    plane.getAttribute('position').array,
+    plane.index?.array,
+    true,
+  );
+  expect(planeTopology.polygons).toHaveLength(2);
+  expect(logicalCoplanarFaces(
+    planeTopology,
+    plane.getAttribute('position').array,
+    [0],
+  )).toEqual([0, 1]);
+
+  const box = new THREE.BoxGeometry(2, 2, 2);
+  const cube = buildTopology(
+    box.getAttribute('position').array,
+    box.index?.array,
+    true,
+  );
+  expect(logicalCoplanarFaces(
+    cube,
+    box.getAttribute('position').array,
+    [0],
+  )).toEqual([0]);
+  expect(() => logicalCoplanarFaces(
+    cube,
+    box.getAttribute('position').array,
+    [0, 1],
+  )).toThrow(/coplanar|edge-connected/);
+
+  plane.dispose();
   box.dispose();
 });
 
