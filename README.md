@@ -60,8 +60,10 @@ clears the component selection. Outside text-entry fields, Ctrl+A is intercepted
 RMB -> **Select Linked**
 expands the current selection across each connected logical mesh island: vertices and edges follow
 logical polygon boundary edges, while faces cross only shared logical boundary edges. In Face mode,
-In Edge mode, RMB -> **Select Mesh Boundary** selects only open logical mesh edges used by exactly
-one logical polygon; closed surfaces such as the default Cube have no mesh boundary. In Face mode,
+In Edge mode, RMB -> **Select Non-Manifold Edges** selects logical edges whose polygon-face use count
+is not two: open boundaries (one face) and over-connected edges (three or more faces). RMB -> **Select Mesh Boundary**
+selects only open logical mesh edges used by exactly one logical polygon; closed surfaces such as the default Cube
+have no mesh boundary. In Face mode,
 RMB -> **Select Boundary Edges** converts the selected face region to its logical perimeter edges;
 shared interior edges are omitted. RMB -> **Invert Selection** replaces the current selection with its
 logical complement in the active Vertex, Edge or Face mode; an empty selection therefore becomes all
