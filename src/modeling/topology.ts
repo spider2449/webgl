@@ -1,4 +1,5 @@
 export type ComponentMode = 'vertex' | 'edge' | 'face';
+export type FaceSideKind = 'triangles' | 'quads' | 'ngons';
 export type MeshTopology = {
   // Renderer-welded vertices used by triangle data and attribute updates.
   vertices: number[][];
@@ -298,4 +299,16 @@ export function logicalNonManifoldEdges(topology: MeshTopology) {
     }
   });
   return topology.polygonEdges.flatMap((_, edge) => (uses.get(edge) ?? 0) !== 2 ? [edge] : []);
+}
+
+export function logicalFacesBySides(topology: MeshTopology, kind: FaceSideKind) {
+  return topology.polygons.flatMap((polygon, face) => {
+    const matches =
+      kind === 'triangles'
+        ? polygon.length === 3
+        : kind === 'quads'
+          ? polygon.length === 4
+          : polygon.length >= 5;
+    return matches ? [face] : [];
+  });
 }
