@@ -2,6 +2,7 @@ import { test, expect } from '@playwright/test';
 
 test('geometry statistics toggle shows logical scene and selected counts', async ({ page }) => {
   await page.goto('/');
+  await page.waitForFunction(() => (window as any).__forge?.selected);
 
   const overlay = page.getByLabel('Geometry statistics');
   const toggle = page.getByRole('button', { name: 'Toggle geometry statistics' });
@@ -26,6 +27,13 @@ test('geometry statistics toggle shows logical scene and selected counts', async
     e.select(roots[1], true);
   });
   await expect(page.locator('#geometry-statistics-selected')).toHaveText('Obj 2 · V 16 · E 24 · F 12 · T 24');
+
+  await page.evaluate(() => {
+    const e = (window as any).__forge;
+    const roots = e.content.children.filter((object: any) => object.userData.forgeCollection !== true);
+    e.select(roots[1]);
+  });
+  await expect(page.locator('#geometry-statistics-selected')).toHaveText('Obj 1 · V 8 · E 12 · F 6 · T 12');
 
   await page.locator('#mode').selectOption('edit');
   await page.getByLabel('Mesh component').selectOption('edge');
