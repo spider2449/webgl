@@ -34,9 +34,9 @@ The browser tests use port 5174. Production output is in `dist/`. No backend, ac
 - Use the top-bar **Light / Dark** control to switch the editor chrome between themes. Dark remains the default; the choice is stored locally and survives reload. Both themes keep Graph/Timeline secondary text at readable contrast. Theme switching affects editor chrome only and does not replace the WebGL scene background or alter scene lighting/materials.
 - Ctrl+Z / Ctrl+Shift+Z undo and redo. Shift+D creates an independent duplicate; Alt+D creates a linked duplicate for an ordinary mesh, sharing its geometry and material while keeping transform, name and collection membership independent. Linked duplication rejects skinned meshes and meshes with an active modifier stack. Delete removes objects. Individual bones cannot be deleted or duplicated; duplicate the armature to make an independent character.
 
-### Triangle inset
+### Face inset
 
-Inset is still triangle-only in this foundation step. If the selected logical face is a quad or n-gon, Forge rejects the operation rather than silently treating one renderer triangle as the whole face. For a triangle face, use **Inset selected face** in the Object panel. **Inset distance** is the perpendicular inward distance from each edge in local mesh units and must be smaller than the triangle inradius. The outer boundary stays fixed; the inner face remains selected for another inset, extrusion or movement. UVs and colors are interpolated, material groups are preserved, and undo/redo and Forge projects retain the result. The same 100k input-vertex and attribute restrictions as extrusion apply. Region inset and polygon face editing remain future work.
+In Edit Mode Face selection, RMB -> **Inset Face** accepts one convex logical Triangle, Quad or N-gon. **Inset Distance** is the perpendicular inward distance from each logical boundary edge in local mesh units. The outer boundary stays fixed, the inner polygon remains selected, and Forge adds one logical ring Quad per original boundary edge. Corner attributes are interpolated from the source surface and renderer triangles are regenerated underneath the logical polygons. Excessive distances and precision collapse are rejected rather than silently changing the boundary. Multi-face/region inset remains future work.
 
 ### Proportional editing
 
@@ -44,15 +44,15 @@ Enable **Proportional editing** in the Object panel, set a positive **Influence 
 
 ### Component multi-selection
 
-In Edit Mode, **Shift-click** to add or remove vertices, edges or triangle faces.
+In Edit Mode, **Shift-click** to add or remove logical vertices, logical edges or logical faces.
 Plain component clicks replace the selection. Click empty viewport space to clear
 it; Shift-clicking empty space preserves it. Drag the move gizmo to move the
 selection from the centroid of its unique logical vertices. Shared vertices and
 welded seams move once, and proportional editing uses all selected vertices.
 Shift-click takes priority over the gizmo so you can deselect its center component.
 Switching component modes or leaving Edit Mode clears the selection. Selection is
-temporary; moved geometry supports undo/redo and project saving. The single-triangle extrusion and
-inset buttons require exactly one selected triangle and select their resulting cap.
+temporary; moved geometry supports undo/redo and project saving. **Extrude Face** and **Inset Face**
+require exactly one selected logical face and keep the resulting cap/inner polygon selected.
 **Extrude planar region** accepts connected coplanar face selections.
 
 ### Planar region extrusion
@@ -65,7 +65,7 @@ The operation accepts up to 100k input vertices and 200k triangles and rejects d
 
 In Edit Mode, choose **Edge**, select one or more edges (Shift-click to add or remove), then click **Subdivide selected edges**. The operation inserts a midpoint on every selected edge and splits adjacent triangles, including across UV/normal seams. Triangles with one, two or three selected edges become two, three or four triangles. It switches to Vertex mode with all new midpoints selected for movement. Existing attributes are retained, midpoint UVs/colors interpolate separately across seams, material groups are remapped and normals are recomputed. Undo/redo and Forge projects retain the result.
 
-Boundary edges and consistently oriented two-face manifold edges are supported, with limits of 100k input vertices and 200k triangles. Unsupported attributes, morph targets, partial draw ranges, invalid groups, degenerate results and midpoint collisions with existing vertices or other new midpoints are rejected. If any selected edge is invalid or the result exceeds the scene vertex limit, the entire operation leaves geometry and selection unchanged. Output is independent of selection order. Full loop cuts and quad reconstruction remain future work.
+Boundary edges and consistently oriented two-face manifold edges are supported, with limits of 100k input vertices and 200k triangles. Unsupported attributes, morph targets, partial draw ranges, invalid groups, degenerate results and midpoint collisions with existing vertices or other new midpoints are rejected. If any selected edge is invalid or the result exceeds the scene vertex limit, the entire operation leaves geometry and selection unchanged. Output is independent of selection order. Use the separate polygon-native **Loop Cut** operator for logical Quad rings.
 
 ### Mesh target snapping
 
@@ -81,7 +81,7 @@ The Object panel includes collapsible **Mesh operations**, **UV editor**,
 | Feature | Supported workflow |
 | --- | --- |
 | Bevel | In Edit Mode, select sharp edges and use **Bevel selected edges**. Creates one flat bevel segment on a closed, consistently oriented convex mesh. Width is a local distance along adjacent faces. |
-| Loop cut | Select exactly one quad boundary edge, then **Cut quad loop**. Reconstructs planar convex quads from their longer triangulation diagonals and cuts the opposite-edge ring or boundary-to-boundary strip at its midpoint. |
+| Loop cut | Select exactly one logical Quad boundary edge, then RMB -> **Loop Cut**. The operator traverses opposite edges directly through logical Quads, supports a retained **Loop Position** from 0.01-0.99, preserves polygon groups, and leaves the newly created logical loop edges selected. |
 | UV editing | Select triangle faces, open **UV editor**, project UVs or translate/rotate/scale existing UVs around their selected-corner center. UV seams split without moving geometry or changing normals; the canvas fits up to 2,000 selected triangles. |
 | Multiple objects | Shift-click in the viewport or outliner. Use **Multiple objects** for world translation, rotation about the shared center, uniform scaling, or atomic subdivision of all selected meshes. Ordinary gizmos and numeric object properties still target the active object. |
 | Modifier stack | Add **Mirror X**, **Subdivision**, or **Smooth**, change smooth strength, enable/disable, move up/down, remove, or apply. The stack evaluates from a retained source, not from its previous result. |
@@ -91,10 +91,11 @@ Bevel rejects open, concave, nonmanifold or inconsistently oriented input,
 coplanar diagonals, excessive widths, degenerate results and work-budget overflow.
 At most 128 sharp edges can be beveled in one operation. Loop cuts reject
 ambiguous quad pairing, triangle continuations and self-intersecting rings.
-Bevel and loop cuts clear obsolete component selection. New bevel faces inherit
-an adjacent material and boundary attributes; automatic bevel UV unwrap is not
-provided. Quads are inferred from triangles, so arbitrary polygon reconstruction
-and repeated cuts of every possible triangulation are not guaranteed.
+Bevel clears obsolete component selection; Loop Cut instead selects the newly
+created logical loop for immediate editing. New bevel faces inherit an adjacent
+material and boundary attributes; automatic bevel UV unwrap is not provided.
+Loop Cut traverses authoritative logical Quad boundaries and rejects triangle/N-gon
+continuations rather than treating renderer triangulation as modeling topology.
 
 Modifiers are saved with their source in Forge projects and history. Apply the
 stack before component editing or skin binding. Removing the last modifier
@@ -317,7 +318,7 @@ The automated WebGL tests use Chromium's software renderer for repeatability. Th
 
 ## Current limits and next stages
 
-The editor now has a logical polygon-selection foundation for Cube and Plane quads, but does not yet preserve polygon topology through every modeling operation. Curved-surface region extrusion, quad/n-gon inset, sculpting, weight painting, IK pole vectors/joint limits, retargeting, geometry nodes, physics, compositing and offline rendering are not yet included. The modeling core includes bevel, loop cuts, UV editing, modifiers and mesh snapping within the supported limits documented above. Kimodo text-to-motion inference is not connected. The UI exposes only implemented local workflows and labels the basic rigging limitations.
+The editor now has a logical polygon-selection foundation and polygon-native Cut Face, Knife, single-face extrusion/inset, bevel and Loop Cut paths, but does not yet preserve polygon topology through every modeling operation. Curved-surface region extrusion, multi-face inset, sculpting, weight painting, IK pole vectors/joint limits, retargeting, geometry nodes, physics, compositing and offline rendering are not yet included. The modeling core includes bevel, loop cuts, UV editing, modifiers and mesh snapping within the supported limits documented above. Kimodo text-to-motion inference is not connected. The UI exposes only implemented local workflows and labels the basic rigging limitations.
 
 The development plan is [docs/plans/2026-09-08-forge-studio.md](docs/plans/2026-09-08-forge-studio.md).
 
@@ -331,4 +332,4 @@ Left-drag in the 3D viewport draws a selection marquee. Object Mode selects obje
 
 Cube, Plane, Sphere, Cylinder, Cone, Torus and Icosphere expose dimensions and subdivision controls in Object properties. Increase segments before skin binding when you need denser weight vertices. Applying the primitive or changing topology converts it to an ordinary mesh.
 
-Forge still renders triangles internally. Quad and polygon editing belong to the modeling topology layer and are planned as a separate follow-up so editing can be quad-friendly without changing the WebGL render substrate.
+Forge still renders triangles internally. Quad and N-gon editing lives in the separate logical modeling-topology layer: renderer triangulation and its internal diagonals remain subordinate implementation details and are not exposed as modeling components.
