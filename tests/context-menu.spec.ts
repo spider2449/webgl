@@ -230,6 +230,7 @@ test('Edit Mode RMB menu changes with Vertex, Edge and Face component mode', asy
   await expect(menu.getByRole('menuitem', { name: 'Move G' })).toBeVisible();
   await expect(menu.getByRole('menuitem', { name: 'Rotate R' })).toBeVisible();
   await expect(menu.getByRole('menuitem', { name: 'Scale S' })).toBeVisible();
+  await expect(menu.getByRole('menuitem', { name: 'Select Linked' })).toBeVisible();
   await expect(menu.getByRole('menuitem', { name: 'Knife K' })).toBeVisible();
   await expect(menu.getByRole('menuitem', { name: 'Knife K' })).toBeEnabled();
   await expect(menu.getByRole('menuitem', { name: 'Cut Face' })).toBeVisible();
@@ -253,6 +254,7 @@ test('Edit Mode RMB menu changes with Vertex, Edge and Face component mode', asy
   await expect(menu.getByRole('menuitem', { name: 'Move G' })).toBeVisible();
   await expect(menu.getByRole('menuitem', { name: 'Rotate R' })).toBeVisible();
   await expect(menu.getByRole('menuitem', { name: 'Scale S' })).toBeVisible();
+  await expect(menu.getByRole('menuitem', { name: 'Select Linked' })).toBeVisible();
   await expect(menu.getByRole('menuitem', { name: 'Bevel Edges' })).toBeVisible();
   await expect(menu.getByRole('menuitem', { name: 'Subdivide Edges' })).toBeVisible();
   await expect(menu.getByRole('menuitem', { name: 'Loop Cut' })).toBeVisible();
@@ -268,11 +270,43 @@ test('Edit Mode RMB menu changes with Vertex, Edge and Face component mode', asy
   await expect(menu.getByRole('menuitem', { name: 'Move G' })).toBeVisible();
   await expect(menu.getByRole('menuitem', { name: 'Rotate R' })).toBeVisible();
   await expect(menu.getByRole('menuitem', { name: 'Scale S' })).toBeVisible();
+  await expect(menu.getByRole('menuitem', { name: 'Select Linked' })).toBeVisible();
   await expect(menu.getByRole('menuitem', { name: 'Extrude Face' })).toBeVisible();
   await expect(menu.getByRole('menuitem', { name: 'Extrude Region' })).toBeVisible();
   await expect(menu.getByRole('menuitem', { name: 'Inset Face' })).toBeVisible();
   await expect(menu.getByRole('menuitem', { name: 'Delete Faces Del' })).toBeVisible();
   await expect(menu.getByRole('menuitem', { name: 'Bevel Edges' })).toHaveCount(0);
+});
+
+test('RMB Select Linked expands the current logical Cube island without history', async ({ page }) => {
+  await page.locator('#mode').selectOption('edit');
+  const initialUndoDepth = await page.evaluate(() => (window as any).__forge.undoDepth);
+
+  for (const [mode, expected] of [['vertex', 8], ['edge', 12], ['face', 6]] as const) {
+    await page.getByLabel('Mesh component').selectOption(mode);
+    await page.evaluate(() => (window as any).__forge.selectComponent(0));
+    await rightClickViewport(page);
+    const menu = page.locator('#viewport-context-menu');
+    await expect(menu.getByRole('menuitem', { name: 'Select Linked' })).toBeEnabled();
+    await menu.getByRole('menuitem', { name: 'Select Linked' }).click();
+    await expect(page.locator('#toast')).toContainText(`Selected ${expected} linked logical components`);
+
+    expect(await page.evaluate(currentMode => {
+      const e = (window as any).__forge;
+      const selection = [...e.componentSelection];
+      return {
+        mode: e.componentMode,
+        count: selection.length,
+        active: currentMode === 'edge' ? selection.at(-1) : null,
+        undoDepth: e.undoDepth,
+      };
+    }, mode)).toEqual({
+      mode,
+      count: expected,
+      active: mode === 'edge' ? 0 : null,
+      undoDepth: initialUndoDepth,
+    });
+  }
 });
 
 test('RMB Cut Face splits a Cube quad between two selected opposite vertices', async ({ page }) => {
