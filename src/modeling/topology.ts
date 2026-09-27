@@ -312,3 +312,104 @@ export function logicalFacesBySides(topology: MeshTopology, kind: FaceSideKind) 
     return matches ? [face] : [];
   });
 }
+
+export function logicalCoplanarFaces(
+  topology: MeshTopology,
+  positions: ArrayLike<number>,
+  seeds: number[],
+) {
+  const uniqueSeeds = [...new Set(seeds)];
+  if (!uniqueSeeds.length || uniqueSeeds.some(face => !topology.polygons[face])) {
+    throw new Error('Select valid logical seed faces.');
+  }
+
+  const point = (vertex: number) => {
+    const buffer = topology.vertices[vertex]?.[0];
+    const offset = buffer * 3;
+    const value: [number, number, number] = [
+      Number(positions[offset]),
+      Number(positions[offset + 1]),
+      Number(positions[offset + 2]),
+    ];
+    if (!Number.isInteger(buffer) || value.some(component => !Number.isFinite(component))) {
+      throw new Error('Logical face positions are invalid.');
+    }
+    return value;
+  };
+  const dot = (a: [number, number, number], b: [number, number, number]) =>
+    a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+
+  const plane = (face: number) => {
+    const polygon = topology.polygons[face];
+    const points = polygon.map(point);
+    let nx = 0, ny = 0, nz = 0;
+    for (let i = 0; i < points.length; i++) {
+      const a = points[i], b = points[(i + 1) % points.length];
+      nx += (a[1] - b[1]) * (a[2] + b[2]);
+      ny += (a[2] - b[2]) * (a[0] + b[0]);
+      nz += (a[0] - b[0]) * (a[1] + b[1]);
+    }
+    const length = Math.hypot(nx, ny, nz);
+    if (!Number.isFinite(length) || length < 1e-12) throw new Error('Cannot select a degenerate logical face plane.');
+    const normal: [number, number, number] = [nx / length, ny / length, nz / length];
+    return { normal, constant: dot(normal, points[0]), points };
+  };
+
+  const reference = plane(uniqueSeeds[0]);
+  const seedPoints = uniqueSeeds.flatMap(face => topology.polygons[face].map(point));
+  const min = [...seedPoints[0]], max = [...seedPoints[0]];
+  for (const p of seedPoints) for (let axis = 0; axis < 3; axis++) {
+    min[axis] = Math.min(min[axis], p[axis]);
+    max[axis] = Math.max(max[axis], p[axis]);
+  }
+  const tolerance = Math.max(
+    1e-7,
+    Math.hypot(max[0] - min[0], max[1] - min[1], max[2] - min[2]) * 1e-6,
+  );
+
+  const onReferencePlane = (face: number) => {
+    const candidate = plane(face);
+    if (dot(candidate.normal, reference.normal) < 1 - 1e-6) return false;
+    return candidate.points.every(p =>
+      Math.abs(dot(reference.normal, p) - reference.constant) <= tolerance
+    );
+  };
+
+  if (uniqueSeeds.some(face => !onReferencePlane(face))) {
+    throw new Error('Selected seed faces must be coplanar and consistently oriented.');
+  }
+
+  const edgeFaces = new Map<string, number[]>();
+  topology.polygons.forEach((polygon, face) => {
+    for (let local = 0; local < polygon.length; local++) {
+      const key = edgeKey(polygon[local], polygon[(local + 1) % polygon.length]);
+      const faces = edgeFaces.get(key) ?? [];
+      faces.push(face);
+      edgeFaces.set(key, faces);
+    }
+  });
+  const neighbors = new Map<number, number[]>();
+  for (const faces of edgeFaces.values()) {
+    if (faces.length < 2) continue;
+    for (const face of faces) {
+      const list = neighbors.get(face) ?? [];
+      for (const other of faces) if (other !== face && !list.includes(other)) list.push(other);
+      neighbors.set(face, list);
+    }
+  }
+
+  const visited = new Set<number>();
+  const queue = [uniqueSeeds[0]];
+  for (let cursor = 0; cursor < queue.length; cursor++) {
+    const face = queue[cursor];
+    if (visited.has(face)) continue;
+    visited.add(face);
+    for (const next of neighbors.get(face) ?? []) {
+      if (!visited.has(next) && onReferencePlane(next)) queue.push(next);
+    }
+  }
+  if (uniqueSeeds.some(face => !visited.has(face))) {
+    throw new Error('Selected seed faces must belong to one edge-connected coplanar region.');
+  }
+  return topology.polygons.flatMap((_, face) => visited.has(face) ? [face] : []);
+}
