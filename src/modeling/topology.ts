@@ -360,7 +360,9 @@ export function logicalCoplanarFaces(
 
   const reference = plane(uniqueSeeds[0]);
   const seedPoints = uniqueSeeds.flatMap(face => topology.polygons[face].map(point));
-  const min = [...seedPoints[0]], max = [...seedPoints[0]];
+  const firstSeedPoint = seedPoints[0];
+  if (!firstSeedPoint) throw new Error('Select valid logical seed faces.');
+  const min = [...firstSeedPoint], max = [...firstSeedPoint];
   for (const p of seedPoints) for (let axis = 0; axis < 3; axis++) {
     min[axis] = Math.min(min[axis], p[axis]);
     max[axis] = Math.max(max[axis], p[axis]);
