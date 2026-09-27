@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 import * as THREE from 'three';
 import { bevelEdges, bevelLogicalEdges, cutLogicalFace, deleteLogicalComponents, extrudeLogicalFace, insetLogicalFace, loopCut, loopCutLogicalEdge, subdivideLogicalEdges, editUV } from '../src/modeling/modeling';
-import { buildTopology } from '../src/modeling/topology';
+import { buildTopology, linkedLogicalComponents } from '../src/modeling/topology';
 import { evaluateModifiers } from '../src/modeling/modifiers';
 
 function topology(g: THREE.BufferGeometry) { return buildTopology(g.getAttribute('position').array, g.index?.array); }
@@ -53,6 +53,47 @@ test('logical quad topology keeps renderer triangles but removes selectable diag
   expect(explicit.polygons).toEqual(pt.polygons);
   expect(explicit.polygonEdges).toEqual(pt.polygonEdges);
   expect(explicit.triangleToPolygon).toEqual(pt.triangleToPolygon);
+});
+
+test('linked logical traversal expands connected islands without renderer diagonals', () => {
+  const positions = new Float32Array([
+    0,0,0, 1,0,0, 1,1,0, 0,1,0,
+    3,0,0, 4,0,0, 4,1,0, 3,1,0,
+  ]);
+  const indices = new Uint16Array([
+    0,1,2, 0,2,3,
+    4,5,6, 4,6,7,
+  ]);
+  const disconnected = buildTopology(positions, indices, [[0,1],[2,3]]);
+  const firstFaceVertices = new Set(disconnected.polygons[0]);
+  const firstEdge = disconnected.polygonEdges.findIndex(edge => edge.every(vertex => firstFaceVertices.has(vertex)));
+
+  expect(linkedLogicalComponents(disconnected, 'vertex', [disconnected.polygons[0][0]])).toHaveLength(4);
+  expect(linkedLogicalComponents(disconnected, 'edge', [firstEdge])).toHaveLength(4);
+  expect(linkedLogicalComponents(disconnected, 'face', [0])).toEqual([0]);
+  expect(linkedLogicalComponents(disconnected, 'face', [0, 1])).toEqual([0, 1]);
+  expect(linkedLogicalComponents(disconnected, 'vertex', [disconnected.polygons[0][0], disconnected.polygons[1][0]])).toHaveLength(8);
+  const secondFaceVertices = new Set(disconnected.polygons[1]);
+  const secondEdge = disconnected.polygonEdges.findIndex(edge => edge.every(vertex => secondFaceVertices.has(vertex)));
+  expect(linkedLogicalComponents(disconnected, 'edge', [firstEdge, secondEdge])).toHaveLength(8);
+
+  const touchingPositions = new Float32Array([
+    0,0,0, 1,0,0, 0,1,0,
+    -1,0,0, 0,-1,0,
+  ]);
+  const touchingIndices = new Uint16Array([0,1,2, 0,3,4]);
+  const touching = buildTopology(touchingPositions, touchingIndices, [[0],[1]]);
+  expect(linkedLogicalComponents(touching, 'vertex', [0])).toHaveLength(5);
+  expect(linkedLogicalComponents(touching, 'edge', [0])).toHaveLength(6);
+  expect(linkedLogicalComponents(touching, 'face', [0])).toEqual([0]);
+
+  const box = new THREE.BoxGeometry(2, 2, 2);
+  const cube = buildTopology(box.getAttribute('position').array, box.index?.array, true);
+  expect(linkedLogicalComponents(cube, 'vertex', [cube.logicalVertices[0]])).toHaveLength(8);
+  expect(linkedLogicalComponents(cube, 'edge', [0])).toHaveLength(12);
+  expect(linkedLogicalComponents(cube, 'face', [0])).toHaveLength(6);
+  expect(() => linkedLogicalComponents(cube, 'edge', [-1])).toThrow(/valid logical edges/);
+  box.dispose();
 });
 
 test('logical edge subdivision preserves polygon boundaries and only retessellates renderer triangles', () => {

@@ -10,7 +10,7 @@ import { clone as cloneSkeleton } from 'three/addons/utils/SkeletonUtils.js';
 import { createGrid, setGridPlane } from './viewport/grid';
 import { insetTriangle } from './modeling/extrude';
 import { extrudeLogicalFace } from './modeling/modeling';
-import { buildTopology, type MeshTopology, type ComponentMode } from './modeling/topology';
+import { buildTopology, linkedLogicalComponents, type MeshTopology, type ComponentMode } from './modeling/topology';
 import { proportionalWeights } from './modeling/proportional';
 import { subdivideEdges } from './modeling/subdivide';
 import { extrudeRegion } from './modeling/extrude-region';
@@ -1548,7 +1548,11 @@ export class Editor extends EventTarget {
       }
 
       this.selectedVertexOverlay.geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertexValues, 3));
-      (this.selectedEdgeOverlay.geometry as LineSegmentsGeometry).setPositions(edgeValues);
+      const selectedEdgeGeometry = new LineSegmentsGeometry();
+      selectedEdgeGeometry.setPositions(edgeValues);
+      const previousSelectedEdgeGeometry = this.selectedEdgeOverlay.geometry;
+      this.selectedEdgeOverlay.geometry = selectedEdgeGeometry;
+      previousSelectedEdgeGeometry.dispose();
       (this.activeEdgeOverlay.geometry as LineSegmentsGeometry).setPositions(activeEdgeValues);
       this.selectedFaceOverlay.geometry.setAttribute('position', new THREE.Float32BufferAttribute(faceValues, 3));
       this.selectedVertexOverlay.visible = this.componentMode === 'vertex' && vertexValues.length > 0;
@@ -1592,6 +1596,39 @@ export class Editor extends EventTarget {
     this.selectComponentVertices(vertices);
     this.emit('component-selection');
   }
+  selectLinkedComponents() {
+    if (!this.editMode || this.weightMode || !this.topology || !this.selectedComponents.size || this.playing || this.transform.dragging) {
+      throw new Error('Select one or more logical components in Edit Mode first.');
+    }
+
+    const active = [...this.selectedComponents].at(-1);
+    const linked = linkedLogicalComponents(this.topology, this.componentMode, [...this.selectedComponents]);
+    this.modelingVersion++;
+    this.selectedComponents = new Set(linked);
+
+    if (this.componentMode === 'edge' && active !== undefined && this.selectedComponents.has(active)) {
+      this.selectedComponents = new Set([
+        ...[...this.selectedComponents].filter(component => component !== active),
+        active,
+      ]);
+    }
+
+    this.selectedFace =
+      this.componentMode === 'face' && this.selectedComponents.size === 1
+        ? [...this.selectedComponents][0]
+        : null;
+    const vertices = [...this.selectedComponents].flatMap(id =>
+      this.componentMode === 'vertex'
+        ? [id]
+        : this.componentMode === 'edge'
+          ? this.topology!.polygonEdges[id]
+          : this.topology!.polygons[id]
+    );
+    this.selectComponentVertices(vertices);
+    this.emit('component-selection');
+    return this.selectedComponents.size;
+  }
+
   private selectComponentVertices(vertices?: number[]) {
     this.componentDrag = null;
     this.vertexIndices = [];

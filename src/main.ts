@@ -1977,6 +1977,13 @@ editor.addEventListener('mode', () => {
   if (knifeActive && !editor.modelingBusy && (!editor.editMode || editor.componentMode !== 'vertex')) cancelKnife();
 });
 
+function selectLinkedComponents() {
+  try {
+    const count = editor.selectLinkedComponents();
+    toast(`Selected ${count} linked logical components.`);
+  } catch (error) { toast((error as Error).message); }
+}
+
 async function deleteSelectedComponents() {
   try {
     if (!editor.editMode || !editor.componentSelection.length || !editor.meshTopology) throw new Error('Select mesh components in Edit Mode first.');
@@ -2006,6 +2013,7 @@ const modelingCommands = {
   loopCut: loopCutSelectedEdge,
   knife: startKnifeCut,
   cutFace: cutFaceBetweenSelectedVertices,
+  selectLinked: selectLinkedComponents,
   deleteComponents: deleteSelectedComponents,
 };
 
@@ -2068,6 +2076,7 @@ function viewportContextCommands(mode: ViewportContextMode): ViewportContextComm
     { label: 'Move', shortcut: 'G', action: () => tool('translate'), enabled: hasComponents },
     { label: 'Rotate', shortcut: 'R', action: () => tool('rotate'), enabled: hasComponents },
     { label: 'Scale', shortcut: 'S', action: () => tool('scale'), enabled: hasComponents },
+    { label: 'Select Linked', action: modelingCommands.selectLinked, enabled: hasComponents },
     { label: 'Knife', shortcut: 'K', action: modelingCommands.knife, enabled: knifeReady, separatorBefore: true },
     { label: 'Cut Face', action: modelingCommands.cutFace, enabled: twoComponents },
     { label: 'Snap Selection…', action: modelingCommands.vertexSnap, enabled: hasComponents },
@@ -2077,6 +2086,7 @@ function viewportContextCommands(mode: ViewportContextMode): ViewportContextComm
     { label: 'Move', shortcut: 'G', action: () => tool('translate'), enabled: hasComponents },
     { label: 'Rotate', shortcut: 'R', action: () => tool('rotate'), enabled: hasComponents },
     { label: 'Scale', shortcut: 'S', action: () => tool('scale'), enabled: hasComponents },
+    { label: 'Select Linked', action: modelingCommands.selectLinked, enabled: hasComponents },
     { label: 'Bevel Edges', action: modelingCommands.bevelEdges, enabled: hasComponents, separatorBefore: true },
     { label: 'Subdivide Edges', action: modelingCommands.subdivideEdges, enabled: hasComponents },
     { label: 'Loop Cut', action: modelingCommands.loopCut, enabled: oneComponent },
@@ -2086,6 +2096,7 @@ function viewportContextCommands(mode: ViewportContextMode): ViewportContextComm
     { label: 'Move', shortcut: 'G', action: () => tool('translate'), enabled: hasComponents },
     { label: 'Rotate', shortcut: 'R', action: () => tool('rotate'), enabled: hasComponents },
     { label: 'Scale', shortcut: 'S', action: () => tool('scale'), enabled: hasComponents },
+    { label: 'Select Linked', action: modelingCommands.selectLinked, enabled: hasComponents },
     { label: 'Extrude Face', action: modelingCommands.extrudeFace, enabled: oneComponent, separatorBefore: true },
     { label: 'Extrude Region', action: modelingCommands.extrudeRegion, enabled: hasComponents },
     { label: 'Inset Face', action: modelingCommands.insetFace, enabled: oneComponent },
