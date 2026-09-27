@@ -9,6 +9,7 @@ Add Blender-style whole-component selection shortcuts for Forge's logical mesh E
 In mesh Edit Mode:
 
 - **A** -> Select All
+- **Ctrl+A** -> Select All without triggering browser page-text selection
 - **Alt+A** -> Deselect All
 
 The same commands are exposed in Vertex / Edge / Face RMB context menus:
@@ -16,7 +17,7 @@ The same commands are exposed in Vertex / Edge / Face RMB context menus:
 - **Select All   A**
 - **Deselect All   Alt A**
 
-Object Mode remains unchanged; A is intentionally not assigned there in this batch.
+Object Mode remains unchanged; A is intentionally not assigned there. Ctrl+A is suppressed outside text fields so it cannot select the editor chrome, but it does not change Object Mode selection.
 
 ## Logical selection universe
 
@@ -48,12 +49,7 @@ Edge selection keeps the existing active-edge convention: after Select All, the 
 
 ## Shortcut guards
 
-The global shortcut handler already ignores:
-
-- input fields;
-- textareas;
-- selects;
-- open dialogs.
+The global shortcut handler already ignores input fields, textareas, selects and open dialogs. Ctrl+A therefore remains native inside editable text fields. The viewport context menu also prevents browser page-text selection when Ctrl+A is pressed while a non-input menu item owns focus.
 
 A / Alt+A additionally require:
 
@@ -80,6 +76,9 @@ For the default Cube:
 Playwright verifies all three Edit component modes:
 
 - A selects 8 / 12 / 6 logical components;
+- Ctrl+A in Edit Mode also selects all logical components and leaves browser page selection empty;
+- Ctrl+A in Object Mode leaves object selection unchanged and leaves browser page selection empty;
+- Ctrl+A inside the Object Name input still selects that input's full text;
 - Edge A renders 12 orange fat-line instances and one active white edge;
 - Undo depth is unchanged;
 - Geometry Statistics SELECTED becomes the complete Cube;
