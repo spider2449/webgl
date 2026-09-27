@@ -336,7 +336,8 @@ test('topology modeling preserves Edge mode and supports multiple Undo / Redo st
     const selectedBefore = e.componentSelection.length;
     const operation = {
       kind: 'subdivide',
-      edges: e.componentSelection.map((id: number) => topology.polygonEdges[id].map((v: number) => topology.vertices[v][0])),
+      edges: e.componentSelection,
+      polygonTriangles: topology.polygonTriangles.map((group: number[]) => [...group]),
     };
     await e.runModeling(operation);
     return {
