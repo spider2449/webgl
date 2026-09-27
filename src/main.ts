@@ -1111,6 +1111,7 @@ const modelingToolSettings = {
   extrudeDistance: 0.5,
   insetDistance: 0.1,
   bevelWidth: 0.1,
+  sharpAngleDegrees: 30,
   loopPosition: 0.5,
   subdivideCuts: 1,
   get snapTarget() { return modelingSnapTarget; },
@@ -2045,6 +2046,14 @@ function selectFacesBySides() {
   } catch (error) { toast((error as Error).message); }
 }
 
+function selectSharpEdges() {
+  try {
+    const angle = modelingToolSettings.sharpAngleDegrees;
+    const count = editor.selectSharpEdges(angle);
+    toast(`Selected ${count} sharp logical edges at ${Number(angle.toFixed(3))}° or greater.`);
+  } catch (error) { toast((error as Error).message); }
+}
+
 function selectNonManifoldEdges() {
   try {
     const count = editor.selectNonManifoldEdges();
@@ -2108,6 +2117,7 @@ const modelingCommands = {
   invertSelection: invertComponentSelection,
   selectCoplanarFaces,
   selectFacesBySides,
+  selectSharpEdges,
   selectNonManifoldEdges,
   selectMeshBoundaryEdges,
   selectFaceBoundaryEdges,
@@ -2193,6 +2203,7 @@ function viewportContextCommands(mode: ViewportContextMode): ViewportContextComm
     { label: 'Select All', shortcut: 'A', action: modelingCommands.selectAll, enabled: canSelectComponents },
     { label: 'Deselect All', shortcut: 'Alt A', action: modelingCommands.deselectAll, enabled: canDeselectComponents },
     { label: 'Invert Selection', action: modelingCommands.invertSelection, enabled: canInvertComponents },
+    { label: 'Select Sharp Edges', action: modelingCommands.selectSharpEdges, enabled: canSelectComponents },
     { label: 'Select Non-Manifold Edges', action: modelingCommands.selectNonManifoldEdges, enabled: canSelectComponents },
     { label: 'Select Mesh Boundary', action: modelingCommands.selectMeshBoundaryEdges, enabled: canSelectComponents },
     { label: 'Bevel Edges', action: modelingCommands.bevelEdges, enabled: hasComponents, separatorBefore: true },
@@ -2343,6 +2354,19 @@ function contextParameterBefore(mode: ViewportContextMode, command: ViewportCont
     set: value => { modelingToolSettings.snapTarget = value as 'vertex' | 'edge' | 'surface'; },
     options: [['vertex', 'Vertex'], ['edge', 'Edge midpoint'], ['surface', 'Surface point']],
     run: modelingCommands.vertexSnap,
+  };
+  if (mode === 'edge' && command.label === 'Select Sharp Edges') return {
+    kind: 'number',
+    label: 'Sharp Angle',
+    ariaLabel: 'Context sharp angle',
+    min: 0,
+    max: 180,
+    sliderMin: 0,
+    sliderMax: 180,
+    step: 1,
+    get: () => modelingToolSettings.sharpAngleDegrees,
+    set: value => { modelingToolSettings.sharpAngleDegrees = value; },
+    run: modelingCommands.selectSharpEdges,
   };
   if (mode === 'edge' && command.label === 'Bevel Edges') return {
     kind: 'number',
