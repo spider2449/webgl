@@ -125,9 +125,18 @@ test('logical non-manifold selection includes open and over-connected polygon ed
   const overConnected = buildTopology(positions, indices, [[0],[1],[2]]);
   const nonManifold = logicalNonManifoldEdges(overConnected);
   const edgeKey = (a: number, b: number) => `${Math.min(a,b)}:${Math.max(a,b)}`;
-  const common = overConnected.polygonEdges.findIndex(edge => edgeKey(edge[0], edge[1]) === '0:1');
-  expect(common).toBeGreaterThanOrEqual(0);
-  expect(nonManifold).toContain(common);
+  const edgeByKey = new Map(overConnected.polygonEdges.map((edge, id) => [edgeKey(edge[0], edge[1]), id]));
+  const uses = new Map<number, number>();
+  overConnected.polygons.forEach(polygon => {
+    polygon.forEach((vertex, local) => {
+      const next = polygon[(local + 1) % polygon.length];
+      const edge = edgeByKey.get(edgeKey(vertex, next))!;
+      uses.set(edge, (uses.get(edge) ?? 0) + 1);
+    });
+  });
+  const common = [...uses.entries()].find(([, count]) => count === 3)?.[0];
+  expect(common).toBeDefined();
+  expect(nonManifold).toContain(common!);
   expect(nonManifold).toHaveLength(7);
 
   plane.dispose();
