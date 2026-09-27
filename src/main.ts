@@ -1106,6 +1106,7 @@ on('reset-transform', () => { if (editor.selected) { editor.selected.position.se
 
 let modelingSnapTarget: 'vertex' | 'edge' | 'surface' = 'vertex';
 let modelingKnifeSnap: 'vertex-edge' | 'edge-only' = 'vertex-edge';
+let modelingFaceSideKind: 'triangles' | 'quads' | 'ngons' = 'quads';
 const modelingToolSettings = {
   extrudeDistance: 0.5,
   insetDistance: 0.1,
@@ -1119,6 +1120,8 @@ const modelingToolSettings = {
   },
   get knifeSnap() { return modelingKnifeSnap; },
   set knifeSnap(value: 'vertex-edge' | 'edge-only') { modelingKnifeSnap = value; },
+  get faceSideKind() { return modelingFaceSideKind; },
+  set faceSideKind(value: 'triangles' | 'quads' | 'ngons') { modelingFaceSideKind = value; },
 };
 
 async function extrudeSelectedFace() {
@@ -2026,6 +2029,15 @@ function invertComponentSelection() {
   } catch (error) { toast((error as Error).message); }
 }
 
+function selectFacesBySides() {
+  try {
+    const kind = modelingToolSettings.faceSideKind;
+    const count = editor.selectFacesBySides(kind);
+    const label = kind === 'triangles' ? 'triangles' : kind === 'quads' ? 'quads' : 'N-gons';
+    toast(`Selected ${count} logical ${label}.`);
+  } catch (error) { toast((error as Error).message); }
+}
+
 function selectNonManifoldEdges() {
   try {
     const count = editor.selectNonManifoldEdges();
@@ -2087,6 +2099,7 @@ const modelingCommands = {
   selectAll: () => selectAllComponents(true),
   deselectAll: () => selectAllComponents(false),
   invertSelection: invertComponentSelection,
+  selectFacesBySides,
   selectNonManifoldEdges,
   selectMeshBoundaryEdges,
   selectFaceBoundaryEdges,
@@ -2187,6 +2200,7 @@ function viewportContextCommands(mode: ViewportContextMode): ViewportContextComm
     { label: 'Select All', shortcut: 'A', action: modelingCommands.selectAll, enabled: canSelectComponents },
     { label: 'Deselect All', shortcut: 'Alt A', action: modelingCommands.deselectAll, enabled: canDeselectComponents },
     { label: 'Invert Selection', action: modelingCommands.invertSelection, enabled: canInvertComponents },
+    { label: 'Select Faces by Sides', action: modelingCommands.selectFacesBySides, enabled: canSelectComponents },
     { label: 'Select Boundary Edges', action: modelingCommands.selectFaceBoundaryEdges, enabled: hasComponents },
     { label: 'Extrude Face', action: modelingCommands.extrudeFace, enabled: oneComponent, separatorBefore: true },
     { label: 'Extrude Region', action: modelingCommands.extrudeRegion, enabled: hasComponents },
@@ -2360,6 +2374,15 @@ function contextParameterBefore(mode: ViewportContextMode, command: ViewportCont
     get: () => modelingToolSettings.loopPosition,
     set: value => { modelingToolSettings.loopPosition = value; },
     run: modelingCommands.loopCut,
+  };
+  if (mode === 'face' && command.label === 'Select Faces by Sides') return {
+    kind: 'select',
+    label: 'Face Type',
+    ariaLabel: 'Context face type',
+    get: () => modelingToolSettings.faceSideKind,
+    set: value => { modelingToolSettings.faceSideKind = value as 'triangles' | 'quads' | 'ngons'; },
+    options: [['triangles', 'Triangles'], ['quads', 'Quads'], ['ngons', 'N-gons']],
+    run: modelingCommands.selectFacesBySides,
   };
   if (mode === 'face' && command.label === 'Extrude Face') return {
     kind: 'number',
