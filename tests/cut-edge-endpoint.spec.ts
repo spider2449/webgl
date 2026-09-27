@@ -1718,3 +1718,134 @@ test('viewport Knife can select, drag, delete, undo, and redo any pending bend',
   expect(result.secondFound).toBe(true);
   await page.keyboard.press('Escape');
 });
+
+
+test('viewport Knife can insert a bend on a pending segment and navigate bends with Tab', async ({ page }) => {
+  await page.goto('/');
+  await page.waitForFunction(() => (window as any).__forge?.selected);
+  await page.evaluate(() => (window as any).__forge.view('front'));
+  await page.locator('#mode').selectOption('edit');
+  await page.getByLabel('Mesh component').selectOption('vertex');
+
+  const target = await page.evaluate(() => {
+    const e = (window as any).__forge;
+    const topology = e.meshTopology;
+    const mesh = e.selected;
+    const position = mesh.geometry.getAttribute('position');
+    const face = topology.polygons.findIndex((polygon: number[]) =>
+      polygon.every((vertex: number) => position.getZ(topology.vertices[vertex][0]) === 1)
+    );
+    if (face < 0) throw new Error('Expected a front logical quad.');
+
+    const boundary = topology.polygons[face];
+    const local = (vertex: number) =>
+      mesh.position.clone().fromBufferAttribute(position, topology.vertices[vertex][0]);
+    const start = local(boundary[0]);
+    const end = local(boundary[2]);
+    const bend1 = start.clone().lerp(end, 0.25).add(mesh.position.clone().set(0.12, -0.08, 0));
+    const bend2 = start.clone().lerp(end, 0.5).add(mesh.position.clone().set(-0.08, 0.12, 0));
+    const bend3 = start.clone().lerp(end, 0.72).add(mesh.position.clone().set(0.1, -0.05, 0));
+    const inserted = bend1.clone().lerp(bend2, 0.5);
+
+    const rect = e.host.getBoundingClientRect();
+    const screen = (point: any) => {
+      mesh.updateWorldMatrix(true, true);
+      e.camera.updateMatrixWorld(true);
+      const projected = mesh.localToWorld(point.clone()).project(e.camera);
+      return {
+        local: point.toArray(),
+        x: rect.left + (projected.x + 1) * rect.width / 2,
+        y: rect.top + (1 - projected.y) * rect.height / 2,
+      };
+    };
+
+    return {
+      before: e.snapshot(),
+      start: screen(start),
+      end: screen(end),
+      bend1: screen(bend1),
+      bend2: screen(bend2),
+      bend3: screen(bend3),
+      inserted: screen(inserted),
+    };
+  });
+
+  await page.keyboard.press('k');
+  await page.mouse.click(target.start.x, target.start.y);
+  await page.mouse.click(target.bend1.x, target.bend1.y);
+  await page.mouse.click(target.bend2.x, target.bend2.y);
+  await page.mouse.click(target.bend3.x, target.bend3.y);
+
+  expect(await page.evaluate(() => (window as any).__forge.snapshot())).toBe(target.before);
+
+  await page.mouse.move(target.inserted.x, target.inserted.y);
+  await page.waitForFunction(() => (window as any).__forge.knifePreviewState.pendingHoverSegment === 1);
+
+  let pending = await page.evaluate(() => (window as any).__forge.knifePreviewState);
+  expect(pending.pendingPath).toHaveLength(4);
+  expect(pending.pendingLinePointCount).toBe(4);
+  expect(pending.pendingHoverSegment).toBe(1);
+
+  await page.mouse.click(target.inserted.x, target.inserted.y);
+  await expect(page.locator('#toast')).toContainText('Knife bend inserted on pending segment');
+
+  pending = await page.evaluate(() => (window as any).__forge.knifePreviewState);
+  expect(pending.pendingPath).toHaveLength(5);
+  expect(pending.pendingLinePointCount).toBe(5);
+  expect(pending.pendingActiveIndex).toBe(1);
+  pending.pendingPath[2].forEach((value: number, index: number) =>
+    expect(value).toBeCloseTo(target.inserted.local[index], 4)
+  );
+
+  await page.keyboard.press('Tab');
+  await expect(page.locator('#toast')).toContainText('Knife bend 3 of 4 selected');
+  expect((await page.evaluate(() => (window as any).__forge.knifePreviewState)).pendingActiveIndex).toBe(2);
+
+  await page.keyboard.press('Shift+Tab');
+  await expect(page.locator('#toast')).toContainText('Knife bend 2 of 4 selected');
+  expect((await page.evaluate(() => (window as any).__forge.knifePreviewState)).pendingActiveIndex).toBe(1);
+
+  await page.keyboard.press('Control+z');
+  await expect(page.locator('#toast')).toContainText('Pending Knife edit undone');
+  pending = await page.evaluate(() => (window as any).__forge.knifePreviewState);
+  expect(pending.pendingPath).toHaveLength(4);
+  expect(pending.pendingLinePointCount).toBe(4);
+
+  await page.keyboard.press('Control+y');
+  await expect(page.locator('#toast')).toContainText('Pending Knife edit redone');
+  pending = await page.evaluate(() => (window as any).__forge.knifePreviewState);
+  expect(pending.pendingPath).toHaveLength(5);
+  expect(pending.pendingLinePointCount).toBe(5);
+  expect(pending.pendingActiveIndex).toBe(1);
+
+  await page.mouse.click(target.end.x, target.end.y);
+  await page.waitForFunction(() => !(window as any).__forge.modelingBusy && (window as any).__forge.snapTargetPending);
+  await expect(page.locator('#toast')).toContainText('Knife segment complete');
+
+  const result = await page.evaluate(expected => {
+    const e = (window as any).__forge;
+    const topology = e.meshTopology;
+    const position = e.selected.geometry.getAttribute('position');
+    const insertedVertex = topology.logicalVertices.find((vertex: number) => {
+      const raw = topology.vertices[vertex][0];
+      return Math.hypot(
+        position.getX(raw) - expected[0],
+        position.getY(raw) - expected[1],
+        position.getZ(raw) - expected[2],
+      ) < 1e-5;
+    });
+    return {
+      snapshot: e.snapshot(),
+      insertedFound: insertedVertex !== undefined,
+      insertedUses: insertedVertex === undefined
+        ? 0
+        : topology.polygons.filter((polygon: number[]) => polygon.includes(insertedVertex)).length,
+    };
+  }, target.inserted.local);
+
+  expect(result.snapshot).not.toBe(target.before);
+  expect(result.insertedFound).toBe(true);
+  expect(result.insertedUses).toBe(2);
+
+  await page.keyboard.press('Escape');
+});
