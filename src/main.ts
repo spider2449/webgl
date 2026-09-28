@@ -2173,6 +2173,7 @@ async function deleteSelectedComponents() {
 const modelingCommands = {
   extrudeFace: extrudeSelectedFace,
   extrudeRegion: extrudeSelectedRegion,
+  insetFace: insetSelectedFace,
   insetFaces: insetSelectedFaces,
   subdivideEdges: subdivideSelectedEdges,
   vertexSnap: startVertexSnap,
