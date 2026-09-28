@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import * as THREE from 'three';
-import { bevelEdges, bevelLogicalEdges, cutLogicalFace, deleteLogicalComponents, extrudeLogicalFace, insetLogicalFace, insetLogicalFaceRegion, loopCut, loopCutLogicalEdge, mergeLogicalVerticesAtCenter, subdivideLogicalEdges, editUV } from '../src/modeling/modeling';
+import { bevelEdges, bevelLogicalEdges, cutLogicalFace, deleteLogicalComponents, extrudeLogicalFace, fillLogicalBoundaryFace, insetLogicalFace, insetLogicalFaceRegion, loopCut, loopCutLogicalEdge, mergeLogicalVerticesAtCenter, subdivideLogicalEdges, editUV } from '../src/modeling/modeling';
 import { buildTopology, growLogicalComponents, linkedLogicalComponents, logicalCoplanarFaces, logicalEdgesByLength, logicalFaceBoundaryEdges, logicalFacesBySides, logicalMeshBoundaryEdges, logicalNonManifoldEdges, logicalSharpEdges, shrinkLogicalComponents } from '../src/modeling/topology';
 import { evaluateModifiers } from '../src/modeling/modifiers';
 
@@ -53,6 +53,73 @@ test('logical quad topology keeps renderer triangles but removes selectable diag
   expect(explicit.polygons).toEqual(pt.polygons);
   expect(explicit.polygonEdges).toEqual(pt.polygonEdges);
   expect(explicit.triangleToPolygon).toEqual(pt.triangleToPolygon);
+});
+
+test('Fill Boundary closes one logical Cube face hole as one Quad', () => {
+  const box = new THREE.BoxGeometry(2, 2, 2);
+  const before = buildTopology(
+    box.getAttribute('position').array,
+    box.index?.array,
+    true,
+  );
+  const removed = deleteLogicalComponents(
+    box,
+    'face',
+    [0],
+    before.polygonTriangles.map(group => [...group]),
+  );
+  const openPosition = removed.geometry.getAttribute('position');
+  const open = buildTopology(
+    openPosition.array,
+    removed.geometry.index?.array,
+    removed.polygonTriangles,
+  );
+
+  expect(open.logicalVertices).toHaveLength(8);
+  expect(open.polygonEdges).toHaveLength(12);
+  expect(open.polygons).toHaveLength(5);
+  expect(open.polygonTriangles.flat()).toHaveLength(10);
+  const boundary = logicalMeshBoundaryEdges(open);
+  expect(boundary).toHaveLength(4);
+
+  const filled = fillLogicalBoundaryFace(
+    removed.geometry,
+    boundary,
+    removed.polygonTriangles,
+  );
+  const filledPosition = filled.geometry.getAttribute('position');
+  const after = buildTopology(
+    filledPosition.array,
+    filled.geometry.index?.array,
+    filled.polygonTriangles,
+  );
+
+  expect(filled.boundaryEdges).toBe(4);
+  expect(filled.filledFace).toBe(5);
+  expect(after.logicalVertices).toHaveLength(8);
+  expect(after.polygonEdges).toHaveLength(12);
+  expect(after.polygons).toHaveLength(6);
+  expect(after.polygonTriangles.flat()).toHaveLength(12);
+  expect(after.polygons[filled.filledFace]).toHaveLength(4);
+  expect(logicalMeshBoundaryEdges(after)).toEqual([]);
+
+  expect(() => fillLogicalBoundaryFace(
+    removed.geometry,
+    boundary.slice(0, 3),
+    removed.polygonTriangles,
+  )).toThrow(/closed|loop|open/i);
+
+  const interior = open.polygonEdges.findIndex((_, edge) => !boundary.includes(edge));
+  expect(interior).toBeGreaterThanOrEqual(0);
+  expect(() => fillLogicalBoundaryFace(
+    removed.geometry,
+    [...boundary.slice(0, 3), interior],
+    removed.polygonTriangles,
+  )).toThrow('open logical mesh boundary edges');
+
+  filled.geometry.dispose();
+  removed.geometry.dispose();
+  box.dispose();
 });
 
 test('single-face inset accepts a convex logical N-gon with a collinear boundary corner', () => {
