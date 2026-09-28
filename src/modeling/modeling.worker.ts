@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { bevelLogicalEdges, cutLogicalFace, deleteLogicalComponents, extrudeLogicalFace, insetLogicalFace, insetLogicalFaceRegion, loopCutLogicalEdge, mergeLogicalVerticesAtCenter, subdivideLogicalEdges, editUV, inspectGeometry } from './modeling';
+import { bevelLogicalEdges, cutLogicalFace, deleteLogicalComponents, extrudeLogicalFace, fillLogicalBoundaryFace, insetLogicalFace, insetLogicalFaceRegion, loopCutLogicalEdge, mergeLogicalVerticesAtCenter, subdivideLogicalEdges, editUV, inspectGeometry } from './modeling';
 import { cutLogicalFaceBetweenEdges, cutLogicalFaceToEdge, cutLogicalFaceViaPath, cutLogicalFaceViaPoint } from './cut-edge-endpoint';
 import { evaluateModifiers } from './modifiers';
 import { extrudeRegion } from './extrude-region';
@@ -57,6 +57,12 @@ self.onmessage = (event: MessageEvent<{ source: ReturnType<THREE.BufferGeometry[
         const merge = mergeLogicalVerticesAtCenter(source, op.vertices, op.polygonTriangles);
         result = merge.geometry;
         logicalGroups = merge.polygonTriangles;
+        break;
+      }
+      case 'fill-boundary': {
+        const fill = fillLogicalBoundaryFace(source, op.edges, op.polygonTriangles);
+        result = fill.geometry;
+        logicalGroups = fill.polygonTriangles;
         break;
       }
       case 'cut-face': {
