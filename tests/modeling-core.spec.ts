@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import * as THREE from 'three';
-import { bevelEdges, bevelLogicalEdges, cutLogicalFace, deleteLogicalComponents, extrudeLogicalFace, insetLogicalFace, loopCut, loopCutLogicalEdge, subdivideLogicalEdges, editUV } from '../src/modeling/modeling';
+import { bevelEdges, bevelLogicalEdges, cutLogicalFace, deleteLogicalComponents, extrudeLogicalFace, insetLogicalFace, loopCut, loopCutLogicalEdge, mergeLogicalVerticesAtCenter, subdivideLogicalEdges, editUV } from '../src/modeling/modeling';
 import { buildTopology, growLogicalComponents, linkedLogicalComponents, logicalCoplanarFaces, logicalEdgesByLength, logicalFaceBoundaryEdges, logicalFacesBySides, logicalMeshBoundaryEdges, logicalNonManifoldEdges, logicalSharpEdges, shrinkLogicalComponents } from '../src/modeling/topology';
 import { evaluateModifiers } from '../src/modeling/modifiers';
 
@@ -53,6 +53,55 @@ test('logical quad topology keeps renderer triangles but removes selectable diag
   expect(explicit.polygons).toEqual(pt.polygons);
   expect(explicit.polygonEdges).toEqual(pt.polygonEdges);
   expect(explicit.triangleToPolygon).toEqual(pt.triangleToPolygon);
+});
+
+test('merge adjacent logical vertices at center collapses one Cube edge and retessellates affected polygons', () => {
+  const box = new THREE.BoxGeometry(2, 2, 2);
+  const position = box.getAttribute('position');
+  const before = buildTopology(position.array, box.index?.array, true);
+  const [first, second] = before.polygonEdges[0];
+  const firstPoint = new THREE.Vector3().fromBufferAttribute(position, before.vertices[first][0]);
+  const secondPoint = new THREE.Vector3().fromBufferAttribute(position, before.vertices[second][0]);
+  const midpoint = firstPoint.clone().lerp(secondPoint, 0.5);
+
+  const merged = mergeLogicalVerticesAtCenter(
+    box,
+    [first, second],
+    before.polygonTriangles.map(group => [...group]),
+  );
+  const afterPosition = merged.geometry.getAttribute('position');
+  const after = buildTopology(
+    afterPosition.array,
+    merged.geometry.index?.array,
+    merged.polygonTriangles,
+  );
+
+  expect(after.logicalVertices).toHaveLength(7);
+  expect(after.polygonEdges).toHaveLength(11);
+  expect(after.polygons).toHaveLength(6);
+  expect(after.polygonTriangles.flat()).toHaveLength(10);
+  expect(after.polygons.map(polygon => polygon.length).sort((a, b) => a - b)).toEqual([3, 3, 4, 4, 4, 4]);
+  expect(after.logicalVertices.some(vertex => {
+    const point = new THREE.Vector3().fromBufferAttribute(afterPosition, after.vertices[vertex][0]);
+    return point.distanceToSquared(midpoint) < 1e-12;
+  })).toBe(true);
+
+  const nonAdjacent = before.logicalVertices.find(vertex =>
+    vertex !== first &&
+    vertex !== second &&
+    !before.polygonEdges.some(([a, b]) =>
+      (a === first && b === vertex) || (a === vertex && b === first)
+    )
+  );
+  expect(nonAdjacent).toBeDefined();
+  expect(() => mergeLogicalVerticesAtCenter(
+    box,
+    [first, nonAdjacent!],
+    before.polygonTriangles.map(group => [...group]),
+  )).toThrow('share a logical edge');
+
+  merged.geometry.dispose();
+  box.dispose();
 });
 
 test('same-length edge selection uses logical edge lengths and relative tolerance', () => {
