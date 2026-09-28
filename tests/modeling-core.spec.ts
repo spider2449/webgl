@@ -101,17 +101,17 @@ test('Inset Region supports a planar logical face region with a hole', () => {
   const before = buildTopology(position.array, plane.index?.array, true);
   expect(before.polygons).toHaveLength(9);
 
-  const centroid = (topology: typeof before, attribute: THREE.BufferAttribute, face: number) =>
-    topology.polygons[face]
+  const centroid = (face: number) =>
+    before.polygons[face]
       .reduce(
         (sum, vertex) => sum.add(
-          new THREE.Vector3().fromBufferAttribute(attribute, topology.vertices[vertex][0])
+          new THREE.Vector3().fromBufferAttribute(position, before.vertices[vertex][0])
         ),
         new THREE.Vector3(),
       )
-      .multiplyScalar(1 / topology.polygons[face].length);
+      .multiplyScalar(1 / before.polygons[face].length);
   const centerFace = before.polygons
-    .map((_, face) => ({ face, distance: centroid(before, position, face).lengthSq() }))
+    .map((_, face) => ({ face, distance: centroid(face).lengthSq() }))
     .sort((a, b) => a.distance - b.distance)[0].face;
   const selected = before.polygons.flatMap((_, face) => face === centerFace ? [] : [face]);
   const originalCenter = before.polygons[centerFace]
