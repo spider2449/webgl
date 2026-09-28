@@ -2151,6 +2151,25 @@ async function mergeSelectedVerticesAtCenter() {
   } catch (error) { toast((error as Error).message); }
 }
 
+async function fillSelectedBoundaryFace() {
+  try {
+    if (
+      !editor.editMode ||
+      editor.componentMode !== 'edge' ||
+      editor.componentSelection.length < 3 ||
+      !editor.meshTopology
+    ) {
+      throw new Error('Select one complete logical mesh boundary loop in Edge Edit Mode first.');
+    }
+    await editor.runModeling({
+      kind: 'fill-boundary',
+      edges: editor.componentSelection,
+      polygonTriangles: editor.meshTopology.polygonTriangles.map(group => [...group]),
+    });
+    toast('Boundary filled with a logical face.');
+  } catch (error) { toast((error as Error).message); }
+}
+
 async function deleteSelectedComponents() {
   try {
     if (!editor.editMode || !editor.componentSelection.length || !editor.meshTopology) throw new Error('Select mesh components in Edit Mode first.');
@@ -2195,6 +2214,7 @@ const modelingCommands = {
   selectNonManifoldEdges,
   selectMeshBoundaryEdges,
   selectFaceBoundaryEdges,
+  fillBoundary: fillSelectedBoundaryFace,
   deleteComponents: deleteSelectedComponents,
 };
 
@@ -2250,6 +2270,7 @@ function viewportContextCommands(mode: ViewportContextMode): ViewportContextComm
   const hasComponents = () => editor.componentSelection.length > 0 && !editor.modelingBusy;
   const oneComponent = () => editor.componentSelection.length === 1 && !editor.modelingBusy;
   const twoComponents = () => editor.componentSelection.length === 2 && !editor.modelingBusy;
+  const boundaryLoop = () => editor.componentSelection.length >= 3 && !editor.modelingBusy;
   const knifeReady = () => editor.componentSelection.length <= 1 && !editor.modelingBusy;
   const canSelectComponents = () => !!editor.meshTopology && !editor.modelingBusy;
   const canDeselectComponents = () => editor.componentSelection.length > 0 && !editor.modelingBusy;
@@ -2286,7 +2307,8 @@ function viewportContextCommands(mode: ViewportContextMode): ViewportContextComm
     { label: 'Select Sharp Edges', action: modelingCommands.selectSharpEdges, enabled: canSelectComponents },
     { label: 'Select Non-Manifold Edges', action: modelingCommands.selectNonManifoldEdges, enabled: canSelectComponents },
     { label: 'Select Mesh Boundary', action: modelingCommands.selectMeshBoundaryEdges, enabled: canSelectComponents },
-    { label: 'Bevel Edges', action: modelingCommands.bevelEdges, enabled: hasComponents, separatorBefore: true },
+    { label: 'Fill Boundary Face', action: modelingCommands.fillBoundary, enabled: boundaryLoop, separatorBefore: true },
+    { label: 'Bevel Edges', action: modelingCommands.bevelEdges, enabled: hasComponents },
     { label: 'Subdivide Edges', action: modelingCommands.subdivideEdges, enabled: hasComponents },
     { label: 'Loop Cut', action: modelingCommands.loopCut, enabled: oneComponent },
     { label: 'Delete Edges', shortcut: 'Del', action: modelingCommands.deleteComponents, enabled: hasComponents, separatorBefore: true, danger: true },
