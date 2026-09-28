@@ -2105,6 +2105,26 @@ function selectLinkedComponents() {
   } catch (error) { toast((error as Error).message); }
 }
 
+async function mergeSelectedVerticesAtCenter() {
+  try {
+    if (
+      !editor.editMode ||
+      editor.componentMode !== 'vertex' ||
+      editor.componentSelection.length !== 2 ||
+      !editor.meshTopology
+    ) {
+      throw new Error('Select exactly two logical vertices in Vertex Edit Mode first.');
+    }
+    const vertices = editor.componentSelection as [number, number];
+    await editor.runModeling({
+      kind: 'merge-vertices',
+      vertices,
+      polygonTriangles: editor.meshTopology.polygonTriangles.map(group => [...group]),
+    });
+    toast('Vertices merged at center.');
+  } catch (error) { toast((error as Error).message); }
+}
+
 async function deleteSelectedComponents() {
   try {
     if (!editor.editMode || !editor.componentSelection.length || !editor.meshTopology) throw new Error('Select mesh components in Edit Mode first.');
@@ -2134,6 +2154,7 @@ const modelingCommands = {
   loopCut: loopCutSelectedEdge,
   knife: startKnifeCut,
   cutFace: cutFaceBetweenSelectedVertices,
+  mergeVertices: mergeSelectedVerticesAtCenter,
   selectLinked: selectLinkedComponents,
   selectMore: selectMoreComponents,
   selectLess: selectLessComponents,
@@ -2220,6 +2241,7 @@ function viewportContextCommands(mode: ViewportContextMode): ViewportContextComm
     { label: 'Invert Selection', action: modelingCommands.invertSelection, enabled: canInvertComponents },
     { label: 'Knife', shortcut: 'K', action: modelingCommands.knife, enabled: knifeReady, separatorBefore: true },
     { label: 'Cut Face', action: modelingCommands.cutFace, enabled: twoComponents },
+    { label: 'Merge at Center', shortcut: 'M', action: modelingCommands.mergeVertices, enabled: twoComponents },
     { label: 'Snap Selection…', action: modelingCommands.vertexSnap, enabled: hasComponents },
     { label: 'Delete Vertices', shortcut: 'Del', action: modelingCommands.deleteComponents, enabled: hasComponents, separatorBefore: true, danger: true },
   ];
@@ -3700,6 +3722,19 @@ document.addEventListener('keydown', e => {
   if (key === 'alt') editor.orbit.mouseButtons.LEFT = THREE.MOUSE.ROTATE;
   if (key === 'q') tool('select'); if (key === 'g') tool('translate'); if (key === 'r') tool('rotate'); if (key === 's') tool('scale');
   if (key === 'k' && editor.editMode && editor.componentMode === 'vertex') { e.preventDefault(); modelingCommands.knife(); }
+  if (
+    key === 'm' &&
+    editor.editMode &&
+    editor.componentMode === 'vertex' &&
+    !knifeActive &&
+    !editor.snapTargetPending &&
+    !editor.modelingBusy &&
+    !editor.transform.dragging
+  ) {
+    e.preventDefault();
+    void modelingCommands.mergeVertices();
+    return;
+  }
   if (key === 'f') editor.focus();
   if (key === 'd' && e.shiftKey) { e.preventDefault(); editor.duplicate(); }
   else if (key === 'd' && e.altKey) { e.preventDefault(); if (!editor.duplicateLinked()) toast('Linked duplicate requires an ordinary mesh without modifiers.'); }
