@@ -1375,6 +1375,18 @@ export function mergeLogicalVerticesAtCenter(
   if (midpoint.some(value => !Number.isFinite(value))) {
     throw new Error('Merged vertex exceeds mesh coordinate precision.');
   }
+  const midpointOccupied = topology.logicalVertices.some(vertex => {
+    if (vertex === first || vertex === second) return false;
+    const existing = point(vertex);
+    return (
+      Math.fround(existing.x) === midpoint[0] &&
+      Math.fround(existing.y) === midpoint[1] &&
+      Math.fround(existing.z) === midpoint[2]
+    );
+  });
+  if (midpointOccupied) {
+    throw new Error('Merge at Center midpoint already contains another logical vertex.');
+  }
 
   const selected = new Set(vertices);
   const entries: EditedPolygon[] = [];
