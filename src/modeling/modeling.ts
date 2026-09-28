@@ -1340,6 +1340,118 @@ function mergedPolygonGroups(
   return [...regions.values()].sort((a, b) => Math.min(...a) - Math.min(...b));
 }
 
+export function mergeLogicalVerticesAtCenter(
+  source: THREE.BufferGeometry,
+  vertices: [number, number],
+  polygonTriangles?: number[][],
+) {
+  const inspection = inspectGeometry(source, polygonTriangles ?? false);
+  const { topology } = inspection;
+  const surface = logicalSurface(source, inspection);
+  if (
+    !Array.isArray(vertices) ||
+    vertices.length !== 2 ||
+    vertices[0] === vertices[1] ||
+    vertices.some(vertex => !Number.isInteger(vertex) || !topology.logicalVertices.includes(vertex))
+  ) {
+    throw new Error('Merge at Center requires exactly two distinct logical vertices.');
+  }
+
+  const [first, second] = vertices;
+  const sharedEdge = topology.polygonEdges.some(([a, b]) =>
+    (a === first && b === second) || (a === second && b === first)
+  );
+  if (!sharedEdge) throw new Error('Merge at Center currently requires two vertices that share a logical edge.');
+
+  const position = source.getAttribute('position');
+  const point = (vertex: number) =>
+    new THREE.Vector3().fromBufferAttribute(position, topology.vertices[vertex][0]);
+  const midpointVector = point(first).add(point(second)).multiplyScalar(0.5);
+  const midpoint = [
+    Math.fround(midpointVector.x),
+    Math.fround(midpointVector.y),
+    Math.fround(midpointVector.z),
+  ];
+  if (midpoint.some(value => !Number.isFinite(value))) {
+    throw new Error('Merged vertex exceeds mesh coordinate precision.');
+  }
+
+  const selected = new Set(vertices);
+  const entries: EditedPolygon[] = [];
+  const mergedNormal = (a: THREE.Vector3, b: THREE.Vector3) => {
+    const normal = a.clone().add(b);
+    if (normal.lengthSq() < 1e-16) return a.clone();
+    return normal.normalize();
+  };
+  const movedCorner = (corner: Corner): Corner => Object.fromEntries(
+    Object.entries(corner).map(([name, data]) => [
+      name,
+      name === 'position' ? [...midpoint] : [...data],
+    ]),
+  );
+
+  for (let face = 0; face < topology.polygons.length; face++) {
+    const boundary = topology.polygons[face];
+    const selectedIndices = boundary.flatMap((vertex, index) => selected.has(vertex) ? [index] : []);
+    if (!selectedIndices.length) {
+      entries.push({ polygon: surface.polygons[face], sourceFace: face });
+      continue;
+    }
+
+    const polygon = surface.polygons[face];
+    const corners = polygon.corners.map(corner => corner);
+    const referenceNormals = polygon.referenceNormals?.map(normal => normal.clone());
+
+    if (selectedIndices.length === 2) {
+      const [firstIndex, secondIndex] = selectedIndices;
+      const adjacentForward = (firstIndex + 1) % boundary.length === secondIndex;
+      const adjacentBackward = (secondIndex + 1) % boundary.length === firstIndex;
+      if (!adjacentForward && !adjacentBackward) {
+        throw new Error('Merge at Center would collapse non-adjacent corners of one logical polygon.');
+      }
+
+      const keep = adjacentForward ? firstIndex : secondIndex;
+      const remove = adjacentForward ? secondIndex : firstIndex;
+      const merged = interpolate(polygon.corners[keep], polygon.corners[remove], 0.5);
+      merged.position = [...midpoint];
+
+      const nextCorners = corners.flatMap((corner, index) =>
+        index === remove ? [] : [index === keep ? merged : corner]
+      );
+      if (nextCorners.length < 3) continue;
+
+      const nextNormals = referenceNormals
+        ? referenceNormals.flatMap((normal, index) =>
+            index === remove
+              ? []
+              : [index === keep ? mergedNormal(referenceNormals[keep], referenceNormals[remove]) : normal]
+          )
+        : undefined;
+      entries.push({
+        polygon: {
+          material: polygon.material,
+          corners: nextCorners,
+          referenceNormals: nextNormals,
+        },
+      });
+      continue;
+    }
+
+    const index = selectedIndices[0];
+    corners[index] = movedCorner(corners[index]);
+    entries.push({
+      polygon: {
+        material: polygon.material,
+        corners,
+        referenceNormals,
+      },
+    });
+  }
+
+  if (!entries.length) throw new Error('Merge at Center would remove the entire mesh.');
+  return { ...finishEditedSurface(source, inspection, entries), mergedPosition: midpoint as [number, number, number] };
+}
+
 export function deleteLogicalComponents(
   source: THREE.BufferGeometry,
   mode: 'vertex' | 'edge' | 'face',
