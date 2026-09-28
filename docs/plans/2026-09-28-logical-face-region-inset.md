@@ -21,12 +21,11 @@ A multi-face inset requires:
 
 - at least two valid logical polygons;
 - one edge-connected selected region;
-- all selected logical polygons coplanar;
 - consistent polygon orientation;
 - manifold logical boundaries;
 - simple closed boundary loops.
 
-Disconnected regions and folded selections are rejected.
+Selected faces may cross folds and do not need to be coplanar. Disconnected regions are rejected.
 
 ## Modeling topology authority
 
@@ -58,23 +57,43 @@ Because consistently oriented selected polygons keep region interior on the left
 
 No separate outer/hole special case is required.
 
-## Planar offset
+## Surface offset
 
-The selected region is projected to a stable 2D basis on its common plane.
+Forge uses two inset paths.
 
-For each directed boundary edge:
+### Planar regions
 
-1. compute its unit left normal;
-2. shift its support line by `Inset Distance`;
-3. intersect consecutive shifted lines to locate the new inner boundary vertex.
+A fully coplanar selected region keeps the exact 2D offset path:
 
-Collinear same-direction boundary segments are allowed. Their shared boundary vertex translates by the common left normal instead of treating parallel offset lines as an error.
+1. project the region to a stable 2D basis;
+2. compute each directed boundary edge's unit left normal;
+3. shift each boundary line by `Inset Distance`;
+4. intersect consecutive shifted lines.
 
-Zero-width reversals are rejected.
+This path retains strict loop area and segment-intersection validation and remains the authority for planar regions with holes.
+
+### Folded / non-planar regions
+
+A non-planar selected region stays in 3D.
+
+For each directed boundary edge `A -> B` on selected face `F`:
+
+1. compute the edge direction `E = normalize(B - A)`;
+2. compute the surface-inward unit vector `I = normal(F) × E`.
+
+At one boundary vertex, let `Iprev` and `Inext` be the inward vectors from its incoming and outgoing region boundary edges. The new vertex displacement is the minimum-length 3D vector whose signed inset distance is `Inset Distance` against both edge offset planes:
+
+```
+delta = distance * (Iprev + Inext) / (1 + dot(Iprev, Inext))
+```
+
+This is the 3D miter/bisector generalization of the planar line-intersection solution. It allows the inset boundary to cross creases while changing the selected surface shape, matching the expected modeling behavior instead of rejecting non-coplanar regions.
+
+Collinear same-direction boundary segments remain valid. Opposing zero-width turns are rejected.
 
 ## Multiple boundary loops and holes
 
-All inset loops must:
+Planar inset loops must:
 
 - preserve their original winding sign;
 - retain non-zero area;
@@ -82,7 +101,7 @@ All inset loops must:
 - not intersect any non-adjacent inset segment;
 - not intersect another inset loop.
 
-This rejects excessive inset values before mesh replacement.
+Folded regions instead rely on the local 3D surface-offset constraints plus the final logical polygon tessellation/manifold validation. This lets valid crease-crossing insets change the object silhouette without projecting the whole region onto one plane.
 
 A 3×3 logical Quad grid with the center face unselected therefore has:
 
@@ -219,8 +238,8 @@ Pure modeling tests cover:
 3. selected face IDs remain 0 and 1;
 4. a region with one hole reports two loops and sixteen boundary edges;
 5. the unselected center hole face is unchanged;
-6. adjacent non-coplanar Cube faces are rejected;
-7. disconnected coplanar Plane faces are rejected.
+6. adjacent non-coplanar Cube faces inset successfully and keep their shared internal logical edge;
+7. disconnected Plane faces are rejected.
 
 Real editor workflow covers:
 
@@ -236,7 +255,6 @@ Real editor workflow covers:
 
 ## Non-goals
 
-- non-coplanar region inset;
 - individual-face inset mode for a multi-face selection;
 - bevel-style depth or outset;
 - automatic straight-skeleton topology changes for large concave offsets;
@@ -261,4 +279,4 @@ Manual spot-check:
 5. Confirm the middle shared edge still exists inside the inset region.
 6. Ctrl+Z restores the original two Quads.
 7. On a segmented Plane with a hole-like unselected center face, confirm both outer and inner boundaries inset in the correct directions.
-8. On a Cube, select two adjacent non-coplanar faces and confirm Inset Faces rejects the selection without changing geometry.
+8. On a Cube, select two adjacent non-coplanar faces and confirm Inset Faces creates one continuous inset across the crease while preserving their internal shared edge.
