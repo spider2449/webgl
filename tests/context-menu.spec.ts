@@ -294,7 +294,7 @@ test('Edit Mode RMB menu changes with Vertex, Edge and Face component mode', asy
   await expect(menu.getByRole('menuitem', { name: 'Select Boundary Edges' })).toBeVisible();
   await expect(menu.getByRole('menuitem', { name: 'Extrude Face' })).toBeVisible();
   await expect(menu.getByRole('menuitem', { name: 'Extrude Region' })).toBeVisible();
-  await expect(menu.getByRole('menuitem', { name: 'Inset Face' })).toBeVisible();
+  await expect(menu.getByRole('menuitem', { name: 'Inset Faces' })).toBeVisible();
   await expect(menu.getByRole('menuitem', { name: 'Delete Faces Del' })).toBeVisible();
   await expect(menu.getByRole('menuitem', { name: 'Bevel Edges' })).toHaveCount(0);
 });
@@ -1137,7 +1137,102 @@ test('RMB Loop Cut splits the default Cube logical quad ring at the configured p
   });
 });
 
-test('RMB Inset Face insets a default Cube quad instead of rejecting renderer-backed polygons', async ({ page }) => {
+test('RMB Inset Faces preserves a selected two-Quad region and its internal logical edge', async ({ page }) => {
+  await page.getByRole('button', { name: 'Toggle geometry statistics' }).click();
+  await page.locator('[data-menu="add-menu"]').click();
+  await page.locator('[data-primitive="plane"]').click();
+  await page.getByLabel('Primitive Segments X').fill('2');
+  await page.getByLabel('Primitive Segments X').press('Enter');
+
+  await page.locator('#mode').selectOption('edit');
+  await page.getByLabel('Mesh component').selectOption('face');
+  const before = await page.evaluate(() => {
+    const e = (window as any).__forge;
+    e.selectComponent(0);
+    e.selectComponent(1, true);
+    return {
+      selection: [...e.componentSelection],
+      undoDepth: e.undoDepth,
+      primitive: e.selected.userData.forgePrimitive,
+    };
+  });
+  expect(before.selection).toEqual([0, 1]);
+
+  await rightClickViewport(page);
+  let menu = page.locator('#viewport-context-menu');
+  const inset = menu.getByRole('menuitem', { name: 'Inset Faces', exact: true });
+  await expect(inset).toBeEnabled();
+  const distance = page.getByRole('spinbutton', { name: 'Context inset distance', exact: true });
+  await expect(distance).toHaveValue('0.1');
+  await distance.fill('0.2');
+  await distance.press('Enter');
+  await page.waitForFunction(() => !(window as any).__forge.modelingBusy);
+  await expect(page.locator('#toast')).toContainText('Face region inset');
+
+  expect(await page.evaluate(() => {
+    const e = (window as any).__forge;
+    const t = e.meshTopology;
+    const shared = t.polygons[0].filter((vertex: number) => t.polygons[1].includes(vertex));
+    return {
+      mode: e.componentMode,
+      selection: [...e.componentSelection],
+      logicalVertices: t.logicalVertices.length,
+      logicalEdges: t.polygonEdges.length,
+      polygons: t.polygons.length,
+      triangles: t.polygonTriangles.flat().length,
+      sharedInnerVertices: shared.length,
+      sharedInnerEdge: t.polygonEdges.some(([a, b]: [number, number]) =>
+        shared.includes(a) && shared.includes(b)
+      ),
+      primitive: e.selected.userData.forgePrimitive,
+      stored: e.selected.userData.forgePolygonTriangles?.length,
+      undoDepth: e.undoDepth,
+    };
+  })).toEqual({
+    mode: 'face',
+    selection: [0, 1],
+    logicalVertices: 12,
+    logicalEdges: 19,
+    polygons: 8,
+    triangles: 16,
+    sharedInnerVertices: 2,
+    sharedInnerEdge: true,
+    primitive: undefined,
+    stored: 8,
+    undoDepth: before.undoDepth + 1,
+  });
+  await expect(page.locator('#geometry-statistics-all')).toHaveText('Obj 2 · V 20 · E 31 · F 14 · T 28');
+  await expect(page.locator('#geometry-statistics-selected')).toHaveText('Obj 1 · V 6 · E 7 · F 2 · T 4');
+
+  await rightClickViewport(page);
+  menu = page.locator('#viewport-context-menu');
+  await expect(page.getByRole('spinbutton', { name: 'Context inset distance', exact: true })).toHaveValue('0.2');
+  await page.keyboard.press('Escape');
+
+  await page.keyboard.press('Control+z');
+  await page.waitForFunction(() => {
+    const e = (window as any).__forge;
+    return e.meshTopology?.polygons.length === 2 && e.meshTopology?.logicalVertices.length === 6;
+  });
+  expect(await page.evaluate(() => {
+    const e = (window as any).__forge;
+    return {
+      mode: e.componentMode,
+      logicalVertices: e.meshTopology.logicalVertices.length,
+      logicalEdges: e.meshTopology.polygonEdges.length,
+      polygons: e.meshTopology.polygons.length,
+      triangles: e.meshTopology.polygonTriangles.flat().length,
+    };
+  })).toEqual({
+    mode: 'face',
+    logicalVertices: 6,
+    logicalEdges: 7,
+    polygons: 2,
+    triangles: 4,
+  });
+});
+
+test('RMB Inset Faces insets a default Cube quad instead of rejecting renderer-backed polygons', async ({ page }) => {
   await page.locator('#mode').selectOption('edit');
   await page.getByLabel('Mesh component').selectOption('face');
   await page.evaluate(() => {
@@ -1146,7 +1241,7 @@ test('RMB Inset Face insets a default Cube quad instead of rejecting renderer-ba
     (window as any).__forgeModelingSettings.insetDistance = 0.1;
   });
   await rightClickViewport(page);
-  await page.locator('#viewport-context-menu').getByRole('menuitem', { name: 'Inset Face' }).click();
+  await page.locator('#viewport-context-menu').getByRole('menuitem', { name: 'Inset Faces' }).click();
   await page.waitForFunction(() => !(window as any).__forge.modelingBusy);
   await expect(page.locator('#toast')).toContainText('Face inset');
   expect(await page.evaluate(() => {
