@@ -194,7 +194,7 @@ test('Inset Region supports a planar logical face region with a hole', () => {
   plane.dispose();
 });
 
-test('Inset Region rejects folded and disconnected logical face selections', () => {
+test('Inset Region supports folded connected faces and still rejects disconnected regions', () => {
   const box = new THREE.BoxGeometry(2, 2, 2);
   const boxPosition = box.getAttribute('position');
   const cube = buildTopology(boxPosition.array, box.index?.array, true);
@@ -206,12 +206,33 @@ test('Inset Region rejects folded and disconnected logical face selections', () 
     })
   )[0];
   expect(adjacentPair).toBeDefined();
-  expect(() => insetLogicalFaceRegion(
+
+  const folded = insetLogicalFaceRegion(
     box,
     adjacentPair,
     0.1,
     cube.polygonTriangles.map(group => [...group]),
-  )).toThrow('coplanar');
+  );
+  const foldedPosition = folded.geometry.getAttribute('position');
+  const foldedTopology = buildTopology(
+    foldedPosition.array,
+    folded.geometry.index?.array,
+    folded.polygonTriangles,
+  );
+  expect(folded.boundaryLoops).toBe(1);
+  expect(folded.boundaryEdges).toBe(6);
+  expect(folded.selectedFaces).toEqual([...adjacentPair].sort((a, b) => a - b));
+  expect(foldedTopology.logicalVertices).toHaveLength(14);
+  expect(foldedTopology.polygonEdges).toHaveLength(24);
+  expect(foldedTopology.polygons).toHaveLength(12);
+  expect(foldedTopology.polygonTriangles.flat()).toHaveLength(24);
+  const sharedInner = foldedTopology.polygons[adjacentPair[0]].filter(vertex =>
+    foldedTopology.polygons[adjacentPair[1]].includes(vertex)
+  );
+  expect(sharedInner).toHaveLength(2);
+  expect(foldedTopology.polygonEdges.some(([a, b]) =>
+    sharedInner.includes(a) && sharedInner.includes(b)
+  )).toBe(true);
 
   const plane = new THREE.PlaneGeometry(6, 2, 3, 1);
   const planePosition = plane.getAttribute('position');
@@ -224,6 +245,7 @@ test('Inset Region rejects folded and disconnected logical face selections', () 
     strip.polygonTriangles.map(group => [...group]),
   )).toThrow('edge-connected');
 
+  folded.geometry.dispose();
   box.dispose();
   plane.dispose();
 });
