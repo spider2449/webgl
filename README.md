@@ -54,6 +54,7 @@ it; Shift-clicking empty space preserves it. Drag the move gizmo to move the
 selection from the centroid of its unique logical vertices. Shared vertices and
 welded seams move once, and proportional editing uses all selected vertices.
 Shift-click takes priority over the gizmo so you can deselect its center component.
+In Vertex Edit Mode, select exactly two adjacent logical vertices and use RMB -> **Merge at Center** or press **M** to collapse their shared logical edge to its midpoint. Affected Triangle/Quad/N-gon boundaries are retessellated, the merged midpoint vertex remains selected, and the operation is undoable.
 Switching component modes or leaving Edit Mode clears the selection. Press **A** (or **Ctrl+A**) or use RMB -> **Select All**
 to select every logical component in the active Vertex, Edge or Face mode; **Alt+A** / **Deselect All**
 clears the component selection. Outside text-entry fields, Ctrl+A is intercepted by the editor so the browser does not highlight the whole UI; in Object Mode it remains a no-op. These shortcuts do not alter Object Mode selection.
