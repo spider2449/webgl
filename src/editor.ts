@@ -2711,7 +2711,7 @@ export class Editor extends EventTarget {
       meshes.forEach((mesh, i) => {
         if (operation.kind === 'uv') {
           this.markPrimitiveApplied(mesh);
-        } else if ((operation.kind === 'bevel' || operation.kind === 'extrude' || operation.kind === 'inset' || operation.kind === 'loop' || (operation.kind === 'subdivide' && !batch) || operation.kind === 'delete-components' || operation.kind === 'merge-vertices' || operation.kind === 'cut-face' || operation.kind === 'cut-face-edge' || operation.kind === 'cut-face-edges' || operation.kind === 'cut-face-via-point' || operation.kind === 'cut-face-via-path') && topologies[i]) {
+        } else if ((operation.kind === 'bevel' || operation.kind === 'extrude' || operation.kind === 'inset' || operation.kind === 'inset-region' || operation.kind === 'loop' || (operation.kind === 'subdivide' && !batch) || operation.kind === 'delete-components' || operation.kind === 'merge-vertices' || operation.kind === 'cut-face' || operation.kind === 'cut-face-edge' || operation.kind === 'cut-face-edges' || operation.kind === 'cut-face-via-point' || operation.kind === 'cut-face-via-path') && topologies[i]) {
           this.markPrimitiveApplied(mesh);
           if (mesh.userData.forgeLogicalQuads !== undefined) delete mesh.userData.forgeLogicalQuads;
           mesh.userData.forgePolygonTriangles = topologies[i]!.polygonTriangles.map(group => [...group]);
@@ -2726,7 +2726,7 @@ export class Editor extends EventTarget {
         // main thread. This keeps raycast faceIndex -> logical polygon mapping
         // aligned with the parsed BufferGeometry rather than trusting a
         // transient worker-side triangle numbering.
-        const rebuildFromStoredPolygons = operation.kind === 'bevel' || operation.kind === 'extrude' || operation.kind === 'inset' || operation.kind === 'loop' || (operation.kind === 'subdivide' && !batch) || operation.kind === 'delete-components' || operation.kind === 'merge-vertices' || operation.kind === 'cut-face' || operation.kind === 'cut-face-edge' || operation.kind === 'cut-face-edges' || operation.kind === 'cut-face-via-point' || operation.kind === 'cut-face-via-path';
+        const rebuildFromStoredPolygons = operation.kind === 'bevel' || operation.kind === 'extrude' || operation.kind === 'inset' || operation.kind === 'inset-region' || operation.kind === 'loop' || (operation.kind === 'subdivide' && !batch) || operation.kind === 'delete-components' || operation.kind === 'merge-vertices' || operation.kind === 'cut-face' || operation.kind === 'cut-face-edge' || operation.kind === 'cut-face-edges' || operation.kind === 'cut-face-via-point' || operation.kind === 'cut-face-via-path';
         this.setEditMode(true, operation.kind === 'uv' || rebuildFromStoredPolygons ? undefined : topologies[0]);
         if (operation.kind === 'subdivide' && !batch) {
           this.restoreSubdivisionSelection(oldMode, oldEdges, operation.cuts ?? 1);
@@ -2754,10 +2754,10 @@ export class Editor extends EventTarget {
           this.emit('component-selection');
         } else if (operation.kind === 'delete-components' || operation.kind === 'cut-face' || operation.kind === 'cut-face-edge' || operation.kind === 'cut-face-edges' || operation.kind === 'cut-face-via-point' || operation.kind === 'cut-face-via-path') {
           this.setComponentMode(oldMode);
-        } else if (['uv', 'inset', 'extrude', 'region'].includes(operation.kind)) {
+        } else if (['uv', 'inset', 'inset-region', 'extrude', 'region'].includes(operation.kind)) {
           const restoredFaces =
             operation.kind === 'uv' ? oldSelection :
-            operation.kind === 'region' ? operation.faces :
+            operation.kind === 'region' || operation.kind === 'inset-region' ? operation.faces :
             operation.kind === 'inset' || operation.kind === 'extrude' ? [operation.face] :
             oldSelection;
           this.setComponentMode(oldMode);
