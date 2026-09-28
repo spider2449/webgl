@@ -1165,7 +1165,7 @@ async function insetSelectedRegion() {
       distance: modelingToolSettings.insetDistance,
       polygonTriangles: editor.meshTopology.polygonTriangles.map(group => [...group]),
     });
-    toast('Face region inset. Internal logical edges remain selected.');
+    toast('Face region inset. Internal logical edges are preserved.');
   } catch (error) { toast((error as Error).message); }
 }
 
