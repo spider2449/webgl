@@ -593,17 +593,12 @@ export function insetLogicalFaceRegion(
   const tolerance = Math.max(1e-7, bounds.getSize(new THREE.Vector3()).length() * 1e-6);
   const referenceNormal = surface.normals[faces[0]].clone();
   const origin = read(topology.polygons[faces[0]][0]);
-
-  for (const face of faces) {
-    if (surface.normals[face].dot(referenceNormal) < 1 - 1e-6) {
-      throw new Error('Inset Region faces must be coplanar and consistently oriented.');
-    }
-    if (topology.polygons[face].some(vertex =>
-      Math.abs(read(vertex).clone().sub(origin).dot(referenceNormal)) > tolerance
-    )) {
-      throw new Error('Inset Region faces must be coplanar and consistently oriented.');
-    }
-  }
+  const planarRegion = faces.every(face =>
+    surface.normals[face].dot(referenceNormal) >= 1 - 1e-6 &&
+    topology.polygons[face].every(vertex =>
+      Math.abs(read(vertex).clone().sub(origin).dot(referenceNormal)) <= tolerance
+    )
+  );
 
   type RegionUse = { face: number; local: number; a: number; b: number };
   const edgeUses = new Map<string, RegionUse[]>();
@@ -686,156 +681,197 @@ export function insetLogicalFaceRegion(
     loops.push(loop);
   }
 
-  const firstBoundary = boundary[0];
-  const axisU = read(firstBoundary.b).sub(read(firstBoundary.a));
-  if (axisU.lengthSq() < 1e-16) throw new Error('Inset Region has a collapsed boundary edge.');
-  axisU.normalize();
-  const axisV = referenceNormal.clone().cross(axisU).normalize();
-  const project = (point: THREE.Vector3) => {
-    const relative = point.clone().sub(origin);
-    return [relative.dot(axisU), relative.dot(axisV)] as [number, number];
-  };
-  const lift = ([x, y]: [number, number]) =>
-    origin.clone().addScaledVector(axisU, x).addScaledVector(axisV, y);
+  const innerPosition = new Map<number, THREE.Vector3>();
 
-  const projected = new Map<number, [number, number]>();
-  for (const vertex of selectedVertices) projected.set(vertex, project(read(vertex)));
+  if (planarRegion) {
+    const firstBoundary = boundary[0];
+    const axisU = read(firstBoundary.b).sub(read(firstBoundary.a));
+    if (axisU.lengthSq() < 1e-16) throw new Error('Inset Region has a collapsed boundary edge.');
+    axisU.normalize();
+    const axisV = referenceNormal.clone().cross(axisU).normalize();
+    const project = (point: THREE.Vector3) => {
+      const relative = point.clone().sub(origin);
+      return [relative.dot(axisU), relative.dot(axisV)] as [number, number];
+    };
+    const lift = ([x, y]: [number, number]) =>
+      origin.clone().addScaledVector(axisU, x).addScaledVector(axisV, y);
 
-  const inner2 = new Map<number, [number, number]>();
-  const signedArea2 = (points: [number, number][]) => points.reduce((sum, point, index) => {
-    const next = points[(index + 1) % points.length];
-    return sum + point[0] * next[1] - next[0] * point[1];
-  }, 0);
+    const projected = new Map<number, [number, number]>();
+    for (const vertex of selectedVertices) projected.set(vertex, project(read(vertex)));
 
-  for (const loop of loops) {
-    const original = loop.map(use => projected.get(use.a)!);
-    const originalArea = signedArea2(original);
-    if (!Number.isFinite(originalArea) || Math.abs(originalArea) < tolerance * tolerance) {
-      throw new Error('Inset Region boundary loop is degenerate.');
+    const inner2 = new Map<number, [number, number]>();
+    const signedArea2 = (points: [number, number][]) => points.reduce((sum, point, index) => {
+      const next = points[(index + 1) % points.length];
+      return sum + point[0] * next[1] - next[0] * point[1];
+    }, 0);
+
+    for (const loop of loops) {
+      const original = loop.map(use => projected.get(use.a)!);
+      const originalArea = signedArea2(original);
+      if (!Number.isFinite(originalArea) || Math.abs(originalArea) < tolerance * tolerance) {
+        throw new Error('Inset Region boundary loop is degenerate.');
+      }
+
+      for (let index = 0; index < loop.length; index++) {
+        const previousUse = loop[(index + loop.length - 1) % loop.length];
+        const currentUse = loop[index];
+        const previousA = projected.get(previousUse.a)!;
+        const previousB = projected.get(previousUse.b)!;
+        const currentA = projected.get(currentUse.a)!;
+        const currentB = projected.get(currentUse.b)!;
+
+        const previousDx = previousB[0] - previousA[0];
+        const previousDy = previousB[1] - previousA[1];
+        const currentDx = currentB[0] - currentA[0];
+        const currentDy = currentB[1] - currentA[1];
+        const previousLength = Math.hypot(previousDx, previousDy);
+        const currentLength = Math.hypot(currentDx, currentDy);
+        if (previousLength < tolerance || currentLength < tolerance) {
+          throw new Error('Inset Region has a collapsed boundary edge.');
+        }
+
+        const previousNormal: [number, number] = [-previousDy / previousLength, previousDx / previousLength];
+        const currentNormal: [number, number] = [-currentDy / currentLength, currentDx / currentLength];
+        const previousConstant =
+          previousNormal[0] * previousB[0] +
+          previousNormal[1] * previousB[1] +
+          distance;
+        const currentConstant =
+          currentNormal[0] * currentA[0] +
+          currentNormal[1] * currentA[1] +
+          distance;
+        const determinant =
+          previousNormal[0] * currentNormal[1] -
+          previousNormal[1] * currentNormal[0];
+
+        let point: [number, number];
+        if (Math.abs(determinant) < 1e-10) {
+          const directionDot =
+            (previousDx / previousLength) * (currentDx / currentLength) +
+            (previousDy / previousLength) * (currentDy / currentLength);
+          const normalDot =
+            previousNormal[0] * currentNormal[0] +
+            previousNormal[1] * currentNormal[1];
+          if (directionDot < 1 - 1e-8 || normalDot < 1 - 1e-8) {
+            throw new Error('Inset Region boundary contains a zero-width turn.');
+          }
+          point = [
+            currentA[0] + currentNormal[0] * distance,
+            currentA[1] + currentNormal[1] * distance,
+          ];
+        } else {
+          point = [
+            (previousConstant * currentNormal[1] - previousNormal[1] * currentConstant) / determinant,
+            (previousNormal[0] * currentConstant - previousConstant * currentNormal[0]) / determinant,
+          ];
+        }
+        if (!point.every(Number.isFinite)) throw new Error('Inset Region exceeds mesh coordinate precision.');
+        inner2.set(currentUse.a, point);
+      }
+
+      const insetPoints = loop.map(use => inner2.get(use.a)!);
+      const insetArea = signedArea2(insetPoints);
+      if (
+        !Number.isFinite(insetArea) ||
+        Math.sign(insetArea) !== Math.sign(originalArea) ||
+        Math.abs(insetArea) <= tolerance * tolerance
+      ) {
+        throw new Error('Inset distance collapses a region boundary loop.');
+      }
     }
 
-    for (let index = 0; index < loop.length; index++) {
-      const previousUse = loop[(index + loop.length - 1) % loop.length];
-      const currentUse = loop[index];
-      const previousA = projected.get(previousUse.a)!;
-      const previousB = projected.get(previousUse.b)!;
-      const currentA = projected.get(currentUse.a)!;
-      const currentB = projected.get(currentUse.b)!;
+    const segmentIntersection = (
+      a: [number, number],
+      b: [number, number],
+      c: [number, number],
+      d: [number, number],
+    ) => {
+      const cross = (p: [number, number], q: [number, number], r: [number, number]) =>
+        (q[0] - p[0]) * (r[1] - p[1]) - (q[1] - p[1]) * (r[0] - p[0]);
+      const epsilon = Math.max(1e-10, tolerance * 1e-3);
+      const abC = cross(a, b, c), abD = cross(a, b, d);
+      const cdA = cross(c, d, a), cdB = cross(c, d, b);
+      const on = (p: [number, number], q: [number, number], r: [number, number]) =>
+        Math.abs(cross(p, q, r)) <= epsilon &&
+        r[0] >= Math.min(p[0], q[0]) - epsilon &&
+        r[0] <= Math.max(p[0], q[0]) + epsilon &&
+        r[1] >= Math.min(p[1], q[1]) - epsilon &&
+        r[1] <= Math.max(p[1], q[1]) + epsilon;
+      if (((abC > epsilon && abD < -epsilon) || (abC < -epsilon && abD > epsilon)) &&
+          ((cdA > epsilon && cdB < -epsilon) || (cdA < -epsilon && cdB > epsilon))) return true;
+      return on(a, b, c) || on(a, b, d) || on(c, d, a) || on(c, d, b);
+    };
 
-      const previousDx = previousB[0] - previousA[0];
-      const previousDy = previousB[1] - previousA[1];
-      const currentDx = currentB[0] - currentA[0];
-      const currentDy = currentB[1] - currentA[1];
-      const previousLength = Math.hypot(previousDx, previousDy);
-      const currentLength = Math.hypot(currentDx, currentDy);
-      if (previousLength < tolerance || currentLength < tolerance) {
+    const innerSegments = loops.flatMap((loop, loopIndex) =>
+      loop.map((use, edgeIndex) => ({
+        loopIndex,
+        edgeIndex,
+        count: loop.length,
+        a: inner2.get(use.a)!,
+        b: inner2.get(use.b)!,
+      }))
+    );
+    for (let i = 0; i < innerSegments.length; i++) {
+      for (let j = i + 1; j < innerSegments.length; j++) {
+        const a = innerSegments[i], b = innerSegments[j];
+        const adjacent =
+          a.loopIndex === b.loopIndex &&
+          (a.edgeIndex === b.edgeIndex ||
+            (a.edgeIndex + 1) % a.count === b.edgeIndex ||
+            (b.edgeIndex + 1) % b.count === a.edgeIndex);
+        if (adjacent) continue;
+        if (segmentIntersection(a.a, a.b, b.a, b.b)) {
+          throw new Error('Inset distance causes region boundary loops to intersect.');
+        }
+      }
+    }
+
+    for (const [vertex, point] of inner2) {
+      const lifted = lift(point);
+      lifted.set(Math.fround(lifted.x), Math.fround(lifted.y), Math.fround(lifted.z));
+      if (![lifted.x, lifted.y, lifted.z].every(Number.isFinite)) {
+        throw new Error('Inset Region exceeds mesh coordinate precision.');
+      }
+      innerPosition.set(vertex, lifted);
+    }
+  } else {
+    const inwardFor = (use: RegionUse) => {
+      const edge = read(use.b).sub(read(use.a));
+      const length = edge.length();
+      if (!Number.isFinite(length) || length < tolerance) {
         throw new Error('Inset Region has a collapsed boundary edge.');
       }
+      const inward = surface.normals[use.face].clone().cross(edge.multiplyScalar(1 / length));
+      if (!Number.isFinite(inward.lengthSq()) || inward.lengthSq() < 1e-16) {
+        throw new Error('Inset Region boundary direction is invalid.');
+      }
+      return inward.normalize();
+    };
 
-      const previousNormal: [number, number] = [-previousDy / previousLength, previousDx / previousLength];
-      const currentNormal: [number, number] = [-currentDy / currentLength, currentDx / currentLength];
-      const previousConstant =
-        previousNormal[0] * previousB[0] +
-        previousNormal[1] * previousB[1] +
-        distance;
-      const currentConstant =
-        currentNormal[0] * currentA[0] +
-        currentNormal[1] * currentA[1] +
-        distance;
-      const determinant =
-        previousNormal[0] * currentNormal[1] -
-        previousNormal[1] * currentNormal[0];
-
-      let point: [number, number];
-      if (Math.abs(determinant) < 1e-10) {
-        const directionDot =
-          (previousDx / previousLength) * (currentDx / currentLength) +
-          (previousDy / previousLength) * (currentDy / currentLength);
-        const normalDot =
-          previousNormal[0] * currentNormal[0] +
-          previousNormal[1] * currentNormal[1];
-        if (directionDot < 1 - 1e-8 || normalDot < 1 - 1e-8) {
+    for (const loop of loops) {
+      for (let index = 0; index < loop.length; index++) {
+        const previousUse = loop[(index + loop.length - 1) % loop.length];
+        const currentUse = loop[index];
+        const previousInward = inwardFor(previousUse);
+        const currentInward = inwardFor(currentUse);
+        const alignment = THREE.MathUtils.clamp(previousInward.dot(currentInward), -1, 1);
+        if (alignment <= -1 + 1e-8) {
           throw new Error('Inset Region boundary contains a zero-width turn.');
         }
-        point = [
-          currentA[0] + currentNormal[0] * distance,
-          currentA[1] + currentNormal[1] * distance,
-        ];
-      } else {
-        point = [
-          (previousConstant * currentNormal[1] - previousNormal[1] * currentConstant) / determinant,
-          (previousNormal[0] * currentConstant - previousConstant * currentNormal[0]) / determinant,
-        ];
-      }
-      if (!point.every(Number.isFinite)) throw new Error('Inset Region exceeds mesh coordinate precision.');
-      inner2.set(currentUse.a, point);
-    }
 
-    const insetPoints = loop.map(use => inner2.get(use.a)!);
-    const insetArea = signedArea2(insetPoints);
-    if (
-      !Number.isFinite(insetArea) ||
-      Math.sign(insetArea) !== Math.sign(originalArea) ||
-      Math.abs(insetArea) <= tolerance * tolerance
-    ) {
-      throw new Error('Inset distance collapses a region boundary loop.');
-    }
-  }
-
-  const segmentIntersection = (
-    a: [number, number],
-    b: [number, number],
-    c: [number, number],
-    d: [number, number],
-  ) => {
-    const cross = (p: [number, number], q: [number, number], r: [number, number]) =>
-      (q[0] - p[0]) * (r[1] - p[1]) - (q[1] - p[1]) * (r[0] - p[0]);
-    const epsilon = Math.max(1e-10, tolerance * 1e-3);
-    const abC = cross(a, b, c), abD = cross(a, b, d);
-    const cdA = cross(c, d, a), cdB = cross(c, d, b);
-    const on = (p: [number, number], q: [number, number], r: [number, number]) =>
-      Math.abs(cross(p, q, r)) <= epsilon &&
-      r[0] >= Math.min(p[0], q[0]) - epsilon &&
-      r[0] <= Math.max(p[0], q[0]) + epsilon &&
-      r[1] >= Math.min(p[1], q[1]) - epsilon &&
-      r[1] <= Math.max(p[1], q[1]) + epsilon;
-    if (((abC > epsilon && abD < -epsilon) || (abC < -epsilon && abD > epsilon)) &&
-        ((cdA > epsilon && cdB < -epsilon) || (cdA < -epsilon && cdB > epsilon))) return true;
-    return on(a, b, c) || on(a, b, d) || on(c, d, a) || on(c, d, b);
-  };
-
-  const innerSegments = loops.flatMap((loop, loopIndex) =>
-    loop.map((use, edgeIndex) => ({
-      loopIndex,
-      edgeIndex,
-      count: loop.length,
-      a: inner2.get(use.a)!,
-      b: inner2.get(use.b)!,
-    }))
-  );
-  for (let i = 0; i < innerSegments.length; i++) {
-    for (let j = i + 1; j < innerSegments.length; j++) {
-      const a = innerSegments[i], b = innerSegments[j];
-      const adjacent =
-        a.loopIndex === b.loopIndex &&
-        (a.edgeIndex === b.edgeIndex ||
-          (a.edgeIndex + 1) % a.count === b.edgeIndex ||
-          (b.edgeIndex + 1) % b.count === a.edgeIndex);
-      if (adjacent) continue;
-      if (segmentIntersection(a.a, a.b, b.a, b.b)) {
-        throw new Error('Inset distance causes region boundary loops to intersect.');
+        const denominator = 1 + alignment;
+        const delta = previousInward.add(currentInward).multiplyScalar(distance / denominator);
+        const point = read(currentUse.a).add(delta);
+        point.set(Math.fround(point.x), Math.fround(point.y), Math.fround(point.z));
+        if (
+          ![point.x, point.y, point.z].every(Number.isFinite) ||
+          point.distanceToSquared(read(currentUse.a)) < Math.max(1e-16, tolerance * tolerance * 1e-6)
+        ) {
+          throw new Error('Inset Region collapses at mesh coordinate precision.');
+        }
+        innerPosition.set(currentUse.a, point);
       }
     }
-  }
-
-  const innerPosition = new Map<number, THREE.Vector3>();
-  for (const [vertex, point] of inner2) {
-    const lifted = lift(point);
-    lifted.set(Math.fround(lifted.x), Math.fround(lifted.y), Math.fround(lifted.z));
-    if (![lifted.x, lifted.y, lifted.z].every(Number.isFinite)) {
-      throw new Error('Inset Region exceeds mesh coordinate precision.');
-    }
-    innerPosition.set(vertex, lifted);
   }
 
   const movedCorner = (corner: Corner, point: THREE.Vector3): Corner => ({
