@@ -1156,7 +1156,7 @@ async function insetSelectedRegion() {
       editor.componentSelection.length < 2 ||
       !editor.meshTopology
     ) {
-      throw new Error('Select at least two connected coplanar faces in Edit Mode first.');
+      throw new Error('Select at least two connected faces in Edit Mode first.');
     }
     const faces = editor.componentSelection;
     await editor.runModeling({
