@@ -83,7 +83,7 @@ test('single-face inset accepts a convex logical N-gon with a collinear boundary
   const inset = insetLogicalFace(geometry, 0, 0.2, groups);
   const after = buildTopology(
     inset.geometry.getAttribute('position').array,
-    inset.geometry.index!.array,
+    inset.geometry.index?.array,
     inset.polygonTriangles,
   );
 
