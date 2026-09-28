@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import * as THREE from 'three';
-import { bevelEdges, bevelLogicalEdges, cutLogicalFace, deleteLogicalComponents, extrudeLogicalFace, insetLogicalFace, loopCut, loopCutLogicalEdge, mergeLogicalVerticesAtCenter, subdivideLogicalEdges, editUV } from '../src/modeling/modeling';
+import { bevelEdges, bevelLogicalEdges, cutLogicalFace, deleteLogicalComponents, extrudeLogicalFace, insetLogicalFace, insetLogicalFaceRegion, loopCut, loopCutLogicalEdge, mergeLogicalVerticesAtCenter, subdivideLogicalEdges, editUV } from '../src/modeling/modeling';
 import { buildTopology, growLogicalComponents, linkedLogicalComponents, logicalCoplanarFaces, logicalEdgesByLength, logicalFaceBoundaryEdges, logicalFacesBySides, logicalMeshBoundaryEdges, logicalNonManifoldEdges, logicalSharpEdges, shrinkLogicalComponents } from '../src/modeling/topology';
 import { evaluateModifiers } from '../src/modeling/modifiers';
 
@@ -53,6 +53,201 @@ test('logical quad topology keeps renderer triangles but removes selectable diag
   expect(explicit.polygons).toEqual(pt.polygons);
   expect(explicit.polygonEdges).toEqual(pt.polygonEdges);
   expect(explicit.triangleToPolygon).toEqual(pt.triangleToPolygon);
+});
+
+test('single-face inset accepts a convex logical N-gon with a collinear boundary corner', () => {
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute([
+    0, 0, 0,
+    1, 0, 0,
+    2, 0, 0,
+    2, 2, 0,
+    0, 2, 0,
+  ], 3));
+  geometry.setIndex([
+    0, 1, 4,
+    1, 3, 4,
+    1, 2, 3,
+  ]);
+  geometry.computeVertexNormals();
+
+  const groups = [[0, 1, 2]];
+  const before = buildTopology(
+    geometry.getAttribute('position').array,
+    geometry.index!.array,
+    groups,
+  );
+  expect(before.polygons).toHaveLength(1);
+  expect(before.polygons[0]).toHaveLength(5);
+
+  const inset = insetLogicalFace(geometry, 0, 0.2, groups);
+  const after = buildTopology(
+    inset.geometry.getAttribute('position').array,
+    inset.geometry.index?.array,
+    inset.polygonTriangles,
+  );
+
+  expect(after.polygons).toHaveLength(6);
+  expect(after.polygons[0]).toHaveLength(5);
+  expect(after.polygons.slice(1).every(polygon => polygon.length === 4)).toBe(true);
+  expect(after.logicalVertices).toHaveLength(10);
+
+  inset.geometry.dispose();
+  geometry.dispose();
+});
+
+test('Inset Region preserves internal logical edges across two adjacent Quads', () => {
+  const plane = new THREE.PlaneGeometry(4, 2, 2, 1);
+  const position = plane.getAttribute('position');
+  const before = buildTopology(position.array, plane.index?.array, true);
+  expect(before.polygons).toHaveLength(2);
+  expect(before.polygonEdges).toHaveLength(7);
+
+  const inset = insetLogicalFaceRegion(
+    plane,
+    [0, 1],
+    0.25,
+    before.polygonTriangles.map(group => [...group]),
+  );
+  const afterPosition = inset.geometry.getAttribute('position');
+  const after = buildTopology(
+    afterPosition.array,
+    inset.geometry.index?.array,
+    inset.polygonTriangles,
+  );
+
+  expect(inset.boundaryLoops).toBe(1);
+  expect(inset.boundaryEdges).toBe(6);
+  expect(inset.selectedFaces).toEqual([0, 1]);
+  expect(after.logicalVertices).toHaveLength(12);
+  expect(after.polygonEdges).toHaveLength(19);
+  expect(after.polygons).toHaveLength(8);
+  expect(after.polygonTriangles.flat()).toHaveLength(16);
+  expect(after.polygons.every(polygon => polygon.length === 4)).toBe(true);
+
+  const sharedInnerVertices = after.polygons[0].filter(vertex => after.polygons[1].includes(vertex));
+  expect(sharedInnerVertices).toHaveLength(2);
+  const innerEdgeExists = after.polygonEdges.some(([a, b]) =>
+    sharedInnerVertices.includes(a) && sharedInnerVertices.includes(b)
+  );
+  expect(innerEdgeExists).toBe(true);
+
+  inset.geometry.dispose();
+  plane.dispose();
+});
+
+test('Inset Region supports a planar logical face region with a hole', () => {
+  const plane = new THREE.PlaneGeometry(3, 3, 3, 3);
+  const position = plane.getAttribute('position');
+  const before = buildTopology(position.array, plane.index?.array, true);
+  expect(before.polygons).toHaveLength(9);
+
+  const centroid = (face: number) =>
+    before.polygons[face]
+      .reduce(
+        (sum, vertex) => sum.add(
+          new THREE.Vector3().fromBufferAttribute(position, before.vertices[vertex][0])
+        ),
+        new THREE.Vector3(),
+      )
+      .multiplyScalar(1 / before.polygons[face].length);
+  const centerFace = before.polygons
+    .map((_, face) => ({ face, distance: centroid(face).lengthSq() }))
+    .sort((a, b) => a.distance - b.distance)[0].face;
+  const selected = before.polygons.flatMap((_, face) => face === centerFace ? [] : [face]);
+  const originalCenter = before.polygons[centerFace]
+    .map(vertex => {
+      const point = new THREE.Vector3().fromBufferAttribute(position, before.vertices[vertex][0]);
+      return point.toArray().join(',');
+    })
+    .sort();
+
+  const inset = insetLogicalFaceRegion(
+    plane,
+    selected,
+    0.1,
+    before.polygonTriangles.map(group => [...group]),
+  );
+  const afterPosition = inset.geometry.getAttribute('position');
+  const after = buildTopology(
+    afterPosition.array,
+    inset.geometry.index?.array,
+    inset.polygonTriangles,
+  );
+
+  expect(inset.boundaryLoops).toBe(2);
+  expect(inset.boundaryEdges).toBe(16);
+  expect(inset.selectedFaces).toEqual(selected);
+  expect(after.polygons).toHaveLength(25);
+  expect(after.polygonTriangles.flat()).toHaveLength(50);
+  expect(after.polygons.every(polygon => polygon.length === 4)).toBe(true);
+
+  const preservedCenter = after.polygons[centerFace]
+    .map(vertex => {
+      const point = new THREE.Vector3().fromBufferAttribute(afterPosition, after.vertices[vertex][0]);
+      return point.toArray().join(',');
+    })
+    .sort();
+  expect(preservedCenter).toEqual(originalCenter);
+
+  inset.geometry.dispose();
+  plane.dispose();
+});
+
+test('Inset Region supports folded connected faces and still rejects disconnected regions', () => {
+  const box = new THREE.BoxGeometry(2, 2, 2);
+  const boxPosition = box.getAttribute('position');
+  const cube = buildTopology(boxPosition.array, box.index?.array, true);
+  const adjacentPair = cube.polygons.flatMap((polygon, face) =>
+    cube.polygons.flatMap((other, candidate) => {
+      if (candidate <= face) return [];
+      const shared = polygon.filter(vertex => other.includes(vertex));
+      return shared.length === 2 ? [[face, candidate] as [number, number]] : [];
+    })
+  )[0];
+  expect(adjacentPair).toBeDefined();
+
+  const folded = insetLogicalFaceRegion(
+    box,
+    adjacentPair,
+    0.1,
+    cube.polygonTriangles.map(group => [...group]),
+  );
+  const foldedPosition = folded.geometry.getAttribute('position');
+  const foldedTopology = buildTopology(
+    foldedPosition.array,
+    folded.geometry.index?.array,
+    folded.polygonTriangles,
+  );
+  expect(folded.boundaryLoops).toBe(1);
+  expect(folded.boundaryEdges).toBe(6);
+  expect(folded.selectedFaces).toEqual([...adjacentPair].sort((a, b) => a - b));
+  expect(foldedTopology.logicalVertices).toHaveLength(14);
+  expect(foldedTopology.polygonEdges).toHaveLength(24);
+  expect(foldedTopology.polygons).toHaveLength(12);
+  expect(foldedTopology.polygonTriangles.flat()).toHaveLength(24);
+  const sharedInner = foldedTopology.polygons[adjacentPair[0]].filter(vertex =>
+    foldedTopology.polygons[adjacentPair[1]].includes(vertex)
+  );
+  expect(sharedInner).toHaveLength(2);
+  expect(foldedTopology.polygonEdges.some(([a, b]) =>
+    sharedInner.includes(a) && sharedInner.includes(b)
+  )).toBe(true);
+
+  const plane = new THREE.PlaneGeometry(6, 2, 3, 1);
+  const planePosition = plane.getAttribute('position');
+  const strip = buildTopology(planePosition.array, plane.index?.array, true);
+  expect(strip.polygons).toHaveLength(3);
+  expect(() => insetLogicalFaceRegion(
+    plane,
+    [0, 2],
+    0.1,
+    strip.polygonTriangles.map(group => [...group]),
+  )).toThrow('edge-connected');
+
+  folded.geometry.dispose();
+  box.dispose();
+  plane.dispose();
 });
 
 test('merge adjacent logical vertices at center collapses one Cube edge and retessellates affected polygons', () => {
