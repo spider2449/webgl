@@ -499,7 +499,7 @@ export function insetLogicalFace(
   if (Math.abs(area2) < 1e-12) throw new Error('Inset polygon is degenerate.');
   const winding = Math.sign(area2);
   for (let i = 0; i < projected.length; i++) {
-    if (winding * cross2(projected[i], projected[(i + 1) % projected.length], projected[(i + 2) % projected.length]) <= 1e-10) {
+    if (winding * cross2(projected[i], projected[(i + 1) % projected.length], projected[(i + 2) % projected.length]) < -1e-10) {
       throw new Error('Inset currently requires a convex polygon.');
     }
   }
@@ -509,15 +509,30 @@ export function insetLogicalFace(
     const dx = b[0] - a[0], dy = b[1] - a[1];
     const length = Math.hypot(dx, dy);
     if (length < 1e-12) throw new Error('Inset polygon has a collapsed boundary edge.');
-    const inward: [number, number] = winding > 0 ? [-dy / length, dx / length] : [dy / length, -dx / length];
-    return { normal: inward, constant: inward[0] * a[0] + inward[1] * a[1] + distance };
+    const direction: [number, number] = [dx / length, dy / length];
+    const inward: [number, number] = winding > 0 ? [-direction[1], direction[0]] : [direction[1], -direction[0]];
+    return { normal: inward, direction, constant: inward[0] * a[0] + inward[1] * a[1] + distance };
   });
 
-  const inner2 = projected.map((_, i) => {
+  const inner2 = projected.map((point, i) => {
     const previous = lines[(i + lines.length - 1) % lines.length];
     const current = lines[i];
     const determinant = previous.normal[0] * current.normal[1] - previous.normal[1] * current.normal[0];
-    if (Math.abs(determinant) < 1e-10) throw new Error('Inset cannot offset parallel adjacent edges.');
+    if (Math.abs(determinant) < 1e-10) {
+      const directionDot =
+        previous.direction[0] * current.direction[0] +
+        previous.direction[1] * current.direction[1];
+      const normalDot =
+        previous.normal[0] * current.normal[0] +
+        previous.normal[1] * current.normal[1];
+      if (directionDot < 1 - 1e-8 || normalDot < 1 - 1e-8) {
+        throw new Error('Inset polygon contains a zero-width turn.');
+      }
+      return [
+        point[0] + current.normal[0] * distance,
+        point[1] + current.normal[1] * distance,
+      ] as [number, number];
+    }
     const x = (previous.constant * current.normal[1] - previous.normal[1] * current.constant) / determinant;
     const y = (previous.normal[0] * current.constant - previous.constant * current.normal[0]) / determinant;
     return [x, y] as [number, number];
