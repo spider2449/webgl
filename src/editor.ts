@@ -2690,6 +2690,11 @@ export class Editor extends EventTarget {
       const oldLogicalVertexPositions = operation.kind === 'loop'
         ? this.captureLogicalVertexPositionKeys()
         : new Set<string>();
+      let filledFaceId: number | null = null;
+      if (operation.kind === 'fill-boundary') {
+        if (!this.topology) throw new Error('Fill Boundary requires editable logical topology.');
+        filledFaceId = this.topology.polygons.length;
+      }
       let mergedVertexPosition: THREE.Vector3 | null = null;
       if (operation.kind === 'merge-vertices') {
         if (!this.topology || !(this.selected instanceof THREE.Mesh)) {
@@ -2712,7 +2717,7 @@ export class Editor extends EventTarget {
       meshes.forEach((mesh, i) => {
         if (operation.kind === 'uv') {
           this.markPrimitiveApplied(mesh);
-        } else if ((operation.kind === 'bevel' || operation.kind === 'extrude' || operation.kind === 'inset' || operation.kind === 'inset-region' || operation.kind === 'loop' || (operation.kind === 'subdivide' && !batch) || operation.kind === 'delete-components' || operation.kind === 'merge-vertices' || operation.kind === 'cut-face' || operation.kind === 'cut-face-edge' || operation.kind === 'cut-face-edges' || operation.kind === 'cut-face-via-point' || operation.kind === 'cut-face-via-path') && topologies[i]) {
+        } else if ((operation.kind === 'bevel' || operation.kind === 'extrude' || operation.kind === 'inset' || operation.kind === 'inset-region' || operation.kind === 'loop' || (operation.kind === 'subdivide' && !batch) || operation.kind === 'delete-components' || operation.kind === 'merge-vertices' || operation.kind === 'fill-boundary' || operation.kind === 'cut-face' || operation.kind === 'cut-face-edge' || operation.kind === 'cut-face-edges' || operation.kind === 'cut-face-via-point' || operation.kind === 'cut-face-via-path') && topologies[i]) {
           this.markPrimitiveApplied(mesh);
           if (mesh.userData.forgeLogicalQuads !== undefined) delete mesh.userData.forgeLogicalQuads;
           mesh.userData.forgePolygonTriangles = topologies[i]!.polygonTriangles.map(group => [...group]);
@@ -2727,7 +2732,7 @@ export class Editor extends EventTarget {
         // main thread. This keeps raycast faceIndex -> logical polygon mapping
         // aligned with the parsed BufferGeometry rather than trusting a
         // transient worker-side triangle numbering.
-        const rebuildFromStoredPolygons = operation.kind === 'bevel' || operation.kind === 'extrude' || operation.kind === 'inset' || operation.kind === 'inset-region' || operation.kind === 'loop' || (operation.kind === 'subdivide' && !batch) || operation.kind === 'delete-components' || operation.kind === 'merge-vertices' || operation.kind === 'cut-face' || operation.kind === 'cut-face-edge' || operation.kind === 'cut-face-edges' || operation.kind === 'cut-face-via-point' || operation.kind === 'cut-face-via-path';
+        const rebuildFromStoredPolygons = operation.kind === 'bevel' || operation.kind === 'extrude' || operation.kind === 'inset' || operation.kind === 'inset-region' || operation.kind === 'loop' || (operation.kind === 'subdivide' && !batch) || operation.kind === 'delete-components' || operation.kind === 'merge-vertices' || operation.kind === 'fill-boundary' || operation.kind === 'cut-face' || operation.kind === 'cut-face-edge' || operation.kind === 'cut-face-edges' || operation.kind === 'cut-face-via-point' || operation.kind === 'cut-face-via-path';
         this.setEditMode(true, operation.kind === 'uv' || rebuildFromStoredPolygons ? undefined : topologies[0]);
         if (operation.kind === 'subdivide' && !batch) {
           this.restoreSubdivisionSelection(oldMode, oldEdges, operation.cuts ?? 1);
@@ -2752,6 +2757,19 @@ export class Editor extends EventTarget {
           this.selectedComponents = new Set([mergedVertex]);
           this.selectedFace = null;
           this.selectComponentVertices([mergedVertex]);
+          this.emit('component-selection');
+        } else if (operation.kind === 'fill-boundary') {
+          this.setComponentMode('face');
+          if (
+            filledFaceId === null ||
+            !this.topology ||
+            !this.topology.polygons[filledFaceId]
+          ) {
+            throw new Error('Filled face selection could not be restored.');
+          }
+          this.selectedComponents = new Set([filledFaceId]);
+          this.selectedFace = filledFaceId;
+          this.selectComponentVertices(this.topology.polygons[filledFaceId]);
           this.emit('component-selection');
         } else if (operation.kind === 'delete-components' || operation.kind === 'cut-face' || operation.kind === 'cut-face-edge' || operation.kind === 'cut-face-edges' || operation.kind === 'cut-face-via-point' || operation.kind === 'cut-face-via-path') {
           this.setComponentMode(oldMode);
