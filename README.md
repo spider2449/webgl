@@ -36,7 +36,9 @@ The browser tests use port 5174. Production output is in `dist/`. No backend, ac
 
 ### Face inset
 
-In Edit Mode Face selection, RMB -> **Inset Face** accepts one convex logical Triangle, Quad or N-gon. **Inset Distance** is the perpendicular inward distance from each logical boundary edge in local mesh units. The outer boundary stays fixed, the inner polygon remains selected, and Forge adds one logical ring Quad per original boundary edge. Corner attributes are interpolated from the source surface and renderer triangles are regenerated underneath the logical polygons. Excessive distances and precision collapse are rejected rather than silently changing the boundary. Multi-face/region inset remains future work.
+In Edit Mode Face selection, RMB -> **Inset Faces** uses the shared **Inset Distance** in local mesh units. One selected convex logical Triangle, Quad or N-gon keeps the established single-face behavior: the outer boundary stays fixed, one inner polygon remains selected, and Forge adds one logical ring Quad per source boundary edge.
+
+With two or more selected faces, Forge performs a logical **region inset** instead of insetting each face independently. The selection must be one edge-connected, coplanar, consistently oriented region. Only region boundary loops are offset; internal shared logical edges are preserved inside the inset region rather than merged away. Outer loops move inward, hole loops move outward into the selected region, and Forge adds one logical ring Quad per region boundary edge. Unselected faces, including faces inside holes, remain unchanged. Excessive distances, loop collisions/self-intersections, invalid boundaries, non-coplanar selections and precision collapse reject the whole operation before the mesh is changed. Renderer tessellation is regenerated underneath the logical polygons, and the original selected inner faces remain selected for the next modeling operation.
 
 ### Proportional editing
 
