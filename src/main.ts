@@ -1169,6 +1169,11 @@ async function insetSelectedRegion() {
   } catch (error) { toast((error as Error).message); }
 }
 
+async function insetSelectedFaces() {
+  if (editor.componentSelection.length === 1) return insetSelectedFace();
+  return insetSelectedRegion();
+}
+
 async function insetSelectedFace() {
   try {
     if (!editor.editMode || editor.componentMode !== 'face' || editor.componentSelection.length !== 1 || !editor.meshTopology) throw new Error('Select exactly one face in Edit Mode first.');
@@ -2168,8 +2173,7 @@ async function deleteSelectedComponents() {
 const modelingCommands = {
   extrudeFace: extrudeSelectedFace,
   extrudeRegion: extrudeSelectedRegion,
-  insetFace: insetSelectedFace,
-  insetRegion: insetSelectedRegion,
+  insetFaces: insetSelectedFaces,
   subdivideEdges: subdivideSelectedEdges,
   vertexSnap: startVertexSnap,
   bevelEdges: bevelSelectedEdges,
@@ -2245,7 +2249,6 @@ function viewportContextCommands(mode: ViewportContextMode): ViewportContextComm
   const hasComponents = () => editor.componentSelection.length > 0 && !editor.modelingBusy;
   const oneComponent = () => editor.componentSelection.length === 1 && !editor.modelingBusy;
   const twoComponents = () => editor.componentSelection.length === 2 && !editor.modelingBusy;
-  const multipleComponents = () => editor.componentSelection.length >= 2 && !editor.modelingBusy;
   const knifeReady = () => editor.componentSelection.length <= 1 && !editor.modelingBusy;
   const canSelectComponents = () => !!editor.meshTopology && !editor.modelingBusy;
   const canDeselectComponents = () => editor.componentSelection.length > 0 && !editor.modelingBusy;
@@ -2302,8 +2305,7 @@ function viewportContextCommands(mode: ViewportContextMode): ViewportContextComm
     { label: 'Select Boundary Edges', action: modelingCommands.selectFaceBoundaryEdges, enabled: hasComponents },
     { label: 'Extrude Face', action: modelingCommands.extrudeFace, enabled: oneComponent, separatorBefore: true },
     { label: 'Extrude Region', action: modelingCommands.extrudeRegion, enabled: hasComponents },
-    { label: 'Inset Face', action: modelingCommands.insetFace, enabled: oneComponent },
-    { label: 'Inset Region', action: modelingCommands.insetRegion, enabled: multipleComponents },
+    { label: 'Inset Faces', action: modelingCommands.insetFaces, enabled: hasComponents },
     { label: 'Delete Faces', shortcut: 'Del', action: modelingCommands.deleteComponents, enabled: hasComponents, separatorBefore: true, danger: true },
   ];
   return [
@@ -2522,20 +2524,7 @@ function contextParameterBefore(mode: ViewportContextMode, command: ViewportCont
     set: value => { modelingToolSettings.extrudeDistance = value; },
     run: () => editor.componentSelection.length === 1 ? modelingCommands.extrudeFace() : modelingCommands.extrudeRegion(),
   };
-  if (mode === 'face' && command.label === 'Inset Region') return {
-    kind: 'number',
-    label: 'Inset Distance',
-    ariaLabel: 'Context region inset distance',
-    min: 0.0001,
-    max: 1000,
-    sliderMin: 0.05,
-    sliderMax: 2,
-    step: 0.05,
-    get: () => modelingToolSettings.insetDistance,
-    set: value => { modelingToolSettings.insetDistance = value; },
-    run: modelingCommands.insetRegion,
-  };
-  if (mode === 'face' && command.label === 'Inset Face') return {
+  if (mode === 'face' && command.label === 'Inset Faces') return {
     kind: 'number',
     label: 'Inset Distance',
     ariaLabel: 'Context inset distance',
@@ -2546,7 +2535,7 @@ function contextParameterBefore(mode: ViewportContextMode, command: ViewportCont
     step: 0.05,
     get: () => modelingToolSettings.insetDistance,
     set: value => { modelingToolSettings.insetDistance = value; },
-    run: modelingCommands.insetFace,
+    run: modelingCommands.insetFaces,
   };
   return null;
 }
