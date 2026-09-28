@@ -22,6 +22,21 @@ npm test
 
 The browser tests use port 5174. Production output is in `dist/`. No backend, account, model download or NVIDIA GPU is required for the editor and local rigging features. Google Fonts is the only external presentation dependency; system fonts are the fallback. Models and project data are processed locally.
 
+## Testing
+
+Forge uses layered Playwright validation so iterative development does not need to run the entire 300+ test suite after every change:
+
+```sh
+npm run test:last
+npm run test:changed
+npm run test:smoke
+npm run test:modeling
+npm run test:animation
+npm run test:full
+```
+
+Development-time focused and changed-test runs are only fast feedback. The exact branch HEAD intended for merge must still pass `npm run build` and `npm run test:full -- --workers=2` on the Windows-local validation machine. Any new commit invalidates that full validation. See `docs/TESTING.md` for the complete workflow and worker policy.
+
 ## Editor workflow
 
 - Use **Add** to create a cube, sphere, cylinder, cone, torus, plane or icosphere.
