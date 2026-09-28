@@ -2689,11 +2689,29 @@ export class Editor extends EventTarget {
       const oldLogicalVertexPositions = operation.kind === 'loop'
         ? this.captureLogicalVertexPositionKeys()
         : new Set<string>();
+      let mergedVertexPosition: THREE.Vector3 | null = null;
+      if (operation.kind === 'merge-vertices') {
+        if (!this.topology || !(this.selected instanceof THREE.Mesh)) {
+          throw new Error('Merge at Center requires an editable mesh.');
+        }
+        const position = this.selected.geometry.getAttribute('position');
+        const points = operation.vertices.map(vertex => {
+          const buffer = this.topology!.vertices[vertex]?.[0];
+          if (buffer === undefined) throw new Error('Merge at Center reference vertex is no longer valid.');
+          return new THREE.Vector3().fromBufferAttribute(position, buffer);
+        });
+        mergedVertexPosition = points[0].add(points[1]).multiplyScalar(0.5);
+        mergedVertexPosition.set(
+          Math.fround(mergedVertexPosition.x),
+          Math.fround(mergedVertexPosition.y),
+          Math.fround(mergedVertexPosition.z),
+        );
+      }
       this.setEditMode(false);
       meshes.forEach((mesh, i) => {
         if (operation.kind === 'uv') {
           this.markPrimitiveApplied(mesh);
-        } else if ((operation.kind === 'bevel' || operation.kind === 'extrude' || operation.kind === 'inset' || operation.kind === 'loop' || (operation.kind === 'subdivide' && !batch) || operation.kind === 'delete-components' || operation.kind === 'cut-face' || operation.kind === 'cut-face-edge' || operation.kind === 'cut-face-edges' || operation.kind === 'cut-face-via-point' || operation.kind === 'cut-face-via-path') && topologies[i]) {
+        } else if ((operation.kind === 'bevel' || operation.kind === 'extrude' || operation.kind === 'inset' || operation.kind === 'loop' || (operation.kind === 'subdivide' && !batch) || operation.kind === 'delete-components' || operation.kind === 'merge-vertices' || operation.kind === 'cut-face' || operation.kind === 'cut-face-edge' || operation.kind === 'cut-face-edges' || operation.kind === 'cut-face-via-point' || operation.kind === 'cut-face-via-path') && topologies[i]) {
           this.markPrimitiveApplied(mesh);
           if (mesh.userData.forgeLogicalQuads !== undefined) delete mesh.userData.forgeLogicalQuads;
           mesh.userData.forgePolygonTriangles = topologies[i]!.polygonTriangles.map(group => [...group]);
@@ -2708,7 +2726,7 @@ export class Editor extends EventTarget {
         // main thread. This keeps raycast faceIndex -> logical polygon mapping
         // aligned with the parsed BufferGeometry rather than trusting a
         // transient worker-side triangle numbering.
-        const rebuildFromStoredPolygons = operation.kind === 'bevel' || operation.kind === 'extrude' || operation.kind === 'inset' || operation.kind === 'loop' || (operation.kind === 'subdivide' && !batch) || operation.kind === 'delete-components' || operation.kind === 'cut-face' || operation.kind === 'cut-face-edge' || operation.kind === 'cut-face-edges' || operation.kind === 'cut-face-via-point' || operation.kind === 'cut-face-via-path';
+        const rebuildFromStoredPolygons = operation.kind === 'bevel' || operation.kind === 'extrude' || operation.kind === 'inset' || operation.kind === 'loop' || (operation.kind === 'subdivide' && !batch) || operation.kind === 'delete-components' || operation.kind === 'merge-vertices' || operation.kind === 'cut-face' || operation.kind === 'cut-face-edge' || operation.kind === 'cut-face-edges' || operation.kind === 'cut-face-via-point' || operation.kind === 'cut-face-via-path';
         this.setEditMode(true, operation.kind === 'uv' || rebuildFromStoredPolygons ? undefined : topologies[0]);
         if (operation.kind === 'subdivide' && !batch) {
           this.restoreSubdivisionSelection(oldMode, oldEdges, operation.cuts ?? 1);
@@ -2716,6 +2734,24 @@ export class Editor extends EventTarget {
           this.setComponentMode(oldMode);
         } else if (operation.kind === 'loop') {
           this.restoreLoopCutSelection(oldLogicalVertexPositions);
+        } else if (operation.kind === 'merge-vertices') {
+          this.setComponentMode('vertex');
+          if (!mergedVertexPosition || !this.topology || !(this.selected instanceof THREE.Mesh)) {
+            throw new Error('Merged vertex selection could not be restored.');
+          }
+          const position = this.selected.geometry.getAttribute('position');
+          const mergedVertex = this.topology.logicalVertices.find(vertex => {
+            const buffer = this.topology!.vertices[vertex]?.[0];
+            return buffer !== undefined &&
+              position.getX(buffer) === mergedVertexPosition!.x &&
+              position.getY(buffer) === mergedVertexPosition!.y &&
+              position.getZ(buffer) === mergedVertexPosition!.z;
+          });
+          if (mergedVertex === undefined) throw new Error('Merged vertex selection could not be restored.');
+          this.selectedComponents = new Set([mergedVertex]);
+          this.selectedFace = null;
+          this.selectComponentVertices([mergedVertex]);
+          this.emit('component-selection');
         } else if (operation.kind === 'delete-components' || operation.kind === 'cut-face' || operation.kind === 'cut-face-edge' || operation.kind === 'cut-face-edges' || operation.kind === 'cut-face-via-point' || operation.kind === 'cut-face-via-path') {
           this.setComponentMode(oldMode);
         } else if (['uv', 'inset', 'extrude', 'region'].includes(operation.kind)) {
