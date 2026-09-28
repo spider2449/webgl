@@ -81,8 +81,8 @@ shared interior edges are omitted. RMB -> **Invert Selection** replaces the curr
 logical complement in the active Vertex, Edge or Face mode; an empty selection therefore becomes all
 logical components in that mode. Renderer triangulation diagonals never participate. Selection is
 temporary and these selection commands do not add an Undo step; moved geometry still supports undo/redo
-and project saving. **Extrude Face** and **Inset Face**
-require exactly one selected logical face and keep the resulting cap/inner polygon selected.
+and project saving. **Extrude Face** requires exactly one selected logical face. **Inset Faces**
+accepts either one logical face or one connected coplanar logical face region and keeps the resulting inner face selection.
 **Extrude planar region** accepts connected coplanar face selections.
 
 ### Planar region extrusion
