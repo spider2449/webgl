@@ -55,6 +55,47 @@ test('logical quad topology keeps renderer triangles but removes selectable diag
   expect(explicit.triangleToPolygon).toEqual(pt.triangleToPolygon);
 });
 
+test('single-face inset accepts a convex logical N-gon with a collinear boundary corner', () => {
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute([
+    0, 0, 0,
+    1, 0, 0,
+    2, 0, 0,
+    2, 2, 0,
+    0, 2, 0,
+  ], 3));
+  geometry.setIndex([
+    0, 1, 4,
+    1, 3, 4,
+    1, 2, 3,
+  ]);
+  geometry.computeVertexNormals();
+
+  const groups = [[0, 1, 2]];
+  const before = buildTopology(
+    geometry.getAttribute('position').array,
+    geometry.index!.array,
+    groups,
+  );
+  expect(before.polygons).toHaveLength(1);
+  expect(before.polygons[0]).toHaveLength(5);
+
+  const inset = insetLogicalFace(geometry, 0, 0.2, groups);
+  const after = buildTopology(
+    inset.geometry.getAttribute('position').array,
+    inset.geometry.index!.array,
+    inset.polygonTriangles,
+  );
+
+  expect(after.polygons).toHaveLength(6);
+  expect(after.polygons[0]).toHaveLength(5);
+  expect(after.polygons.slice(1).every(polygon => polygon.length === 4)).toBe(true);
+  expect(after.logicalVertices).toHaveLength(10);
+
+  inset.geometry.dispose();
+  geometry.dispose();
+});
+
 test('Inset Region preserves internal logical edges across two adjacent Quads', () => {
   const plane = new THREE.PlaneGeometry(4, 2, 2, 1);
   const position = plane.getAttribute('position');
