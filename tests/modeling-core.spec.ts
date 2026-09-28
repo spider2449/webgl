@@ -117,6 +117,21 @@ test('Fill Boundary closes one logical Cube face hole as one Quad', () => {
     removed.polygonTriangles,
   )).toThrow('open logical mesh boundary edges');
 
+  const plane = new THREE.PlaneGeometry(2, 2, 1, 1);
+  const planeTopology = buildTopology(
+    plane.getAttribute('position').array,
+    plane.index?.array,
+    true,
+  );
+  const planeBoundary = logicalMeshBoundaryEdges(planeTopology);
+  expect(planeBoundary).toHaveLength(4);
+  expect(() => fillLogicalBoundaryFace(
+    plane,
+    planeBoundary,
+    planeTopology.polygonTriangles,
+  )).toThrow('already bounds a logical face');
+
+  plane.dispose();
   filled.geometry.dispose();
   removed.geometry.dispose();
   box.dispose();
