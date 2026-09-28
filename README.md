@@ -67,7 +67,7 @@ Renderer triangulation diagonals never participate. In Face mode, RMB -> **Selec
 from polygon boundary size rather than renderer tessellation; the default Cube therefore has six Quads, not
 twelve Triangles. **Select Coplanar Faces** expands the current face seed across shared logical polygon edges
 only while adjacent faces remain on the same consistently oriented plane, which is useful before Extrude Region.
-In Edge mode, RMB -> **Select Sharp Edges** selects manifold logical edges shared by exactly two logical polygons
+In Edge mode, RMB -> **Select Same Length** uses the active logical edge as a reference and selects logical polygon edges within the session-only **Length Tolerance (%)** (1% by default); renderer triangulation diagonals never participate. RMB -> **Select Sharp Edges** selects manifold logical edges shared by exactly two logical polygons
 when their face-normal angle is at least the session-only **Sharp Angle** threshold (30° by default); renderer
 triangulation diagonals, open boundaries and over-connected non-manifold edges are excluded. RMB -> **Select Non-Manifold Edges** selects logical edges whose polygon-face use count
 is not two: open boundaries (one face) and over-connected edges (three or more faces). RMB -> **Select Mesh Boundary**

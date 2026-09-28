@@ -10,7 +10,7 @@ import { clone as cloneSkeleton } from 'three/addons/utils/SkeletonUtils.js';
 import { createGrid, setGridPlane } from './viewport/grid';
 import { insetTriangle } from './modeling/extrude';
 import { extrudeLogicalFace } from './modeling/modeling';
-import { buildTopology, growLogicalComponents, linkedLogicalComponents, logicalCoplanarFaces, logicalFaceBoundaryEdges, logicalFacesBySides, logicalMeshBoundaryEdges, logicalNonManifoldEdges, logicalSharpEdges, shrinkLogicalComponents, type MeshTopology, type ComponentMode, type FaceSideKind } from './modeling/topology';
+import { buildTopology, growLogicalComponents, linkedLogicalComponents, logicalCoplanarFaces, logicalEdgesByLength, logicalFaceBoundaryEdges, logicalFacesBySides, logicalMeshBoundaryEdges, logicalNonManifoldEdges, logicalSharpEdges, shrinkLogicalComponents, type MeshTopology, type ComponentMode, type FaceSideKind } from './modeling/topology';
 import { proportionalWeights } from './modeling/proportional';
 import { subdivideEdges } from './modeling/subdivide';
 import { extrudeRegion } from './modeling/extrude-region';
@@ -1734,6 +1734,51 @@ export class Editor extends EventTarget {
     this.selectComponentVertices(faces.flatMap(face => this.topology!.polygons[face]));
     this.emit('component-selection');
     return faces.length;
+  }
+
+  selectSameLengthEdges(relativeTolerancePercent: number) {
+    if (
+      !this.editMode ||
+      this.weightMode ||
+      this.componentMode !== 'edge' ||
+      !this.topology ||
+      !this.selectedComponents.size ||
+      !(this.selected instanceof THREE.Mesh) ||
+      this.modelingBusy ||
+      this.playing ||
+      this.transform.dragging
+    ) {
+      throw new Error('Select a logical reference edge in Edge Edit Mode first.');
+    }
+    if (
+      !Number.isFinite(relativeTolerancePercent) ||
+      relativeTolerancePercent < 0 ||
+      relativeTolerancePercent > 100
+    ) {
+      throw new Error('Edge length tolerance must be between 0% and 100%.');
+    }
+
+    const referenceEdge = [...this.selectedComponents].at(-1)!;
+    const position = this.selected.geometry.getAttribute('position');
+    if (!(position instanceof THREE.BufferAttribute) || position.itemSize !== 3) {
+      throw new Error('Same-length edge selection requires standard mesh positions.');
+    }
+
+    const edges = logicalEdgesByLength(
+      this.topology,
+      position.array,
+      referenceEdge,
+      relativeTolerancePercent / 100,
+    );
+    this.modelingVersion++;
+    this.selectedComponents = new Set([
+      ...edges.filter(edge => edge !== referenceEdge),
+      referenceEdge,
+    ]);
+    this.selectedFace = null;
+    this.selectComponentVertices(edges.flatMap(edge => this.topology!.polygonEdges[edge]));
+    this.emit('component-selection');
+    return edges.length;
   }
 
   selectSharpEdges(minimumAngleDegrees: number) {

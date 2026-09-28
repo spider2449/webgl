@@ -426,6 +426,51 @@ export function logicalNonManifoldEdges(topology: MeshTopology) {
   return topology.polygonEdges.flatMap((_, edge) => (uses.get(edge) ?? 0) !== 2 ? [edge] : []);
 }
 
+export function logicalEdgesByLength(
+  topology: MeshTopology,
+  positions: ArrayLike<number>,
+  referenceEdge: number,
+  relativeTolerance: number,
+) {
+  if (!topology.polygonEdges[referenceEdge]) throw new Error('Select a valid logical reference edge.');
+  if (!Number.isFinite(relativeTolerance) || relativeTolerance < 0 || relativeTolerance > 1) {
+    throw new Error('Edge length tolerance must be between 0% and 100%.');
+  }
+
+  const point = (vertex: number) => {
+    const buffer = topology.vertices[vertex]?.[0];
+    if (buffer === undefined || !Number.isInteger(buffer)) {
+      throw new Error('Logical edge positions are invalid.');
+    }
+    const offset = buffer * 3;
+    const value: [number, number, number] = [
+      Number(positions[offset]),
+      Number(positions[offset + 1]),
+      Number(positions[offset + 2]),
+    ];
+    if (value.some(component => !Number.isFinite(component))) {
+      throw new Error('Logical edge positions are invalid.');
+    }
+    return value;
+  };
+
+  const length = ([a, b]: [number, number]) => {
+    const pa = point(a), pb = point(b);
+    return Math.hypot(pb[0] - pa[0], pb[1] - pa[1], pb[2] - pa[2]);
+  };
+
+  const referenceLength = length(topology.polygonEdges[referenceEdge]);
+  if (!Number.isFinite(referenceLength)) throw new Error('Logical edge length is invalid.');
+  const numericTolerance = Math.max(
+    Number.EPSILON * 32 * Math.max(1, referenceLength),
+    referenceLength * relativeTolerance,
+  );
+
+  return topology.polygonEdges.flatMap((edge, id) =>
+    Math.abs(length(edge) - referenceLength) <= numericTolerance ? [id] : []
+  );
+}
+
 export function logicalSharpEdges(
   topology: MeshTopology,
   positions: ArrayLike<number>,

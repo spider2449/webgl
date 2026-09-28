@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 import * as THREE from 'three';
 import { bevelEdges, bevelLogicalEdges, cutLogicalFace, deleteLogicalComponents, extrudeLogicalFace, insetLogicalFace, loopCut, loopCutLogicalEdge, subdivideLogicalEdges, editUV } from '../src/modeling/modeling';
-import { buildTopology, growLogicalComponents, linkedLogicalComponents, logicalCoplanarFaces, logicalFaceBoundaryEdges, logicalFacesBySides, logicalMeshBoundaryEdges, logicalNonManifoldEdges, logicalSharpEdges, shrinkLogicalComponents } from '../src/modeling/topology';
+import { buildTopology, growLogicalComponents, linkedLogicalComponents, logicalCoplanarFaces, logicalEdgesByLength, logicalFaceBoundaryEdges, logicalFacesBySides, logicalMeshBoundaryEdges, logicalNonManifoldEdges, logicalSharpEdges, shrinkLogicalComponents } from '../src/modeling/topology';
 import { evaluateModifiers } from '../src/modeling/modifiers';
 
 function topology(g: THREE.BufferGeometry) { return buildTopology(g.getAttribute('position').array, g.index?.array); }
@@ -53,6 +53,32 @@ test('logical quad topology keeps renderer triangles but removes selectable diag
   expect(explicit.polygons).toEqual(pt.polygons);
   expect(explicit.polygonEdges).toEqual(pt.polygonEdges);
   expect(explicit.triangleToPolygon).toEqual(pt.triangleToPolygon);
+});
+
+test('same-length edge selection uses logical edge lengths and relative tolerance', () => {
+  const box = new THREE.BoxGeometry(2, 2, 2);
+  const cube = buildTopology(box.getAttribute('position').array, box.index?.array, true);
+  expect(logicalEdgesByLength(cube, box.getAttribute('position').array, 0, 0)).toHaveLength(12);
+
+  const plane = new THREE.PlaneGeometry(6, 2, 2, 1);
+  const position = plane.getAttribute('position');
+  const segmented = buildTopology(position.array, plane.index?.array, true);
+  const edgeLength = (edge: number) => {
+    const [a, b] = segmented.polygonEdges[edge];
+    const pa = new THREE.Vector3().fromBufferAttribute(position, segmented.vertices[a][0]);
+    const pb = new THREE.Vector3().fromBufferAttribute(position, segmented.vertices[b][0]);
+    return pa.distanceTo(pb);
+  };
+  const reference = segmented.polygonEdges.findIndex((_, edge) => Math.abs(edgeLength(edge) - 3) < 1e-9);
+  expect(reference).toBeGreaterThanOrEqual(0);
+  expect(segmented.polygonEdges).toHaveLength(7);
+  expect(segmented.edges.length).toBeGreaterThan(segmented.polygonEdges.length);
+  expect(logicalEdgesByLength(segmented, position.array, reference, 0)).toHaveLength(4);
+  expect(logicalEdgesByLength(segmented, position.array, reference, 0.30)).toHaveLength(4);
+  expect(logicalEdgesByLength(segmented, position.array, reference, 0.34)).toHaveLength(7);
+
+  box.dispose();
+  plane.dispose();
 });
 
 test('Select Less removes one logical selection boundary ring', () => {

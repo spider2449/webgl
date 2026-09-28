@@ -261,6 +261,8 @@ test('Edit Mode RMB menu changes with Vertex, Edge and Face component mode', asy
   await expect(menu.getByRole('menuitem', { name: 'Select More' })).toBeVisible();
   await expect(menu.getByRole('menuitem', { name: 'Select Less' })).toBeVisible();
   await expect(menu.getByRole('menuitem', { name: 'Invert Selection' })).toBeVisible();
+  await expect(menu.getByRole('menuitem', { name: 'Select Same Length' })).toBeVisible();
+  await expect(page.getByRole('spinbutton', { name: 'Context length tolerance', exact: true })).toHaveValue('1');
   await expect(menu.getByRole('menuitem', { name: 'Select Sharp Edges' })).toBeVisible();
   await expect(page.getByRole('spinbutton', { name: 'Context sharp angle', exact: true })).toHaveValue('30');
   await expect(menu.getByRole('menuitem', { name: 'Select Non-Manifold Edges' })).toBeVisible();
@@ -489,6 +491,51 @@ test('RMB Invert Selection complements logical components without history', asyn
       undoDepth:initialUndoDepth,
     });
   }
+});
+
+test('RMB Select Same Length uses the active logical edge and preserves its active overlay', async ({ page }) => {
+  await page.getByRole('button', { name: 'Toggle geometry statistics' }).click();
+  await page.locator('#mode').selectOption('edit');
+  await page.getByLabel('Mesh component').selectOption('edge');
+  await page.evaluate(() => (window as any).__forge.selectComponent(0));
+  const initialUndoDepth = await page.evaluate(() => (window as any).__forge.undoDepth);
+
+  await rightClickViewport(page);
+  let menu = page.locator('#viewport-context-menu');
+  const tolerance = page.getByRole('spinbutton', { name: 'Context length tolerance', exact: true });
+  await expect(tolerance).toHaveValue('1');
+  await tolerance.fill('0');
+  await tolerance.press('Enter');
+  await expect(page.locator('#toast')).toContainText('Selected 12 logical edges within 0% of the active edge length');
+
+  expect(await page.evaluate(() => {
+    const e=(window as any).__forge;
+    return {
+      selection:[...e.componentSelection],
+      count:e.componentSelection.length,
+      active:e.componentSelection.at(-1),
+      overlay:e.selectedEdgeOverlay.geometry.instanceCount,
+      overlayWidth:e.selectedEdgeOverlay.material.linewidth,
+      activeOverlay:e.activeEdgeOverlay.geometry.instanceCount,
+      activeWidth:e.activeEdgeOverlay.material.linewidth,
+      undoDepth:e.undoDepth,
+    };
+  })).toEqual({
+    selection:expect.any(Array),
+    count:12,
+    active:0,
+    overlay:12,
+    overlayWidth:4,
+    activeOverlay:1,
+    activeWidth:6,
+    undoDepth:initialUndoDepth,
+  });
+  await expect(page.locator('#geometry-statistics-selected')).toHaveText('Obj 1 · V 8 · E 12 · F 6 · T 12');
+
+  await rightClickViewport(page);
+  menu = page.locator('#viewport-context-menu');
+  await expect(page.getByRole('spinbutton', { name: 'Context length tolerance', exact: true })).toHaveValue('0');
+  await expect(menu.getByRole('menuitem', { name: 'Select Same Length', exact: true })).toBeEnabled();
 });
 
 test('RMB Select Sharp Edges uses a session angle threshold and preserves no-match selection', async ({ page }) => {
