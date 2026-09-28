@@ -269,6 +269,8 @@ test('Edit Mode RMB menu changes with Vertex, Edge and Face component mode', asy
   await expect(page.getByRole('spinbutton', { name: 'Context sharp angle', exact: true })).toHaveValue('30');
   await expect(menu.getByRole('menuitem', { name: 'Select Non-Manifold Edges' })).toBeVisible();
   await expect(menu.getByRole('menuitem', { name: 'Select Mesh Boundary' })).toBeVisible();
+  await expect(menu.getByRole('menuitem', { name: 'Fill Boundary Face' })).toBeVisible();
+  await expect(menu.getByRole('menuitem', { name: 'Fill Boundary Face' })).toBeDisabled();
   await expect(menu.getByRole('menuitem', { name: 'Bevel Edges' })).toBeVisible();
   await expect(menu.getByRole('menuitem', { name: 'Subdivide Edges' })).toBeVisible();
   await expect(menu.getByRole('menuitem', { name: 'Loop Cut' })).toBeVisible();
@@ -297,6 +299,99 @@ test('Edit Mode RMB menu changes with Vertex, Edge and Face component mode', asy
   await expect(menu.getByRole('menuitem', { name: 'Inset Faces' })).toBeVisible();
   await expect(menu.getByRole('menuitem', { name: 'Delete Faces Del' })).toBeVisible();
   await expect(menu.getByRole('menuitem', { name: 'Bevel Edges' })).toHaveCount(0);
+});
+
+test('RMB Fill Boundary Face closes a deleted Cube hole as one logical Quad', async ({ page }) => {
+  await page.getByRole('button', { name: 'Toggle geometry statistics' }).click();
+  await page.locator('#mode').selectOption('edit');
+  await page.getByLabel('Mesh component').selectOption('face');
+
+  const initialUndoDepth = await page.evaluate(() => {
+    const e = (window as any).__forge;
+    e.selectComponent(0);
+    return e.undoDepth;
+  });
+  await page.evaluate(() => (window as any).__forgeCommands.deleteComponents());
+  await page.waitForFunction(() => !(window as any).__forge.modelingBusy);
+  await expect(page.locator('#toast')).toContainText('Faces deleted');
+
+  expect(await page.evaluate(() => {
+    const e = (window as any).__forge;
+    return {
+      vertices: e.meshTopology.logicalVertices.length,
+      edges: e.meshTopology.polygonEdges.length,
+      faces: e.meshTopology.polygons.length,
+      triangles: e.meshTopology.polygonTriangles.flat().length,
+      undoDepth: e.undoDepth,
+    };
+  })).toEqual({
+    vertices: 8,
+    edges: 12,
+    faces: 5,
+    triangles: 10,
+    undoDepth: initialUndoDepth + 1,
+  });
+
+  await page.getByLabel('Mesh component').selectOption('edge');
+  await rightClickViewport(page);
+  let menu = page.locator('#viewport-context-menu');
+  await menu.getByRole('menuitem', { name: 'Select Mesh Boundary', exact: true }).click();
+  await expect(page.locator('#toast')).toContainText('Selected 4 open logical boundary edges');
+
+  await rightClickViewport(page);
+  menu = page.locator('#viewport-context-menu');
+  const fill = menu.getByRole('menuitem', { name: 'Fill Boundary Face', exact: true });
+  await expect(fill).toBeEnabled();
+  await fill.click();
+  await page.waitForFunction(() => !(window as any).__forge.modelingBusy);
+  await expect(page.locator('#toast')).toContainText('Boundary filled with a logical face');
+
+  expect(await page.evaluate(() => {
+    const e = (window as any).__forge;
+    const useCounts = new Map<string, number>();
+    for (const polygon of e.meshTopology.polygons) {
+      for (let i = 0; i < polygon.length; i++) {
+        const a = polygon[i], b = polygon[(i + 1) % polygon.length];
+        const key = a < b ? `${a}:${b}` : `${b}:${a}`;
+        useCounts.set(key, (useCounts.get(key) ?? 0) + 1);
+      }
+    }
+    return {
+      mode: e.componentMode,
+      selection: [...e.componentSelection],
+      selectedFace: e.selectedFace,
+      vertices: e.meshTopology.logicalVertices.length,
+      edges: e.meshTopology.polygonEdges.length,
+      faces: e.meshTopology.polygons.length,
+      triangles: e.meshTopology.polygonTriangles.flat().length,
+      selectedSides: e.meshTopology.polygons[e.selectedFace]?.length,
+      openEdges: [...useCounts.values()].filter(count => count === 1).length,
+      primitive: e.selected.userData.forgePrimitive,
+      stored: e.selected.userData.forgePolygonTriangles?.length,
+      undoDepth: e.undoDepth,
+    };
+  })).toEqual({
+    mode: 'face',
+    selection: [5],
+    selectedFace: 5,
+    vertices: 8,
+    edges: 12,
+    faces: 6,
+    triangles: 12,
+    selectedSides: 4,
+    openEdges: 0,
+    primitive: undefined,
+    stored: 6,
+    undoDepth: initialUndoDepth + 2,
+  });
+  await expect(page.locator('#geometry-statistics-selected')).toHaveText('Obj 1 · V 4 · E 4 · F 1 · T 2');
+
+  await page.keyboard.press('Control+z');
+  await page.waitForFunction(() => {
+    const e = (window as any).__forge;
+    return e.meshTopology?.polygons.length === 5 &&
+      e.meshTopology?.polygonTriangles.flat().length === 10;
+  });
 });
 
 test('Vertex Merge at Center collapses one logical Cube edge, selects the midpoint, and is undoable', async ({ page }) => {
