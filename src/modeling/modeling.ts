@@ -794,8 +794,6 @@ export function insetLogicalFaceRegion(
       loopIndex,
       edgeIndex,
       count: loop.length,
-      aVertex: use.a,
-      bVertex: use.b,
       a: inner2.get(use.a)!,
       b: inner2.get(use.b)!,
     }))
