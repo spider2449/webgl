@@ -180,6 +180,7 @@ export class Editor extends EventTarget {
     this.renderer.toneMappingExposure = 1.3;
     host.prepend(this.renderer.domElement);
     this.renderer.domElement.setAttribute('aria-label', 'Interactive 3D viewport');
+    this.renderer.domElement.tabIndex = -1;
     this.boxSelectOverlay = document.createElement('div');
     this.boxSelectOverlay.className = 'viewport-box-select';
     this.boxSelectOverlay.hidden = true;
