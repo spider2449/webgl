@@ -238,6 +238,8 @@ test('Edit Mode RMB menu changes with Vertex, Edge and Face component mode', asy
   await expect(menu.getByRole('menuitem', { name: 'Knife K' })).toBeEnabled();
   await expect(menu.getByRole('menuitem', { name: 'Cut Face' })).toBeVisible();
   await expect(menu.getByRole('menuitem', { name: 'Cut Face' })).toBeDisabled();
+  await expect(menu.getByRole('menuitem', { name: 'Merge at Center M' })).toBeVisible();
+  await expect(menu.getByRole('menuitem', { name: 'Merge at Center M' })).toBeDisabled();
   await expect(menu.getByRole('menuitem', { name: 'Snap Selection…' })).toBeVisible();
   await expect(menu.getByRole('menuitem', { name: 'Delete Vertices Del' })).toBeVisible();
   await expect(menu.getByRole('menuitem', { name: 'Bevel Edges' })).toHaveCount(0);
@@ -295,6 +297,102 @@ test('Edit Mode RMB menu changes with Vertex, Edge and Face component mode', asy
   await expect(menu.getByRole('menuitem', { name: 'Inset Face' })).toBeVisible();
   await expect(menu.getByRole('menuitem', { name: 'Delete Faces Del' })).toBeVisible();
   await expect(menu.getByRole('menuitem', { name: 'Bevel Edges' })).toHaveCount(0);
+});
+
+test('Vertex Merge at Center collapses one logical Cube edge, selects the midpoint, and is undoable', async ({ page }) => {
+  await page.getByRole('button', { name: 'Toggle geometry statistics' }).click();
+  await page.locator('#mode').selectOption('edit');
+  await page.getByLabel('Mesh component').selectOption('vertex');
+
+  const before = await page.evaluate(() => {
+    const e = (window as any).__forge;
+    const [first, second] = e.meshTopology.polygonEdges[0];
+    const position = e.selected.geometry.getAttribute('position');
+    const point = (vertex: number) => {
+      const buffer = e.meshTopology.vertices[vertex][0];
+      return [position.getX(buffer), position.getY(buffer), position.getZ(buffer)];
+    };
+    const a = point(first), b = point(second);
+    e.selectComponent(first);
+    e.selectComponent(second, true);
+    return {
+      first,
+      second,
+      midpoint: a.map((value: number, axis: number) => Math.fround((value + b[axis]) / 2)),
+      undoDepth: e.undoDepth,
+    };
+  });
+
+  await rightClickViewport(page);
+  let menu = page.locator('#viewport-context-menu');
+  const merge = menu.getByRole('menuitem', { name: 'Merge at Center M', exact: true });
+  await expect(merge).toBeEnabled();
+  await merge.click();
+  await page.waitForFunction(() => !(window as any).__forge.modelingBusy);
+  await expect(page.locator('#toast')).toContainText('Vertices merged at center');
+
+  const after = await page.evaluate(() => {
+    const e = (window as any).__forge;
+    const selected = e.componentSelection;
+    const vertex = selected[0];
+    const position = e.selected.geometry.getAttribute('position');
+    const buffer = e.meshTopology.vertices[vertex][0];
+    return {
+      mode: e.componentMode,
+      selected,
+      selectedPosition: [position.getX(buffer), position.getY(buffer), position.getZ(buffer)],
+      logicalVertices: e.meshTopology.logicalVertices.length,
+      logicalEdges: e.meshTopology.polygonEdges.length,
+      polygons: e.meshTopology.polygons.length,
+      polygonSizes: e.meshTopology.polygons.map((polygon: number[]) => polygon.length).sort((a: number, b: number) => a - b),
+      triangles: e.meshTopology.polygonTriangles.flat().length,
+      primitive: e.selected.userData.forgePrimitive,
+      undoDepth: e.undoDepth,
+    };
+  });
+
+  expect(after).toEqual({
+    mode: 'vertex',
+    selected: [expect.any(Number)],
+    selectedPosition: before.midpoint,
+    logicalVertices: 7,
+    logicalEdges: 11,
+    polygons: 6,
+    polygonSizes: [3, 3, 4, 4, 4, 4],
+    triangles: 10,
+    primitive: undefined,
+    undoDepth: before.undoDepth + 1,
+  });
+  await expect(page.locator('#geometry-statistics-selected')).toHaveText('Obj 1 · V 1 · E 0 · F 0 · T 0');
+
+  await page.keyboard.press('Control+z');
+  await page.waitForFunction(() => (window as any).__forge.meshTopology?.logicalVertices.length === 8);
+  expect(await page.evaluate(() => {
+    const e = (window as any).__forge;
+    return {
+      mode: e.componentMode,
+      logicalVertices: e.meshTopology.logicalVertices.length,
+      logicalEdges: e.meshTopology.polygonEdges.length,
+      polygons: e.meshTopology.polygons.length,
+      triangles: e.meshTopology.polygonTriangles.flat().length,
+    };
+  })).toEqual({
+    mode: 'vertex',
+    logicalVertices: 8,
+    logicalEdges: 12,
+    polygons: 6,
+    triangles: 12,
+  });
+
+  await page.evaluate(() => {
+    const e = (window as any).__forge;
+    const [first, second] = e.meshTopology.polygonEdges[0];
+    e.selectComponent(first);
+    e.selectComponent(second, true);
+  });
+  await page.keyboard.press('m');
+  await page.waitForFunction(() => !(window as any).__forge.modelingBusy && (window as any).__forge.meshTopology?.logicalVertices.length === 7);
+  await expect(page.locator('#toast')).toContainText('Vertices merged at center');
 });
 
 test('RMB Select Linked expands the current logical Cube island without history', async ({ page }) => {
