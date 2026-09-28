@@ -1208,6 +1208,7 @@ test('RMB Inset Faces preserves a selected two-Quad region and its internal logi
   menu = page.locator('#viewport-context-menu');
   await expect(page.getByRole('spinbutton', { name: 'Context inset distance', exact: true })).toHaveValue('0.2');
   await page.keyboard.press('Escape');
+  await expect(page.getByLabel('Interactive 3D viewport')).toBeFocused();
 
   await page.keyboard.press('Control+z');
   await page.waitForFunction(() => {
