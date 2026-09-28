@@ -153,6 +153,40 @@ test('Inset Region supports a planar logical face region with a hole', () => {
   plane.dispose();
 });
 
+test('Inset Region rejects folded and disconnected logical face selections', () => {
+  const box = new THREE.BoxGeometry(2, 2, 2);
+  const boxPosition = box.getAttribute('position');
+  const cube = buildTopology(boxPosition.array, box.index?.array, true);
+  const adjacentPair = cube.polygons.flatMap((polygon, face) =>
+    cube.polygons.flatMap((other, candidate) => {
+      if (candidate <= face) return [];
+      const shared = polygon.filter(vertex => other.includes(vertex));
+      return shared.length === 2 ? [[face, candidate] as [number, number]] : [];
+    })
+  )[0];
+  expect(adjacentPair).toBeDefined();
+  expect(() => insetLogicalFaceRegion(
+    box,
+    adjacentPair,
+    0.1,
+    cube.polygonTriangles.map(group => [...group]),
+  )).toThrow('coplanar');
+
+  const plane = new THREE.PlaneGeometry(6, 2, 3, 1);
+  const planePosition = plane.getAttribute('position');
+  const strip = buildTopology(planePosition.array, plane.index?.array, true);
+  expect(strip.polygons).toHaveLength(3);
+  expect(() => insetLogicalFaceRegion(
+    plane,
+    [0, 2],
+    0.1,
+    strip.polygonTriangles.map(group => [...group]),
+  )).toThrow('edge-connected');
+
+  box.dispose();
+  plane.dispose();
+});
+
 test('merge adjacent logical vertices at center collapses one Cube edge and retessellates affected polygons', () => {
   const box = new THREE.BoxGeometry(2, 2, 2);
   const position = box.getAttribute('position');
