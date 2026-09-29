@@ -343,7 +343,7 @@ test('real logical face region extrusion repeats, preserves selection, and undoe
 
   await page.evaluate(() => (window as any).__forgeCommands.extrudeRegion());
   await page.waitForFunction(() => !(window as any).__forge.modelingBusy);
-  await expect(page.locator('#toast')).toContainText('Face region extruded');
+  await expect(page.locator('#toast')).toContainText('Selected face regions extruded');
 
   const first = await page.evaluate(() => {
     const e = (window as any).__forge;
