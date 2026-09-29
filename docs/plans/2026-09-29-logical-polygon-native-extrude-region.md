@@ -40,6 +40,8 @@ Selected faces are partitioned into edge-connected components.
 
 Each connected component is one extrusion region. A region may contain one face or many faces, and one command may therefore extrude multiple disconnected regions at once.
 
+Connectivity is edge-based. Two selected faces that only share one logical vertex are separate regions, not one region. They still extrude in the same command.
+
 Each region boundary must consist of one or more simple closed directed loops. Holes are therefore valid.
 
 A selected region with no boundary, such as every face of one closed mesh island, is rejected because there is no perimeter on which to build extrusion walls. The whole multi-region operation remains atomic.
@@ -94,6 +96,28 @@ That orientation:
 Hole boundaries use the same directed-edge rule and therefore receive correctly oriented inner walls without a separate special case.
 
 A boundary wall that collapses because the extrusion vector is parallel to its edge is rejected atomically.
+
+## Persistent logical vertex identity
+
+Position alone is not sufficient to represent every valid modeling topology.
+
+Two edge-disconnected selected regions may touch at exactly one logical vertex. If both regions are coplanar, their moved copies of that shared source point have the same XYZ coordinate. Treating XYZ as the only vertex identity would weld those moved corners together. Their two otherwise independent vertical wall edges would then become one edge used by four wall faces, creating an artificial non-manifold edge.
+
+Polygon-native Forge geometry therefore persists a renderer-buffer-aligned `forgeLogicalVertexIds` array alongside `forgePolygonTriangles`.
+
+Rules:
+
+- meshes without this metadata keep the historical exact-position welding behavior;
+- existing logical corners retain their source identity;
+- newly moved extrusion corners receive new identities;
+- each disconnected extrusion region receives its own moved identity for a vertex even when another region moves the same source vertex to the same XYZ point;
+- renderer positions remain exactly coincident; Forge never uses an epsilon offset to fake separation;
+- Worker jobs transport the identity array explicitly;
+- Edit Mode rebuild, Geometry Statistics, Undo/redo and project save/load consume the same identity metadata;
+- generic topology-changing paths clear stale identity metadata;
+- Knife endpoint insertion and logical polygon merge preserve identities through their intermediate geometry.
+
+This lets coincident-but-distinct modeling vertices exist without changing visible geometry.
 
 ## Attributes and materials
 
@@ -211,6 +235,21 @@ Expected:
 - the two directions align with their respective opposite face normals;
 - V16 / E28 / F14 / T28.
 
+### Disconnected regions touching at one vertex
+
+2x2 logical Quad Plane, select two diagonal Quads that share only the center vertex.
+
+Expected:
+
+- 2 independent extrusion regions;
+- both regions may produce a moved corner at the exact same XYZ coordinate;
+- those moved corners have distinct logical vertex identities;
+- the selected cap polygons share no logical vertex after extrusion;
+- no four-face non-manifold wall edge is created;
+- repeating Extrude Region preserves the split;
+- Undo returns to the original grid;
+- project save/load and Edit Mode rebuild preserve the split.
+
 ## Rejection
 
 Reject atomically:
@@ -263,7 +302,9 @@ Manual priority:
 6. 3x3 Plane with center face unselected -> extrude outer eight faces; confirm the center face stays unchanged and both outer/hole walls are created.
 7. Undo returns to the exact pre-extrusion topology.
 8. Select disconnected Plane faces and confirm they extrude as independent regions in one Undo step.
-9. Select two opposite Cube faces and confirm each island extrudes along its own outward direction.
+9. On a 2x2 Plane, select diagonal faces that only share the center vertex; confirm both extrude independently without a manifold error.
+10. Repeat that extrusion, Undo it, then save/load the result and confirm the coincident cap corners remain separate logical vertices.
+11. Select two opposite Cube faces and confirm each island extrudes along its own outward direction.
 
 Final exact-HEAD gate, once only:
 
