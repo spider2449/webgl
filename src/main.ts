@@ -1143,7 +1143,7 @@ async function extrudeSelectedFace() {
 async function extrudeSelectedRegion() {
   try {
     if (!editor.editMode || editor.componentMode !== 'face' || !editor.componentSelection.length || !editor.meshTopology) {
-      throw new Error('Select one connected logical face region in Edit Mode first.');
+      throw new Error('Select one or more logical faces in Edit Mode first.');
     }
     const faces = editor.componentSelection;
     await editor.runModeling({
@@ -1152,7 +1152,7 @@ async function extrudeSelectedRegion() {
       distance: modelingToolSettings.extrudeDistance,
       polygonTriangles: editor.meshTopology.polygonTriangles.map(group => [...group]),
     });
-    toast('Face region extruded. Internal logical edges are preserved.');
+    toast('Selected face regions extruded. Internal logical edges are preserved.');
   } catch (error) { toast((error as Error).message); }
 }
 async function insetSelectedRegion() {
