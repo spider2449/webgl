@@ -1844,6 +1844,124 @@ export function mergeLogicalVerticesAtCenter(
   return { ...finishEditedSurface(source, inspection, entries), mergedPosition: midpoint as [number, number, number] };
 }
 
+export function fillLogicalBoundaryFace(
+  source: THREE.BufferGeometry,
+  edges: number[],
+  polygonTriangles?: number[][],
+) {
+  const inspection = inspectGeometry(source, polygonTriangles ?? false);
+  const { topology } = inspection;
+  const surface = logicalSurface(source, inspection);
+  const selectedEdges = [...new Set(edges)];
+  if (
+    selectedEdges.length < 3 ||
+    selectedEdges.length > 4096 ||
+    selectedEdges.some(edge => !Number.isInteger(edge) || !topology.polygonEdges[edge])
+  ) {
+    throw new Error('Fill Boundary requires one selected logical boundary loop with at least three edges.');
+  }
+
+  type DirectedBoundaryEdge = {
+    edge: number;
+    face: number;
+    from: number;
+    to: number;
+    fromCorner: Corner;
+    material: number;
+  };
+
+  const records: DirectedBoundaryEdge[] = selectedEdges.map(edge => {
+    const [a, b] = topology.polygonEdges[edge];
+    const uses = surface.uses.get(edgeKey(a, b)) ?? [];
+    if (uses.length !== 1) {
+      throw new Error('Fill Boundary requires open logical mesh boundary edges.');
+    }
+    const use = uses[0];
+    const polygon = topology.polygons[use.face];
+    const local = polygon.findIndex((vertex, index) =>
+      vertex === use.a && polygon[(index + 1) % polygon.length] === use.b
+    );
+    if (local < 0) throw new Error('Fill Boundary could not resolve logical edge orientation.');
+    const sourcePolygon = surface.polygons[use.face];
+    const fromIndex = (local + 1) % polygon.length;
+    return {
+      edge,
+      face: use.face,
+      from: use.b,
+      to: use.a,
+      fromCorner: sourcePolygon.corners[fromIndex],
+      material: sourcePolygon.material,
+    };
+  });
+
+  const outgoing = new Map<number, DirectedBoundaryEdge>();
+  const incoming = new Map<number, DirectedBoundaryEdge>();
+  for (const record of records) {
+    if (outgoing.has(record.from) || incoming.has(record.to)) {
+      throw new Error('Fill Boundary selection must form one simple closed logical loop.');
+    }
+    outgoing.set(record.from, record);
+    incoming.set(record.to, record);
+  }
+
+  const vertices = new Set(records.flatMap(record => [record.from, record.to]));
+  if (
+    vertices.size !== records.length ||
+    [...vertices].some(vertex => !outgoing.has(vertex) || !incoming.has(vertex))
+  ) {
+    throw new Error('Fill Boundary selection must form one simple closed logical loop.');
+  }
+
+  const activeEdge = selectedEdges.at(-1)!;
+  const start = records.find(record => record.edge === activeEdge)!;
+  const loop: DirectedBoundaryEdge[] = [];
+  const visited = new Set<number>();
+  let current = start;
+  while (!visited.has(current.edge)) {
+    loop.push(current);
+    visited.add(current.edge);
+    const next = outgoing.get(current.to);
+    if (!next) throw new Error('Fill Boundary selection is open.');
+    current = next;
+  }
+  if (
+    current.edge !== start.edge ||
+    current.from !== start.from ||
+    visited.size !== records.length
+  ) {
+    throw new Error('Fill Boundary selection must contain exactly one closed logical loop.');
+  }
+
+  const loopVertices = loop.map(record => record.from);
+  const loopVertexSet = new Set(loopVertices);
+  if (topology.polygons.some(polygon =>
+    polygon.length === loopVertices.length &&
+    polygon.every(vertex => loopVertexSet.has(vertex))
+  )) {
+    throw new Error('Fill Boundary loop already bounds a logical face.');
+  }
+
+  const cloneCorner = (corner: Corner): Corner => Object.fromEntries(
+    Object.entries(corner).map(([name, data]) => [name, [...data]])
+  );
+  const fill: Polygon = {
+    material: start.material,
+    corners: loop.map(record => cloneCorner(record.fromCorner)),
+  };
+  const entries: EditedPolygon[] = topology.polygons.map((_, face) => ({
+    polygon: surface.polygons[face],
+    sourceFace: face,
+  }));
+  const filledFace = entries.length;
+  entries.push({ polygon: fill });
+
+  return {
+    ...finishEditedSurface(source, inspection, entries),
+    filledFace,
+    boundaryEdges: selectedEdges.length,
+  };
+}
+
 export function deleteLogicalComponents(
   source: THREE.BufferGeometry,
   mode: 'vertex' | 'edge' | 'face',

@@ -49,6 +49,10 @@ Development-time focused and changed-test runs are only fast feedback. The exact
 - Use the top-bar **Light / Dark** control to switch the editor chrome between themes. Dark remains the default; the choice is stored locally and survives reload. Both themes keep Graph/Timeline secondary text at readable contrast. Theme switching affects editor chrome only and does not replace the WebGL scene background or alter scene lighting/materials.
 - Ctrl+Z / Ctrl+Shift+Z undo and redo. Shift+D creates an independent duplicate; Alt+D creates a linked duplicate for an ordinary mesh, sharing its geometry and material while keeping transform, name and collection membership independent. Linked duplication rejects skinned meshes and meshes with an active modifier stack. Delete removes objects. Individual bones cannot be deleted or duplicated; duplicate the armature to make an independent character.
 
+### Fill boundary face
+
+In Edge Edit Mode, select every logical edge around one open mesh hole and use RMB -> **Fill Boundary Face**. Forge requires one simple closed logical boundary loop with at least three edges; interior manifold edges, incomplete loops, branched selections and multiple loops are rejected atomically. The new logical Triangle/Quad/N-gon is wound opposite the existing boundary-face uses so the hole closes with consistent manifold orientation, while renderer triangulation remains hidden beneath the modeling polygon. The material beside the active selected boundary edge becomes the new face material. After success Forge switches to Face mode and selects the new face, ready for Extrude or Inset. The operation is undoable.
+
 ### Face inset
 
 In Edit Mode Face selection, RMB -> **Inset Faces** uses the shared **Inset Distance** in local mesh units. One selected convex logical Triangle, Quad or N-gon keeps the established single-face behavior: the outer boundary stays fixed, one inner polygon remains selected, and Forge adds one logical ring Quad per source boundary edge.
