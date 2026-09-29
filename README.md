@@ -53,6 +53,12 @@ Development-time focused and changed-test runs are only fast feedback. The exact
 
 In Edge Edit Mode, select every logical edge around one open mesh hole and use RMB -> **Fill Boundary Face**. Forge requires one simple closed logical boundary loop with at least three edges; interior manifold edges, incomplete loops, branched selections and multiple loops are rejected atomically. The new logical Triangle/Quad/N-gon is wound opposite the existing boundary-face uses so the hole closes with consistent manifold orientation, while renderer triangulation remains hidden beneath the modeling polygon. The material beside the active selected boundary edge becomes the new face material. After success Forge switches to Face mode and selects the new face, ready for Extrude or Inset. The operation is undoable.
 
+### Bridge edge loops
+
+In Edge Edit Mode, select every logical edge on exactly two open mesh boundary loops and use RMB -> **Bridge Edge Loops**. The current implementation requires both loops to have the same number of edges. Forge reads each loop from logical polygon winding, reverses the second loop so both old boundary edges receive oppositely wound bridge faces, then tries every cyclic offset and chooses the correspondence with the shortest total cross-loop distance. One logical Quad is created per loop edge. Renderer triangulation remains hidden beneath those Quads.
+
+Only open logical mesh boundary edges are valid. Incomplete chains, interior manifold edges, branched/intersecting boundaries, more or fewer than two loops, touching/collapsed paired vertices, and unequal edge counts reject atomically. Existing boundary vertices and persistent logical vertex identities are reused; Bridge does not create centroid or renderer-only modeling vertices. Each new Quad inherits the material of its adjacent edge on the active boundary loop while retaining independent corner attributes from both sides. After success Forge switches to Face mode and selects the whole new bridge strip. Undo restores the two original open loops.
+
 ### Face inset
 
 In Edit Mode Face selection, RMB -> **Inset Faces** uses the shared **Inset Distance** in local mesh units. One selected convex logical Triangle, Quad or N-gon keeps the established single-face behavior: the outer boundary stays fixed, one inner polygon remains selected, and Forge adds one logical ring Quad per source boundary edge.
