@@ -44,9 +44,10 @@ test('logical two-Quad region extrusion preserves caps and their shared internal
   const position = extrusion.geometry.getAttribute('position');
 
   expect(extrusion.selectedFaces).toEqual([0, 1]);
+  expect(extrusion.regionCount).toBe(1);
   expect(extrusion.boundaryLoops).toBe(1);
   expect(extrusion.boundaryEdges).toBe(6);
-  expect(extrusion.direction[2]).toBeCloseTo(1, 6);
+  expect(extrusion.regions[0].direction[2]).toBeCloseTo(1, 6);
 
   expect(after.logicalVertices).toHaveLength(12);
   expect(after.polygonEdges).toHaveLength(19);
@@ -138,7 +139,8 @@ test('folded adjacent Cube faces extrude as one logical region with one common 3
     0.25,
     before.polygonTriangles.map(group => [...group]),
   );
-  const direction = new THREE.Vector3().fromArray(extrusion.direction);
+  expect(extrusion.regionCount).toBe(1);
+  const direction = new THREE.Vector3().fromArray(extrusion.regions[0].direction);
   expect(direction.dot(firstNormal)).toBeGreaterThan(0);
   expect(direction.dot(secondNormal)).toBeGreaterThan(0);
 
@@ -192,6 +194,7 @@ test('logical region extrusion preserves a planar hole and its unselected center
   const afterPosition = extrusion.geometry.getAttribute('position');
   const after = logicalTopology(extrusion.geometry, extrusion.polygonTriangles);
 
+  expect(extrusion.regionCount).toBe(1);
   expect(extrusion.boundaryLoops).toBe(2);
   expect(extrusion.boundaryEdges).toBe(16);
   expect(extrusion.selectedFaces).toEqual(selected);
@@ -209,17 +212,90 @@ test('logical region extrusion preserves a planar hole and its unselected center
   plane.dispose();
 });
 
-test('logical region extrusion rejects disconnected regions and regions without one outward direction', () => {
+test('disconnected logical selections extrude as independent regions', () => {
   const plane = new THREE.PlaneGeometry(6, 2, 3, 1);
+  const sourcePosition = plane.getAttribute('position');
   const strip = logicalTopology(plane, true);
   expect(strip.polygons).toHaveLength(3);
-  expect(() => extrudeLogicalFaceRegion(
+
+  const centerBefore = strip.polygons[1].map(vertex =>
+    new THREE.Vector3().fromBufferAttribute(sourcePosition, strip.vertices[vertex][0]).toArray().join(',')
+  ).sort();
+
+  const extrusion = extrudeLogicalFaceRegion(
     plane,
     [0, 2],
     0.25,
     strip.polygonTriangles.map(group => [...group]),
-  )).toThrow('edge-connected');
+  );
+  const afterPosition = extrusion.geometry.getAttribute('position');
+  const after = logicalTopology(extrusion.geometry, extrusion.polygonTriangles);
 
+  expect(extrusion.selectedFaces).toEqual([0, 2]);
+  expect(extrusion.regionCount).toBe(2);
+  expect(extrusion.boundaryLoops).toBe(2);
+  expect(extrusion.boundaryEdges).toBe(8);
+  expect(extrusion.regions.map(region => region.faces)).toEqual([[0], [2]]);
+  expect(extrusion.regions.every(region => region.direction[2] > 0.999999)).toBe(true);
+
+  expect(after.logicalVertices).toHaveLength(16);
+  expect(after.polygonEdges).toHaveLength(26);
+  expect(after.polygons).toHaveLength(11);
+  expect(after.polygonTriangles.flat()).toHaveLength(22);
+  expect(after.polygons.every(polygon => polygon.length === 4)).toBe(true);
+
+  const centerAfter = after.polygons[1].map(vertex =>
+    new THREE.Vector3().fromBufferAttribute(afterPosition, after.vertices[vertex][0]).toArray().join(',')
+  ).sort();
+  expect(centerAfter).toEqual(centerBefore);
+
+  extrusion.geometry.dispose();
+  plane.dispose();
+});
+
+test('disconnected Cube regions derive independent outward extrusion directions', () => {
+  const box = new THREE.BoxGeometry(2, 2, 2);
+  const position = box.getAttribute('position');
+  const cube = logicalTopology(box, true);
+  const normals = cube.polygons.map((_, face) => polygonNormal(cube, position, face));
+  const opposite = normals.flatMap((normal, face) =>
+    normals.flatMap((other, candidate) =>
+      candidate > face && normal.dot(other) < -0.999999
+        ? [[face, candidate] as [number, number]]
+        : []
+    )
+  )[0];
+  expect(opposite).toBeDefined();
+
+  const extrusion = extrudeLogicalFaceRegion(
+    box,
+    opposite,
+    0.25,
+    cube.polygonTriangles.map(group => [...group]),
+  );
+
+  expect(extrusion.regionCount).toBe(2);
+  expect(extrusion.boundaryLoops).toBe(2);
+  expect(extrusion.boundaryEdges).toBe(8);
+  expect(extrusion.regions.map(region => region.faces)).toEqual([[opposite[0]], [opposite[1]]]);
+
+  for (const region of extrusion.regions) {
+    const direction = new THREE.Vector3().fromArray(region.direction);
+    expect(direction.dot(normals[region.faces[0]])).toBeGreaterThan(0.999999);
+  }
+
+  const after = logicalTopology(extrusion.geometry, extrusion.polygonTriangles);
+  expect(after.logicalVertices).toHaveLength(16);
+  expect(after.polygonEdges).toHaveLength(28);
+  expect(after.polygons).toHaveLength(14);
+  expect(after.polygonTriangles.flat()).toHaveLength(28);
+  expect(after.polygons.every(polygon => polygon.length === 4)).toBe(true);
+
+  extrusion.geometry.dispose();
+  box.dispose();
+});
+
+test('logical region extrusion still rejects closed regions without boundaries and invalid distance', () => {
   const box = new THREE.BoxGeometry(2, 2, 2);
   const cube = logicalTopology(box, true);
   expect(() => extrudeLogicalFaceRegion(
@@ -227,13 +303,15 @@ test('logical region extrusion rejects disconnected regions and regions without 
     cube.polygons.map((_, face) => face),
     0.25,
     cube.polygonTriangles.map(group => [...group]),
-  )).toThrow('region boundary');
+  )).toThrow('region to have a boundary');
 
+  const plane = new THREE.PlaneGeometry(2, 2, 1, 1);
+  const single = logicalTopology(plane, true);
   expect(() => extrudeLogicalFaceRegion(
     plane,
     [0],
     -1,
-    strip.polygonTriangles.map(group => [...group]),
+    single.polygonTriangles.map(group => [...group]),
   )).toThrow('Distance');
 
   box.dispose();
@@ -329,7 +407,7 @@ test('real logical face region extrusion repeats, preserves selection, and undoe
   expect(await page.evaluate(() => (window as any).__forge.snapshot())).toBe(before.snapshot);
 });
 
-test('UI region rejection preserves geometry and logical face selection', async ({ page }) => {
+test('UI disconnected face selection extrudes as separate logical regions in one Undo step', async ({ page }) => {
   await page.goto('/');
   await page.waitForFunction(() => (window as any).__forge?.selected);
 
@@ -344,23 +422,46 @@ test('UI region rejection preserves geometry and logical face selection', async 
     const e = (window as any).__forge;
     e.selectComponent(0);
     e.selectComponent(2, true);
+    (window as any).__forgeModelingSettings.extrudeDistance = 0.25;
     return {
       snapshot: e.snapshot(),
-      selection: [...e.componentSelection],
       undoDepth: e.undoDepth,
     };
   });
 
   await page.evaluate(() => (window as any).__forgeCommands.extrudeRegion());
   await page.waitForFunction(() => !(window as any).__forge.modelingBusy);
-  await expect(page.locator('#toast')).toContainText('edge-connected');
+  await expect(page.locator('#toast')).toContainText('Selected face regions extruded');
 
   expect(await page.evaluate(() => {
     const e = (window as any).__forge;
     return {
-      snapshot: e.snapshot(),
+      mode: e.componentMode,
       selection: [...e.componentSelection],
+      vertices: e.meshTopology.logicalVertices.length,
+      edges: e.meshTopology.polygonEdges.length,
+      faces: e.meshTopology.polygons.length,
+      triangles: e.meshTopology.polygonTriangles.flat().length,
+      stored: e.selected.userData.forgePolygonTriangles?.length,
       undoDepth: e.undoDepth,
     };
-  })).toEqual(before);
+  })).toEqual({
+    mode: 'face',
+    selection: [0, 2],
+    vertices: 16,
+    edges: 26,
+    faces: 11,
+    triangles: 22,
+    stored: 11,
+    undoDepth: before.undoDepth + 1,
+  });
+
+  await page.keyboard.press('Control+z');
+  await page.waitForFunction(() => {
+    const e = (window as any).__forge;
+    return e.meshTopology?.logicalVertices.length === 8 &&
+      e.meshTopology?.polygons.length === 3 &&
+      e.meshTopology?.polygonTriangles.flat().length === 6;
+  });
+  expect(await page.evaluate(() => (window as any).__forge.snapshot())).toBe(before.snapshot);
 });
