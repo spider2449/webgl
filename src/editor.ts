@@ -97,6 +97,7 @@ export class Editor extends EventTarget {
   private readonly geometryCountCache = new WeakMap<THREE.Mesh, {
     geometry: THREE.BufferGeometry;
     polygonSource: unknown;
+    logicalVertexSource: unknown;
     pairTriangles: boolean;
     counts: Omit<GeometryCounts, 'objects'>;
   }>();
@@ -4052,6 +4053,7 @@ export class Editor extends EventTarget {
     if (!position) return { vertices: 0, edges: 0, faces: 0, triangles: 0 };
     const primitiveKind = (mesh.userData.forgePrimitive as { kind?: string } | undefined)?.kind;
     const polygonSource = mesh.userData.forgePolygonTriangles;
+    const logicalVertexSource = mesh.userData.forgeLogicalVertexIds;
     const storedPolygons = this.storedPolygonTriangles(mesh);
     const pairTriangles =
       storedPolygons === undefined &&
@@ -4061,6 +4063,7 @@ export class Editor extends EventTarget {
       cached &&
       cached.geometry === mesh.geometry &&
       cached.polygonSource === polygonSource &&
+      cached.logicalVertexSource === logicalVertexSource &&
       cached.pairTriangles === pairTriangles
     ) return cached.counts;
 
@@ -4079,6 +4082,7 @@ export class Editor extends EventTarget {
     this.geometryCountCache.set(mesh, {
       geometry: mesh.geometry,
       polygonSource,
+      logicalVertexSource,
       pairTriangles,
       counts,
     });
