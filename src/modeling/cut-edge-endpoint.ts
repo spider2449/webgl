@@ -5,6 +5,43 @@ import { buildTopology } from './topology';
 const edgeKey = (a: number, b: number) => `${Math.min(a, b)}:${Math.max(a, b)}`;
 const POSITION_EPSILON_SQ = 1e-12;
 
+function storedLogicalVertexIds(geometry: THREE.BufferGeometry) {
+  const value = geometry.userData.forgeLogicalVertexIds;
+  const count = geometry.getAttribute('position')?.count ?? 0;
+  if (
+    !Array.isArray(value) ||
+    value.length !== count ||
+    value.some(id => !Number.isSafeInteger(id) || id < 0)
+  ) return undefined;
+  return value.map(id => Number(id));
+}
+
+function buildLogicalTopology(
+  geometry: THREE.BufferGeometry,
+  logical: boolean | number[][] = false,
+) {
+  const position = geometry.getAttribute('position');
+  if (!position || position.itemSize !== 3) throw new Error('Logical topology requires position data.');
+  return buildTopology(
+    position.array,
+    geometry.index?.array,
+    logical,
+    storedLogicalVertexIds(geometry),
+  );
+}
+
+function attachLogicalVertexIds(geometry: THREE.BufferGeometry, sourceIds: number[]) {
+  const remap = new Map<number, number>();
+  geometry.userData.forgeLogicalVertexIds = sourceIds.map(sourceId => {
+    let id = remap.get(sourceId);
+    if (id === undefined) {
+      id = remap.size;
+      remap.set(sourceId, id);
+    }
+    return id;
+  });
+}
+
 type EdgePoint = {
   face: number;
   edge: number;
@@ -82,7 +119,7 @@ function insertLogicalEdgePoint(
   const indexCount = source.index?.count ?? position.count;
   if (!indexCount || indexCount % 3) throw new Error('Cut endpoint requires triangle geometry.');
 
-  const topology = buildTopology(position.array, source.index?.array, polygonTriangles ?? false);
+  const topology = buildLogicalTopology(source, polygonTriangles ?? false);
   const { face, edge, t } = endpoint;
   if (!Number.isInteger(face) || !topology.polygons[face]) throw new Error('Select one valid logical face to cut.');
   if (!Number.isInteger(edge) || !topology.polygonEdges[edge]) throw new Error('Cut endpoint must lie on a logical edge.');
@@ -99,6 +136,12 @@ function insertLogicalEdgePoint(
   const sourceIndices = Array.from({ length: indexCount }, (_, i) => source.index?.getX(i) ?? i);
   const rawToLogical = new Map<number, number>();
   topology.vertices.forEach((raw, logical) => raw.forEach(index => rawToLogical.set(index, logical)));
+  const persistedIds = storedLogicalVertexIds(source);
+  const identityForRaw = (raw: number) => persistedIds?.[raw] ?? rawToLogical.get(raw)!;
+  let splitIdentity = 0;
+  for (let raw = 0; raw < position.count; raw++) {
+    splitIdentity = Math.max(splitIdentity, identityForRaw(raw) + 1);
+  }
 
   const values: Record<string, number[]> = {};
   const sizes: Record<string, number> = {};
@@ -117,10 +160,12 @@ function insertLogicalEdgePoint(
   const interpolate = (a: ReturnType<typeof read>, b: ReturnType<typeof read>) => Object.fromEntries(
     Object.keys(a).map(name => [name, a[name].map((value, component) => Math.fround(value + (b[name][component] - value) * t))]),
   );
-  const append = (corners: ReturnType<typeof read>[], material: number) => {
+  const logicalVertexIds: number[] = [];
+  const append = (corners: ReturnType<typeof read>[], material: number, identities: number[]) => {
     const last = groups.at(-1);
     if (last?.material === material) last.count += 3;
     else groups.push({ start: groups.reduce((sum, group) => sum + group.count, 0), count: 3, material });
+    logicalVertexIds.push(...identities);
     for (const corner of corners) for (const [name, data] of Object.entries(corner)) {
       sizes[name] = data.length;
       (values[name] ??= []).push(...data);
@@ -134,7 +179,11 @@ function insertLogicalEdgePoint(
     const logical = raw.map(index => rawToLogical.get(index));
     const localA = logical.indexOf(edgeA), localB = logical.indexOf(edgeB);
     if (localA < 0 || localB < 0) {
-      append(raw.map(read), triangleMaterials[triangle]);
+      append(
+        raw.map(read),
+        triangleMaterials[triangle],
+        raw.map(identityForRaw),
+      );
       oldToNewTriangles.set(triangle, [outputTriangle++]);
       continue;
     }
@@ -144,12 +193,23 @@ function insertLogicalEdgePoint(
     const firstLocal = orientedAFirst ? localA : localB;
     const secondLocal = orientedAFirst ? localB : localA;
     const firstLogical = logical[firstLocal]!;
-    const first = read(raw[firstLocal]);
-    const second = read(raw[secondLocal]);
+    const firstRaw = raw[firstLocal];
+    const secondRaw = raw[secondLocal];
+    const otherRaw = raw[third];
+    const first = read(firstRaw);
+    const second = read(secondRaw);
     const split = firstLogical === edgeA ? interpolate(first, second) : interpolate(second, first);
-    const other = read(raw[third]);
-    append([first, split, other], triangleMaterials[triangle]);
-    append([split, second, other], triangleMaterials[triangle]);
+    const other = read(otherRaw);
+    append(
+      [first, split, other],
+      triangleMaterials[triangle],
+      [identityForRaw(firstRaw), splitIdentity, identityForRaw(otherRaw)],
+    );
+    append(
+      [split, second, other],
+      triangleMaterials[triangle],
+      [splitIdentity, identityForRaw(secondRaw), identityForRaw(otherRaw)],
+    );
     oldToNewTriangles.set(triangle, [outputTriangle, outputTriangle + 1]);
     outputTriangle += 2;
   }
@@ -157,12 +217,13 @@ function insertLogicalEdgePoint(
   const geometry = new THREE.BufferGeometry();
   for (const [name, data] of Object.entries(values)) geometry.setAttribute(name, new THREE.Float32BufferAttribute(data, sizes[name]));
   groups.forEach(group => geometry.addGroup(group.start, group.count, group.material));
+  attachLogicalVertexIds(geometry, logicalVertexIds);
   geometry.computeVertexNormals();
   geometry.computeBoundingBox();
   geometry.computeBoundingSphere();
 
   const splitGroups = topology.polygonTriangles.map(group => group.flatMap(triangle => oldToNewTriangles.get(triangle) ?? []));
-  const splitTopology = buildTopology(geometry.getAttribute('position').array, geometry.index?.array, splitGroups);
+  const splitTopology = buildLogicalTopology(geometry, splitGroups);
   const expected = vertexPosition(topology, position, edgeA).lerp(vertexPosition(topology, position, edgeB), t);
   const splitPosition = geometry.getAttribute('position');
   const inserted = resolveBoundaryVertex(splitTopology, splitPosition, face, expected);
@@ -185,7 +246,7 @@ export function cutLogicalFaceToEdge(
 ) {
   const position = source.getAttribute('position');
   if (!position || position.itemSize !== 3) throw new Error('Cut endpoint requires position data.');
-  const topology = buildTopology(position.array, source.index?.array, polygonTriangles ?? false);
+  const topology = buildLogicalTopology(source, polygonTriangles ?? false);
   const { face, vertex, edge, t } = endpoint;
   if (!Number.isInteger(face) || !topology.polygons[face]) throw new Error('Select one valid logical face to cut.');
   if (!Number.isInteger(vertex) || !topology.polygons[face].includes(vertex)) throw new Error('Cut start must be a logical vertex on the selected face.');
@@ -200,7 +261,7 @@ export function cutLogicalFaceToEdge(
   const inserted = insertLogicalEdgePoint(source, { face, edge, t }, polygonTriangles);
   try {
     const splitPosition = inserted.geometry.getAttribute('position');
-    const splitTopology = buildTopology(splitPosition.array, inserted.geometry.index?.array, inserted.polygonTriangles);
+    const splitTopology = buildLogicalTopology(inserted.geometry, inserted.polygonTriangles);
     const mappedStart = resolveBoundaryVertex(splitTopology, splitPosition, face, startPosition);
     const mappedEnd = resolveBoundaryVertex(splitTopology, splitPosition, face, inserted.position);
     if (mappedStart === undefined) throw new Error('Cut start vertex was not preserved on the logical face boundary.');
@@ -222,7 +283,7 @@ export function cutLogicalFaceBetweenEdges(
 ) {
   const position = source.getAttribute('position');
   if (!position || position.itemSize !== 3) throw new Error('Knife requires position data.');
-  const topology = buildTopology(position.array, source.index?.array, polygonTriangles ?? false);
+  const topology = buildLogicalTopology(source, polygonTriangles ?? false);
   const { face, firstEdge, firstT, secondEdge, secondT } = cut;
   if (!Number.isInteger(face) || !topology.polygons[face]) throw new Error('Select one valid logical face to cut.');
   if (!Number.isInteger(firstEdge) || !topology.polygonEdges[firstEdge] || !Number.isInteger(secondEdge) || !topology.polygonEdges[secondEdge]) {
@@ -247,7 +308,7 @@ export function cutLogicalFaceBetweenEdges(
   const first = insertLogicalEdgePoint(source, { face, edge: firstEdge, t: firstT }, polygonTriangles);
   try {
     const firstPosition = first.geometry.getAttribute('position');
-    const firstTopology = buildTopology(firstPosition.array, first.geometry.index?.array, first.polygonTriangles);
+    const firstTopology = buildLogicalTopology(first.geometry, first.polygonTriangles);
     const remappedSecond = resolveEdgeByPositions(firstTopology, firstPosition, face, secondAExpected, secondBExpected, secondT);
     const second = insertLogicalEdgePoint(
       first.geometry,
@@ -256,7 +317,7 @@ export function cutLogicalFaceBetweenEdges(
     );
     try {
       const secondPosition = second.geometry.getAttribute('position');
-      const secondTopology = buildTopology(secondPosition.array, second.geometry.index?.array, second.polygonTriangles);
+      const secondTopology = buildLogicalTopology(second.geometry, second.polygonTriangles);
       const firstVertex = resolveBoundaryVertex(secondTopology, secondPosition, face, firstExpected);
       const secondVertex = resolveBoundaryVertex(secondTopology, secondPosition, face, secondExpected);
       if (firstVertex === undefined || secondVertex === undefined) throw new Error('Knife endpoints were not preserved on the logical face boundary.');
@@ -350,7 +411,7 @@ export function cutLogicalFaceViaPath(
 ) {
   const position = source.getAttribute('position');
   if (!position || position.itemSize !== 3) throw new Error('Interior Knife path requires position data.');
-  const topology = buildTopology(position.array, source.index?.array, polygonTriangles ?? false);
+  const topology = buildLogicalTopology(source, polygonTriangles ?? false);
   if (!Number.isInteger(cut.face) || !topology.polygons[cut.face]) {
     throw new Error('Select one valid logical face for the Knife path.');
   }
@@ -367,7 +428,7 @@ export function cutLogicalFaceViaPath(
   const insertEndpointIfNeeded = (endpoint: KnifeBoundaryEndpoint, expected: THREE.Vector3) => {
     if (endpoint.kind === 'vertex') return;
     const currentPosition = current.getAttribute('position');
-    const currentTopology = buildTopology(currentPosition.array, current.index?.array, groups ?? false);
+    const currentTopology = buildLogicalTopology(current, groups ?? false);
     const remapped = resolveBoundaryEdgeAtPosition(currentTopology, currentPosition, cut.face, expected);
     const inserted = insertLogicalEdgePoint(
       current,
@@ -385,7 +446,7 @@ export function cutLogicalFaceViaPath(
     insertEndpointIfNeeded(cut.end, endExpected);
 
     const currentPosition = current.getAttribute('position');
-    const currentTopology = buildTopology(currentPosition.array, current.index?.array, groups ?? false);
+    const currentTopology = buildLogicalTopology(current, groups ?? false);
     const startVertex = resolveBoundaryVertex(currentTopology, currentPosition, cut.face, startExpected);
     const endVertex = resolveBoundaryVertex(currentTopology, currentPosition, cut.face, endExpected);
     if (startVertex === undefined || endVertex === undefined) {

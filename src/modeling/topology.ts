@@ -1,7 +1,9 @@
 export type ComponentMode = 'vertex' | 'edge' | 'face';
 export type FaceSideKind = 'triangles' | 'quads' | 'ngons';
 export type MeshTopology = {
-  // Renderer-welded vertices used by triangle data and attribute updates.
+  // Renderer buffer vertices grouped into modeling vertex identities. Legacy/imported
+  // meshes fall back to exact-position welding; polygon-native Forge meshes may
+  // preserve distinct logical vertices at the same XYZ position.
   vertices: number[][];
   bufferToVertex: number[];
   // Modeling vertices: only welded vertices that occur on a logical polygon boundary.
@@ -89,13 +91,38 @@ export function buildTopology(
   positions: ArrayLike<number>,
   indices?: ArrayLike<number>,
   logical: boolean | number[][] = false,
+  logicalVertexIds?: ArrayLike<number>,
 ): MeshTopology {
+  const bufferCount = positions.length / 3;
+  if (!Number.isInteger(bufferCount)) throw new Error('Position buffer must contain complete XYZ coordinates.');
+  if (logicalVertexIds && logicalVertexIds.length !== bufferCount) {
+    throw new Error('Logical vertex identity metadata does not match the position buffer.');
+  }
+
   const vertices: number[][] = [], bufferToVertex: number[] = [];
-  const byPosition = new Map<string, number>();
-  for (let i = 0; i < positions.length / 3; i++) {
-    const key = `${positions[i * 3]},${positions[i * 3 + 1]},${positions[i * 3 + 2]}`;
-    let vertex = byPosition.get(key);
-    if (vertex === undefined) { vertex = vertices.length; byPosition.set(key, vertex); vertices.push([]); }
+  const byIdentity = new Map<string, number>();
+  const identityPosition = new Map<number, string>();
+  for (let i = 0; i < bufferCount; i++) {
+    const positionKey = `${positions[i * 3]},${positions[i * 3 + 1]},${positions[i * 3 + 2]}`;
+    let identityKey = `p:${positionKey}`;
+    if (logicalVertexIds) {
+      const identity = Number(logicalVertexIds[i]);
+      if (!Number.isSafeInteger(identity) || identity < 0) {
+        throw new Error('Logical vertex identity metadata contains an invalid ID.');
+      }
+      const previousPosition = identityPosition.get(identity);
+      if (previousPosition !== undefined && previousPosition !== positionKey) {
+        throw new Error('One logical vertex identity refers to multiple positions.');
+      }
+      identityPosition.set(identity, positionKey);
+      identityKey = `i:${identity}`;
+    }
+    let vertex = byIdentity.get(identityKey);
+    if (vertex === undefined) {
+      vertex = vertices.length;
+      byIdentity.set(identityKey, vertex);
+      vertices.push([]);
+    }
     vertices[vertex].push(i);
     bufferToVertex.push(vertex);
   }

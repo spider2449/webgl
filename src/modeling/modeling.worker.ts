@@ -1,17 +1,23 @@
 import * as THREE from 'three';
-import { bevelLogicalEdges, cutLogicalFace, deleteLogicalComponents, extrudeLogicalFace, fillLogicalBoundaryFace, insetLogicalFace, insetLogicalFaceRegion, loopCutLogicalEdge, mergeLogicalVerticesAtCenter, subdivideLogicalEdges, editUV, inspectGeometry } from './modeling';
+import { bevelLogicalEdges, cutLogicalFace, deleteLogicalComponents, extrudeLogicalFace, extrudeLogicalFaceRegion, fillLogicalBoundaryFace, insetLogicalFace, insetLogicalFaceRegion, loopCutLogicalEdge, mergeLogicalVerticesAtCenter, subdivideLogicalEdges, editUV, inspectGeometry } from './modeling';
 import { cutLogicalFaceBetweenEdges, cutLogicalFaceToEdge, cutLogicalFaceViaPath, cutLogicalFaceViaPoint } from './cut-edge-endpoint';
 import { evaluateModifiers } from './modifiers';
-import { extrudeRegion } from './extrude-region';
 import { subdivideEdges } from './subdivide';
 import type { ModelingOperation } from './modeling-worker-client';
 import { buildTopology } from './topology';
 
-self.onmessage = (event: MessageEvent<{ source: ReturnType<THREE.BufferGeometry['toJSON']>; operation: ModelingOperation }>) => {
+self.onmessage = (event: MessageEvent<{
+  source: ReturnType<THREE.BufferGeometry['toJSON']>;
+  operation: ModelingOperation;
+  logicalVertexIds?: number[];
+}>) => {
   let source: THREE.BufferGeometry | undefined, result: THREE.BufferGeometry | undefined, logicalGroups: number[][] | undefined;
   const start = performance.now();
   try {
     source = new THREE.BufferGeometryLoader().parse(event.data.source);
+    if (event.data.logicalVertexIds) {
+      source.userData.forgeLogicalVertexIds = [...event.data.logicalVertexIds];
+    }
     const op = event.data.operation;
     switch (op.kind) {
       case 'topology': self.postMessage({ topology: inspectGeometry(source, op.polygonTriangles ?? op.pairTriangles ?? false).topology, milliseconds: performance.now() - start }); return;
@@ -111,7 +117,12 @@ self.onmessage = (event: MessageEvent<{ source: ReturnType<THREE.BufferGeometry[
         logicalGroups = cut.polygonTriangles;
         break;
       }
-      case 'region': result = extrudeRegion(source, op.faces, op.distance); break;
+      case 'extrude-region': {
+        const extrusion = extrudeLogicalFaceRegion(source, op.faces, op.distance, op.polygonTriangles);
+        result = extrusion.geometry;
+        logicalGroups = extrusion.polygonTriangles;
+        break;
+      }
       case 'subdivide': {
         const subdivision = subdivideLogicalEdges(source, op.edges, op.polygonTriangles, op.cuts ?? 1);
         result = subdivision.geometry;
@@ -123,10 +134,20 @@ self.onmessage = (event: MessageEvent<{ source: ReturnType<THREE.BufferGeometry[
         result = subdivideEdges(source, t.edges.map(edge => edge.map(v => t.vertices[v][0]) as [number, number])); break;
       }
     }
-    const topology = op.kind === 'modifiers' ? undefined : buildTopology(result.getAttribute('position').array, result.index?.array, logicalGroups ?? false);
+    const logicalVertexIds = Array.isArray(result.userData.forgeLogicalVertexIds)
+      ? result.userData.forgeLogicalVertexIds.map((id: unknown) => Number(id))
+      : undefined;
+    const topology = op.kind === 'modifiers'
+      ? undefined
+      : buildTopology(
+          result.getAttribute('position').array,
+          result.index?.array,
+          logicalGroups ?? false,
+          logicalVertexIds,
+        );
     const geometry = result.toJSON();
     if (JSON.stringify(geometry).length > 32 * 1024 * 1024) throw new Error('Worker result exceeds 32 MB.');
-    self.postMessage({ geometry, topology, milliseconds: performance.now() - start });
+    self.postMessage({ geometry, topology, logicalVertexIds, milliseconds: performance.now() - start });
   } catch (error) { self.postMessage({ error: (error as Error).message }); }
   finally { source?.dispose(); result?.dispose(); }
 };

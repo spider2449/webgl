@@ -13,7 +13,6 @@ import { extrudeLogicalFace } from './modeling/modeling';
 import { buildTopology, growLogicalComponents, linkedLogicalComponents, logicalCoplanarFaces, logicalEdgesByLength, logicalFaceBoundaryEdges, logicalFacesBySides, logicalMeshBoundaryEdges, logicalNonManifoldEdges, logicalSharpEdges, shrinkLogicalComponents, type MeshTopology, type ComponentMode, type FaceSideKind } from './modeling/topology';
 import { proportionalWeights } from './modeling/proportional';
 import { subdivideEdges } from './modeling/subdivide';
-import { extrudeRegion } from './modeling/extrude-region';
 import { modelingJob, type ModelingOperation } from './modeling/modeling-worker-client';
 import { validateModifierStack, type Modifier, type ModifierStack } from './modeling/modifiers';
 import { createPrimitiveGeometry, defaultPrimitiveSettings, parsePrimitiveSettings, updatePrimitiveSetting, type Primitive, type PrimitiveSettings } from './modeling/primitives';
@@ -98,6 +97,7 @@ export class Editor extends EventTarget {
   private readonly geometryCountCache = new WeakMap<THREE.Mesh, {
     geometry: THREE.BufferGeometry;
     polygonSource: unknown;
+    logicalVertexSource: unknown;
     pairTriangles: boolean;
     counts: Omit<GeometryCounts, 'objects'>;
   }>();
@@ -882,10 +882,21 @@ export class Editor extends EventTarget {
     }
     return groups;
   }
+  private storedLogicalVertexIds(mesh: THREE.Mesh): number[] | undefined {
+    const value = mesh.userData.forgeLogicalVertexIds;
+    const count = mesh.geometry.getAttribute('position')?.count ?? 0;
+    if (
+      !Array.isArray(value) ||
+      value.length !== count ||
+      value.some(id => !Number.isSafeInteger(id) || id < 0)
+    ) return undefined;
+    return value.map(id => Number(id));
+  }
   private markTopologyChanged(mesh: THREE.Mesh) {
     this.markPrimitiveApplied(mesh);
     if (mesh.userData.forgeLogicalQuads !== undefined) delete mesh.userData.forgeLogicalQuads;
     if (mesh.userData.forgePolygonTriangles !== undefined) delete mesh.userData.forgePolygonTriangles;
+    if (mesh.userData.forgeLogicalVertexIds !== undefined) delete mesh.userData.forgeLogicalVertexIds;
   }
   get collections(): THREE.Group[] {
     return this.content.children.filter((object): object is THREE.Group => object instanceof THREE.Group && object.userData.forgeCollection === true);
@@ -1296,6 +1307,13 @@ export class Editor extends EventTarget {
         }
         attribute.needsUpdate = true;
       }
+      const logicalVertexIds = this.storedLogicalVertexIds(this.selected);
+      if (logicalVertexIds) {
+        for (let i = 0; i < logicalVertexIds.length; i += 3) {
+          [logicalVertexIds[i], logicalVertexIds[i + 2]] = [logicalVertexIds[i + 2], logicalVertexIds[i]];
+        }
+        this.selected.userData.forgeLogicalVertexIds = logicalVertexIds;
+      }
     }
     geometry.computeVertexNormals();
     geometry.computeBoundingSphere();
@@ -1311,7 +1329,11 @@ export class Editor extends EventTarget {
       const primitiveKind = (mesh.userData.forgePrimitive as { kind?: string } | undefined)?.kind;
       const storedPolygons = this.storedPolygonTriangles(mesh);
       const pairTriangles = storedPolygons === undefined && (mesh.userData.forgeLogicalQuads === true || primitiveKind === 'cube' || primitiveKind === 'plane');
-      const job = modelingJob(mesh.geometry, storedPolygons ? { kind: 'topology', polygonTriangles: storedPolygons } : { kind: 'topology', pairTriangles }); this.cancelJob = job.cancel;
+      const job = modelingJob(
+        mesh.geometry,
+        storedPolygons ? { kind: 'topology', polygonTriangles: storedPolygons } : { kind: 'topology', pairTriangles },
+        this.storedLogicalVertexIds(mesh),
+      ); this.cancelJob = job.cancel;
       const result = await job.promise;
       if (this.selected !== mesh || this.snapshot() !== before || this.modelingVersion !== version) throw new Error('Scene changed; discarded topology result.');
       return this.setEditMode(true, result.topology);
@@ -1377,7 +1399,12 @@ export class Editor extends EventTarget {
       const primitiveKind = (this.selected.userData.forgePrimitive as { kind?: string } | undefined)?.kind;
       const storedPolygons = this.storedPolygonTriangles(this.selected);
       const pairTriangles = storedPolygons === undefined && (this.selected.userData.forgeLogicalQuads === true || primitiveKind === 'cube' || primitiveKind === 'plane');
-      this.topology = preparedTopology ?? buildTopology(position.array, this.selected.geometry.index?.array, storedPolygons ?? pairTriangles);
+      this.topology = preparedTopology ?? buildTopology(
+        position.array,
+        this.selected.geometry.index?.array,
+        storedPolygons ?? pairTriangles,
+        this.storedLogicalVertexIds(this.selected),
+      );
       geometry.setIndex(this.topology.logicalVertices.map(vertex => this.topology!.vertices[vertex][0]));
       geometry.setAttribute('color', new THREE.Float32BufferAttribute(new Float32Array(position.count * 3).fill(1), 3));
       (this.vertexPoints.material as THREE.PointsMaterial).vertexColors = true;
@@ -2149,6 +2176,13 @@ export class Editor extends EventTarget {
       this.markPrimitiveApplied(mesh);
       if (mesh.userData.forgeLogicalQuads !== undefined) delete mesh.userData.forgeLogicalQuads;
       mesh.userData.forgePolygonTriangles = logicalGroups.map(group => [...group]);
+      const ids = geometry.userData.forgeLogicalVertexIds;
+      if (
+        Array.isArray(ids) &&
+        ids.length === geometry.getAttribute('position').count &&
+        ids.every(id => Number.isSafeInteger(id) && id >= 0)
+      ) mesh.userData.forgeLogicalVertexIds = ids.map(id => Number(id));
+      else delete mesh.userData.forgeLogicalVertexIds;
     } else {
       this.markTopologyChanged(mesh);
     }
@@ -2161,28 +2195,6 @@ export class Editor extends EventTarget {
     this.selectedComponents = new Set([selectedAfter]);
     this.selectedFace = selectedAfter;
     this.selectComponentVertices(this.topology!.polygons[selectedAfter] ?? []);
-    this.commit();
-  }
-  extrudePlanarRegion(distance: number) {
-    if (!this.editMode || this.componentMode !== 'face' || !this.selectedComponents.size || !this.topology || !(this.selected instanceof THREE.Mesh) || this.selected instanceof THREE.SkinnedMesh || this.playing || this.transform.dragging) {
-      throw new Error('Select connected coplanar faces in Edit Mode and finish the current drag first.');
-    }
-    const faces = [...this.selectedComponents].flatMap(polygon => this.topology!.polygonTriangles[polygon] ?? []);
-    const mesh = this.selected, original = mesh.geometry;
-    const geometry = extrudeRegion(original, faces, distance);
-    if (this.stats().vertices + geometry.getAttribute('position').count - original.getAttribute('position').count > 2_000_000) {
-      geometry.dispose(); throw new Error('Region extrusion would exceed the scene vertex limit.');
-    }
-    this.markTopologyChanged(mesh);
-    this.setEditMode(false);
-    mesh.geometry = geometry;
-    let retained = false;
-    this.content.traverse(object => { if (object instanceof THREE.Mesh && object.geometry === original) retained = true; });
-    if (!retained) original.dispose();
-    this.setEditMode(true);
-    this.selectedComponents = new Set(faces);
-    this.selectedFace = faces.length === 1 ? faces[0] : null;
-    this.selectComponentVertices(faces.flatMap(face => this.topology!.polygons[face] ?? []));
     this.commit();
   }
   subdivideSelectedEdge() {
@@ -2669,6 +2681,7 @@ export class Editor extends EventTarget {
     if (!targets.length || targets.some(o => !(o instanceof THREE.Mesh) || o instanceof THREE.SkinnedMesh || o.userData.modifierStack)) throw new Error('Select ordinary meshes without unapplied modifiers.');
     const meshes = targets as THREE.Mesh[], before = this.snapshot(), active = this.selected, editing = this.editMode, version = this.modelingVersion;
     const results: THREE.BufferGeometry[] = [], topologies: (MeshTopology | undefined)[] = [];
+    const logicalVertexIds: (number[] | undefined)[] = [];
     this.modelingBusy = true; this.emit('modeling');
     try {
       for (const mesh of meshes) {
@@ -2676,11 +2689,23 @@ export class Editor extends EventTarget {
         if (batch && operation.kind === 'subdivide') {
           op = { kind: 'subdivide-all' };
         }
-        const job = modelingJob(mesh.geometry, op); this.cancelJob = job.cancel;
+        const job = modelingJob(mesh.geometry, op, this.storedLogicalVertexIds(mesh)); this.cancelJob = job.cancel;
         const result = await job.promise;
         if (!result.geometry) throw new Error('No geometry result.');
-        results.push(new THREE.BufferGeometryLoader().parse(result.geometry));
+        const geometry = new THREE.BufferGeometryLoader().parse(result.geometry);
+        if (
+          result.logicalVertexIds &&
+          (
+            result.logicalVertexIds.length !== geometry.getAttribute('position').count ||
+            result.logicalVertexIds.some(id => !Number.isSafeInteger(id) || id < 0)
+          )
+        ) {
+          geometry.dispose();
+          throw new Error('Modeling worker returned invalid logical vertex identities.');
+        }
+        results.push(geometry);
         topologies.push(result.topology);
+        logicalVertexIds.push(result.logicalVertexIds?.map(id => Number(id)));
       }
       if (this.snapshot() !== before || this.modelingVersion !== version || this.selected !== active || this.editMode !== editing || (batch && (meshes.length !== this.selectedObjects.size || meshes.some(m => !this.selectedObjects.has(m))))) throw new Error('Scene or selection changed; discarded the modeling result.');
       const total = this.stats().vertices + results.reduce((sum, g, i) => sum + g.getAttribute('position').count - meshes[i].geometry.getAttribute('position').count, 0);
@@ -2717,10 +2742,12 @@ export class Editor extends EventTarget {
       meshes.forEach((mesh, i) => {
         if (operation.kind === 'uv') {
           this.markPrimitiveApplied(mesh);
-        } else if ((operation.kind === 'bevel' || operation.kind === 'extrude' || operation.kind === 'inset' || operation.kind === 'inset-region' || operation.kind === 'loop' || (operation.kind === 'subdivide' && !batch) || operation.kind === 'delete-components' || operation.kind === 'merge-vertices' || operation.kind === 'fill-boundary' || operation.kind === 'cut-face' || operation.kind === 'cut-face-edge' || operation.kind === 'cut-face-edges' || operation.kind === 'cut-face-via-point' || operation.kind === 'cut-face-via-path') && topologies[i]) {
+        } else if ((operation.kind === 'bevel' || operation.kind === 'extrude' || operation.kind === 'inset' || operation.kind === 'inset-region' || operation.kind === 'extrude-region' || operation.kind === 'loop' || (operation.kind === 'subdivide' && !batch) || operation.kind === 'delete-components' || operation.kind === 'merge-vertices' || operation.kind === 'fill-boundary' || operation.kind === 'cut-face' || operation.kind === 'cut-face-edge' || operation.kind === 'cut-face-edges' || operation.kind === 'cut-face-via-point' || operation.kind === 'cut-face-via-path') && topologies[i]) {
           this.markPrimitiveApplied(mesh);
           if (mesh.userData.forgeLogicalQuads !== undefined) delete mesh.userData.forgeLogicalQuads;
           mesh.userData.forgePolygonTriangles = topologies[i]!.polygonTriangles.map(group => [...group]);
+          if (logicalVertexIds[i]) mesh.userData.forgeLogicalVertexIds = [...logicalVertexIds[i]!];
+          else delete mesh.userData.forgeLogicalVertexIds;
         } else {
           this.markTopologyChanged(mesh);
         }
@@ -2732,7 +2759,7 @@ export class Editor extends EventTarget {
         // main thread. This keeps raycast faceIndex -> logical polygon mapping
         // aligned with the parsed BufferGeometry rather than trusting a
         // transient worker-side triangle numbering.
-        const rebuildFromStoredPolygons = operation.kind === 'bevel' || operation.kind === 'extrude' || operation.kind === 'inset' || operation.kind === 'inset-region' || operation.kind === 'loop' || (operation.kind === 'subdivide' && !batch) || operation.kind === 'delete-components' || operation.kind === 'merge-vertices' || operation.kind === 'fill-boundary' || operation.kind === 'cut-face' || operation.kind === 'cut-face-edge' || operation.kind === 'cut-face-edges' || operation.kind === 'cut-face-via-point' || operation.kind === 'cut-face-via-path';
+        const rebuildFromStoredPolygons = operation.kind === 'bevel' || operation.kind === 'extrude' || operation.kind === 'inset' || operation.kind === 'inset-region' || operation.kind === 'extrude-region' || operation.kind === 'loop' || (operation.kind === 'subdivide' && !batch) || operation.kind === 'delete-components' || operation.kind === 'merge-vertices' || operation.kind === 'fill-boundary' || operation.kind === 'cut-face' || operation.kind === 'cut-face-edge' || operation.kind === 'cut-face-edges' || operation.kind === 'cut-face-via-point' || operation.kind === 'cut-face-via-path';
         this.setEditMode(true, operation.kind === 'uv' || rebuildFromStoredPolygons ? undefined : topologies[0]);
         if (operation.kind === 'subdivide' && !batch) {
           this.restoreSubdivisionSelection(oldMode, oldEdges, operation.cuts ?? 1);
@@ -2773,10 +2800,10 @@ export class Editor extends EventTarget {
           this.emit('component-selection');
         } else if (operation.kind === 'delete-components' || operation.kind === 'cut-face' || operation.kind === 'cut-face-edge' || operation.kind === 'cut-face-edges' || operation.kind === 'cut-face-via-point' || operation.kind === 'cut-face-via-path') {
           this.setComponentMode(oldMode);
-        } else if (['uv', 'inset', 'inset-region', 'extrude', 'region'].includes(operation.kind)) {
+        } else if (['uv', 'inset', 'inset-region', 'extrude', 'extrude-region'].includes(operation.kind)) {
           const restoredFaces =
             operation.kind === 'uv' ? oldSelection :
-            operation.kind === 'region' || operation.kind === 'inset-region' ? operation.faces :
+            operation.kind === 'extrude-region' || operation.kind === 'inset-region' ? operation.faces :
             operation.kind === 'inset' || operation.kind === 'extrude' ? [operation.face] :
             oldSelection;
           this.setComponentMode(oldMode);
@@ -4033,6 +4060,7 @@ export class Editor extends EventTarget {
     if (!position) return { vertices: 0, edges: 0, faces: 0, triangles: 0 };
     const primitiveKind = (mesh.userData.forgePrimitive as { kind?: string } | undefined)?.kind;
     const polygonSource = mesh.userData.forgePolygonTriangles;
+    const logicalVertexSource = mesh.userData.forgeLogicalVertexIds;
     const storedPolygons = this.storedPolygonTriangles(mesh);
     const pairTriangles =
       storedPolygons === undefined &&
@@ -4042,10 +4070,16 @@ export class Editor extends EventTarget {
       cached &&
       cached.geometry === mesh.geometry &&
       cached.polygonSource === polygonSource &&
+      cached.logicalVertexSource === logicalVertexSource &&
       cached.pairTriangles === pairTriangles
     ) return cached.counts;
 
-    const topology = buildTopology(position.array, mesh.geometry.index?.array, storedPolygons ?? pairTriangles);
+    const topology = buildTopology(
+      position.array,
+      mesh.geometry.index?.array,
+      storedPolygons ?? pairTriangles,
+      this.storedLogicalVertexIds(mesh),
+    );
     const counts = {
       vertices: topology.logicalVertices.length,
       edges: topology.polygonEdges.length,
@@ -4055,6 +4089,7 @@ export class Editor extends EventTarget {
     this.geometryCountCache.set(mesh, {
       geometry: mesh.geometry,
       polygonSource,
+      logicalVertexSource,
       pairTriangles,
       counts,
     });

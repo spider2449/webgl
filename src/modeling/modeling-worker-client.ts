@@ -19,24 +19,33 @@ export type ModelingOperation =
   | { kind: 'cut-face-edges'; face: number; firstEdge: number; firstT: number; secondEdge: number; secondT: number; polygonTriangles?: number[][] }
   | { kind: 'cut-face-via-point'; face: number; start: KnifeBoundaryTarget; interior: [number, number, number]; end: KnifeBoundaryTarget; polygonTriangles?: number[][] }
   | { kind: 'cut-face-via-path'; face: number; start: KnifeBoundaryTarget; interiors: [number, number, number][]; end: KnifeBoundaryTarget; polygonTriangles?: number[][] }
-  | { kind: 'region'; faces: number[]; distance: number }
+  | { kind: 'extrude-region'; faces: number[]; distance: number; polygonTriangles?: number[][] }
   | { kind: 'subdivide'; edges: number[]; cuts?: number; polygonTriangles?: number[][] }
   | { kind: 'subdivide-all' }
   | { kind: 'topology'; pairTriangles?: boolean; polygonTriangles?: number[][] };
 
-export function modelingJob(geometry: THREE.BufferGeometry, operation: ModelingOperation) {
+export function modelingJob(
+  geometry: THREE.BufferGeometry,
+  operation: ModelingOperation,
+  logicalVertexIds?: number[],
+) {
   const source = geometry.toJSON();
   if (JSON.stringify(source).length > 32 * 1024 * 1024) throw new Error('Worker payload exceeds 32 MB.');
   const worker = new Worker(new URL('./modeling.worker.ts', import.meta.url), { type: 'module' });
   let rejectJob: (error: Error) => void;
-  const promise = new Promise<{ geometry?: ReturnType<THREE.BufferGeometry['toJSON']>; topology?: import('./topology').MeshTopology; milliseconds: number }>((resolve, reject) => {
+  const promise = new Promise<{
+    geometry?: ReturnType<THREE.BufferGeometry['toJSON']>;
+    topology?: import('./topology').MeshTopology;
+    logicalVertexIds?: number[];
+    milliseconds: number;
+  }>((resolve, reject) => {
     rejectJob = reject;
     worker.onmessage = event => {
       cleanup();
       if (event.data.error) reject(new Error(event.data.error)); else resolve(event.data);
     };
     worker.onerror = event => { cleanup(); reject(new Error(event.message || 'Modeling worker failed.')); };
-    worker.postMessage({ source, operation });
+    worker.postMessage({ source, operation, logicalVertexIds });
   });
   const timer = setTimeout(() => { cleanup(); rejectJob(new Error('Modeling worker timed out.')); }, 60_000);
   function cleanup() { clearTimeout(timer); worker.terminate(); }

@@ -1,7 +1,8 @@
 import * as THREE from 'three';
 import { buildTopology, type MeshTopology } from './topology';
 
-type Corner = Record<string, number[]>;
+const logicalVertexIdentity = Symbol('logicalVertexIdentity');
+type Corner = Record<string, number[]> & { [logicalVertexIdentity]?: number };
 type Polygon = {
   corners: Corner[];
   material: number;
@@ -12,6 +13,36 @@ const key = (v: number[]) => v.join(',');
 const positionEdgeKey = (a: Corner, b: Corner) => [key(a.position), key(b.position)].sort().join('|');
 const edgeKey = (a: number, b: number) => `${Math.min(a, b)}:${Math.max(a, b)}`;
 const vector = (c: Corner) => new THREE.Vector3().fromArray(c.position);
+const logicalVertexIdsFromGeometry = (source: THREE.BufferGeometry, count: number): number[] | undefined => {
+  const value = source.userData.forgeLogicalVertexIds;
+  if (value === undefined) return undefined;
+  if (
+    !Array.isArray(value) ||
+    value.length !== count ||
+    value.some(id => !Number.isSafeInteger(id) || id < 0)
+  ) {
+    throw new Error('Invalid Forge logical vertex identity metadata.');
+  }
+  return value.map(id => Number(id));
+};
+const cornerIdentityKey = (corner: Corner) =>
+  corner[logicalVertexIdentity] === undefined
+    ? `p:${key(corner.position)}`
+    : `i:${corner[logicalVertexIdentity]}`;
+const attachLogicalVertexIds = (geometry: THREE.BufferGeometry, tokens: string[]) => {
+  const position = geometry.getAttribute('position');
+  if (tokens.length !== position.count) throw new Error('Logical vertex identity output does not match the position buffer.');
+  const ids = new Map<string, number>();
+  const logicalVertexIds = tokens.map(token => {
+    let id = ids.get(token);
+    if (id === undefined) {
+      id = ids.size;
+      ids.set(token, id);
+    }
+    return id;
+  });
+  geometry.userData.forgeLogicalVertexIds = logicalVertexIds;
+};
 
 export function inspectGeometry(source: THREE.BufferGeometry, logical: boolean | number[][] = false) {
   const p = source.getAttribute('position'), count = source.index?.count ?? p?.count ?? 0;
@@ -32,7 +63,14 @@ export function inspectGeometry(source: THREE.BufferGeometry, logical: boolean |
     }
   }
   const coordinates = Array.from({ length: p.count }, (_, i) => [p.getX(i), p.getY(i), p.getZ(i)]).flat();
-  const topology = buildTopology(coordinates, indices, logical);
+  const logicalVertexIds = logicalVertexIdsFromGeometry(source, p.count);
+  const topology = buildTopology(coordinates, indices, logical, logicalVertexIds);
+  const identityForBuffer = (index: number) =>
+    logicalVertexIds?.[index] ?? topology.bufferToVertex[index];
+  let nextLogicalVertexIdentity = 0;
+  for (let index = 0; index < p.count; index++) {
+    nextLogicalVertexIdentity = Math.max(nextLogicalVertexIdentity, identityForBuffer(index) + 1);
+  }
   const read = (v: number) => new THREE.Vector3().fromBufferAttribute(p, topology.vertices[v][0]);
   const normals = topology.faces.map(face => {
     const [a, b, c] = face.map(read), n = b.sub(a).cross(c.sub(a));
@@ -46,16 +84,31 @@ export function inspectGeometry(source: THREE.BufferGeometry, logical: boolean |
   }));
   for (const list of uses.values()) if (list.length > 2 || (list.length === 2 && list[0].a !== list[1].b)) throw new Error('Mesh must have consistently oriented manifold edges.');
   const polygons: Polygon[] = topology.faces.map((_, f) => ({ material: materials[f], corners: indices.slice(f * 3, f * 3 + 3).map(i => Object.fromEntries(Object.entries(source.attributes).filter(([name]) => name !== 'normal').map(([name, a]) => [name, Array.from({ length: a.itemSize }, (_, c) => a.getComponent(i, c))]))) }));
-  return { topology, normals, uses, read, polygons, indices, materials };
+  return {
+    topology,
+    normals,
+    uses,
+    read,
+    polygons,
+    indices,
+    materials,
+    logicalVertexIds,
+    identityForBuffer,
+    nextLogicalVertexIdentity,
+  };
 }
 
 function logicalSurface(source: THREE.BufferGeometry, inspection: ReturnType<typeof inspectGeometry>) {
   const { topology, read, indices, materials } = inspection;
-  const readCorner = (index: number): Corner => Object.fromEntries(
-    Object.entries(source.attributes)
-      .filter(([name]) => name !== 'normal')
-      .map(([name, attribute]) => [name, Array.from({ length: attribute.itemSize }, (_, component) => attribute.getComponent(index, component))]),
-  );
+  const readCorner = (index: number): Corner => {
+    const corner = Object.fromEntries(
+      Object.entries(source.attributes)
+        .filter(([name]) => name !== 'normal')
+        .map(([name, attribute]) => [name, Array.from({ length: attribute.itemSize }, (_, component) => attribute.getComponent(index, component))]),
+    ) as Corner;
+    corner[logicalVertexIdentity] = inspection.identityForBuffer(index);
+    return corner;
+  };
   const polygons: Polygon[] = [], normals: THREE.Vector3[] = [];
   const uses = new Map<string, { face: number; a: number; b: number }[]>();
 
@@ -326,6 +379,7 @@ function triangulateBoundary(
 function finishDetailed(polygons: Polygon[]) {
   const values: Record<string, number[]> = {}, sizes: Record<string, number> = {}, groups: { start: number; count: number; material: number }[] = [];
   const polygonTriangles: number[][] = [];
+  const logicalVertexTokens: string[] = [];
   let count = 0;
   for (const { corners, material, referenceNormals, forbiddenDiagonals } of polygons) {
     if (corners.length < 3) continue;
@@ -340,8 +394,11 @@ function finishDetailed(polygons: Polygon[]) {
       triangleIds.push(count / 3);
       const last = groups.at(-1);
       if (last?.material === material) last.count += 3; else groups.push({ start: count, count: 3, material });
-      for (const corner of triangle) for (const [name, data] of Object.entries(corner)) {
-        sizes[name] = data.length; (values[name] ??= []).push(...data);
+      for (const corner of triangle) {
+        logicalVertexTokens.push(cornerIdentityKey(corner));
+        for (const [name, data] of Object.entries(corner)) {
+          sizes[name] = data.length; (values[name] ??= []).push(...data);
+        }
       }
       count += 3;
     }
@@ -354,6 +411,7 @@ function finishDetailed(polygons: Polygon[]) {
     geometry.setAttribute(name, new THREE.Float32BufferAttribute(data, sizes[name]));
   }
   groups.forEach(g => geometry.addGroup(g.start, g.count, g.material));
+  attachLogicalVertexIds(geometry, logicalVertexTokens);
   geometry.computeVertexNormals(); geometry.computeBoundingBox(); geometry.computeBoundingSphere();
   return { geometry, polygonTriangles };
 }
@@ -362,8 +420,8 @@ function finish(polygons: Polygon[]): THREE.BufferGeometry {
   return finishDetailed(polygons).geometry;
 }
 
-function translatedCorner(corner: Corner, offset: THREE.Vector3): Corner {
-  return Object.fromEntries(Object.entries(corner).map(([name, data]) => [
+function translatedCorner(corner: Corner, offset: THREE.Vector3, identity?: number): Corner {
+  const translated = Object.fromEntries(Object.entries(corner).map(([name, data]) => [
     name,
     name === 'position'
       ? [
@@ -372,7 +430,9 @@ function translatedCorner(corner: Corner, offset: THREE.Vector3): Corner {
           Math.fround(data[2] + offset.z),
         ]
       : [...data],
-  ]));
+  ])) as Corner;
+  if (identity !== undefined) translated[logicalVertexIdentity] = identity;
+  return translated;
 }
 
 export function extrudeLogicalFace(
@@ -394,7 +454,10 @@ export function extrudeLogicalFace(
   const polygon = polygons[face];
   const normal = normals[face];
   const offset = normal.clone().multiplyScalar(distance);
-  const moved = polygon.corners.map(corner => translatedCorner(corner, offset));
+  let nextLogicalVertexIdentity = inspection.nextLogicalVertexIdentity;
+  const moved = polygon.corners.map(corner =>
+    translatedCorner(corner, offset, nextLogicalVertexIdentity++)
+  );
   for (let i = 0; i < polygon.corners.length; i++) {
     const before = vector(polygon.corners[i]);
     const after = vector(moved[i]);
@@ -421,6 +484,231 @@ export function extrudeLogicalFace(
 
   const result = finishDetailed(output);
   return { ...result, selectedFace: face };
+}
+
+export function extrudeLogicalFaceRegion(
+  source: THREE.BufferGeometry,
+  requestedFaces: number[],
+  distance: number,
+  polygonTriangles?: number[][],
+) {
+  if (!Number.isFinite(distance) || distance < 0.0001 || distance > 1000) {
+    throw new Error('Distance must be between 0.0001 and 1000 local units.');
+  }
+
+  const inspection = inspectGeometry(source, polygonTriangles ?? false);
+  const { topology, read } = inspection;
+  const surface = logicalSurface(source, inspection);
+  const faces = [...new Set(requestedFaces)].sort((a, b) => a - b);
+  if (
+    !faces.length ||
+    faces.some(face => !Number.isInteger(face) || !topology.polygons[face])
+  ) {
+    throw new Error('Select one or more valid logical faces for region extrusion.');
+  }
+
+  const selected = new Set(faces);
+  const neighbors = new Map(faces.map(face => [face, [] as number[]]));
+  for (const uses of surface.uses.values()) {
+    const inside = uses.filter(use => selected.has(use.face));
+    if (inside.length > 2) {
+      throw new Error('Extrude Region requires manifold logical polygon boundaries.');
+    }
+    if (inside.length === 2) {
+      neighbors.get(inside[0].face)!.push(inside[1].face);
+      neighbors.get(inside[1].face)!.push(inside[0].face);
+    }
+  }
+
+  const components: number[][] = [];
+  const remainingFaces = new Set(faces);
+  while (remainingFaces.size) {
+    const seed = remainingFaces.values().next().value as number;
+    const component: number[] = [];
+    const pending = [seed];
+    while (pending.length) {
+      const face = pending.pop()!;
+      if (!remainingFaces.delete(face)) continue;
+      component.push(face);
+      for (const next of neighbors.get(face) ?? []) if (remainingFaces.has(next)) pending.push(next);
+    }
+    component.sort((a, b) => a - b);
+    components.push(component);
+  }
+
+  type BoundaryUse = { face: number; a: number; b: number };
+  type RegionResult = {
+    faces: number[];
+    boundary: BoundaryUse[];
+    boundaryLoops: number;
+    direction: THREE.Vector3;
+    offset: THREE.Vector3;
+    movedIdentities: Map<number, number>;
+  };
+
+  let nextLogicalVertexIdentity = inspection.nextLogicalVertexIdentity;
+  const regions: RegionResult[] = components.map(componentFaces => {
+    const component = new Set(componentFaces);
+    const boundary: BoundaryUse[] = [];
+
+    for (const uses of surface.uses.values()) {
+      const inside = uses.filter(use => component.has(use.face));
+      if (!inside.length) continue;
+      if (inside.length > 2) {
+        throw new Error('Extrude Region requires manifold logical polygon boundaries.');
+      }
+      if (inside.length === 1) boundary.push(inside[0]);
+    }
+
+    if (!boundary.length) {
+      throw new Error('Extrude Region requires every selected region to have a boundary.');
+    }
+
+    const outgoing = new Map<number, BoundaryUse>();
+    const incoming = new Map<number, BoundaryUse>();
+    for (const use of boundary) {
+      if (outgoing.has(use.a) || incoming.has(use.b)) {
+        throw new Error('Extrude Region boundary must consist of simple closed loops.');
+      }
+      outgoing.set(use.a, use);
+      incoming.set(use.b, use);
+    }
+    const boundaryVertices = new Set([...outgoing.keys(), ...incoming.keys()]);
+    if ([...boundaryVertices].some(vertex => !outgoing.has(vertex) || !incoming.has(vertex))) {
+      throw new Error('Extrude Region boundary must consist of simple closed loops.');
+    }
+
+    const unvisited = new Set(boundary.map(use => edgeKey(use.a, use.b)));
+    let boundaryLoops = 0;
+    while (unvisited.size) {
+      const firstKey = unvisited.values().next().value as string;
+      const first = boundary.find(use => edgeKey(use.a, use.b) === firstKey);
+      if (!first) throw new Error('Extrude Region boundary traversal failed.');
+      let current = first;
+      let count = 0;
+      for (; count <= boundary.length; count++) {
+        const id = edgeKey(current.a, current.b);
+        if (!unvisited.has(id)) {
+          if (current.a === first.a) break;
+          throw new Error('Extrude Region boundary traversal crossed itself.');
+        }
+        unvisited.delete(id);
+        if (current.b === first.a) break;
+        const next = outgoing.get(current.b);
+        if (!next) throw new Error('Extrude Region boundary is open.');
+        current = next;
+      }
+      if (count < 2 || current.b !== first.a) {
+        throw new Error('Extrude Region boundary must consist of closed loops.');
+      }
+      boundaryLoops++;
+    }
+
+    const direction = new THREE.Vector3();
+    for (const face of componentFaces) {
+      const points = surface.polygons[face].corners.map(vector);
+      const weightedNormal = new THREE.Vector3();
+      for (let index = 0; index < points.length; index++) {
+        const a = points[index], b = points[(index + 1) % points.length];
+        weightedNormal.x += (a.y - b.y) * (a.z + b.z);
+        weightedNormal.y += (a.z - b.z) * (a.x + b.x);
+        weightedNormal.z += (a.x - b.x) * (a.y + b.y);
+      }
+      direction.add(weightedNormal);
+    }
+    if (!Number.isFinite(direction.lengthSq()) || direction.lengthSq() < 1e-16) {
+      throw new Error('Extrude Region cannot derive one outward direction from a selected region.');
+    }
+    direction.normalize();
+    if (componentFaces.some(face => surface.normals[face].dot(direction) <= 1e-6)) {
+      throw new Error('Extrude Region faces within one connected region do not share one outward extrusion hemisphere.');
+    }
+
+    const offset = direction.clone().multiplyScalar(distance);
+    if (![offset.x, offset.y, offset.z].every(Number.isFinite) || offset.lengthSq() < 1e-16) {
+      throw new Error('Extrude Region collapses at mesh coordinate precision.');
+    }
+
+    for (const use of boundary) {
+      const edge = read(use.b).sub(read(use.a));
+      if (!Number.isFinite(edge.lengthSq()) || edge.lengthSq() < 1e-16) {
+        throw new Error('Extrude Region has a collapsed boundary edge.');
+      }
+      if (edge.cross(offset).lengthSq() < 1e-16) {
+        throw new Error('Extrude Region direction collapses a boundary wall.');
+      }
+    }
+
+    const movedIdentities = new Map<number, number>();
+    for (const face of componentFaces) {
+      for (const vertex of topology.polygons[face]) {
+        if (!movedIdentities.has(vertex)) movedIdentities.set(vertex, nextLogicalVertexIdentity++);
+      }
+    }
+
+    return { faces: componentFaces, boundary, boundaryLoops, direction, offset, movedIdentities };
+  });
+
+  const regionByFace = new Map<number, RegionResult>();
+  for (const region of regions) {
+    for (const face of region.faces) regionByFace.set(face, region);
+  }
+
+  const entries: EditedPolygon[] = topology.polygons.map((_, face) => {
+    const polygon = surface.polygons[face];
+    const region = regionByFace.get(face);
+    if (!region) return { polygon, sourceFace: face };
+    const vertices = topology.polygons[face];
+    return {
+      polygon: {
+        material: polygon.material,
+        corners: polygon.corners.map((corner, index) =>
+          translatedCorner(corner, region.offset, region.movedIdentities.get(vertices[index]))
+        ),
+        referenceNormals: polygon.referenceNormals?.map(normal => normal.clone()),
+      },
+    };
+  });
+
+  for (const region of regions) {
+    for (const use of region.boundary) {
+      const vertices = topology.polygons[use.face];
+      const local = vertices.findIndex((vertex, index) =>
+        vertex === use.a && vertices[(index + 1) % vertices.length] === use.b
+      );
+      if (local < 0) throw new Error('Extrude Region could not resolve a boundary edge.');
+      const polygon = surface.polygons[use.face];
+      const next = (local + 1) % vertices.length;
+      const a = polygon.corners[local];
+      const b = polygon.corners[next];
+      entries.push({
+        polygon: {
+          material: polygon.material,
+          corners: [
+            a,
+            b,
+            translatedCorner(b, region.offset, region.movedIdentities.get(use.b)),
+            translatedCorner(a, region.offset, region.movedIdentities.get(use.a)),
+          ],
+        },
+      });
+    }
+  }
+
+  const result = finishEditedSurface(source, inspection, entries);
+  return {
+    ...result,
+    selectedFaces: faces,
+    regionCount: regions.length,
+    boundaryEdges: regions.reduce((sum, region) => sum + region.boundary.length, 0),
+    boundaryLoops: regions.reduce((sum, region) => sum + region.boundaryLoops, 0),
+    regions: regions.map(region => ({
+      faces: [...region.faces],
+      boundaryEdges: region.boundary.length,
+      boundaryLoops: region.boundaryLoops,
+      direction: [region.direction.x, region.direction.y, region.direction.z] as [number, number, number],
+    })),
+  };
 }
 
 function cornerAtPoint(
@@ -1593,16 +1881,21 @@ function finishEditedSurface(
   const sizes: Record<string, number> = {};
   const groups: { start: number; count: number; material: number }[] = [];
   const polygonTriangles: number[][] = [];
+  const logicalVertexTokens: string[] = [];
   let count = 0;
 
-  const rawCorner = (index: number): Corner => Object.fromEntries(
-    Object.entries(source.attributes)
-      .filter(([name]) => name !== 'normal')
-      .map(([name, attribute]) => [
-        name,
-        Array.from({ length: attribute.itemSize }, (_, component) => attribute.getComponent(index, component)),
-      ]),
-  );
+  const rawCorner = (index: number): Corner => {
+    const corner = Object.fromEntries(
+      Object.entries(source.attributes)
+        .filter(([name]) => name !== 'normal')
+        .map(([name, attribute]) => [
+          name,
+          Array.from({ length: attribute.itemSize }, (_, component) => attribute.getComponent(index, component)),
+        ]),
+    ) as Corner;
+    corner[logicalVertexIdentity] = inspection.identityForBuffer(index);
+    return corner;
+  };
   const appendTriangle = (triangle: Corner[], material: number, ids: number[]) => {
     const [a, b, d] = triangle.map(vector);
     if (b.sub(a).cross(d.sub(a)).lengthSq() < 1e-16) throw new Error('Result collapses at mesh coordinate precision.');
@@ -1611,9 +1904,12 @@ function finishEditedSurface(
     const last = groups.at(-1);
     if (last?.material === material) last.count += 3;
     else groups.push({ start: count, count: 3, material });
-    for (const corner of triangle) for (const [name, data] of Object.entries(corner)) {
-      sizes[name] = data.length;
-      (values[name] ??= []).push(...data);
+    for (const corner of triangle) {
+      logicalVertexTokens.push(cornerIdentityKey(corner));
+      for (const [name, data] of Object.entries(corner)) {
+        sizes[name] = data.length;
+        (values[name] ??= []).push(...data);
+      }
     }
     count += 3;
   };
@@ -1643,6 +1939,7 @@ function finishEditedSurface(
     geometry.setAttribute(name, new THREE.Float32BufferAttribute(data, sizes[name]));
   }
   groups.forEach(group => geometry.addGroup(group.start, group.count, group.material));
+  attachLogicalVertexIds(geometry, logicalVertexTokens);
   geometry.computeVertexNormals();
   geometry.computeBoundingBox();
   geometry.computeBoundingSphere();
@@ -1658,14 +1955,18 @@ function polygonFromTriangleGroup(
   const { topology, indices, materials, normals } = inspection;
   const triangles = topology.polygonTriangles[polygonId];
   const vertices = topology.polygons[polygonId];
-  const rawCorner = (index: number): Corner => Object.fromEntries(
-    Object.entries(source.attributes)
-      .filter(([name]) => name !== 'normal')
-      .map(([name, attribute]) => [
-        name,
-        Array.from({ length: attribute.itemSize }, (_, component) => attribute.getComponent(index, component)),
-      ]),
-  );
+  const rawCorner = (index: number): Corner => {
+    const corner = Object.fromEntries(
+      Object.entries(source.attributes)
+        .filter(([name]) => name !== 'normal')
+        .map(([name, attribute]) => [
+          name,
+          Array.from({ length: attribute.itemSize }, (_, component) => attribute.getComponent(index, component)),
+        ]),
+    ) as Corner;
+    corner[logicalVertexIdentity] = inspection.identityForBuffer(index);
+    return corner;
+  };
   const corners = vertices.map(vertex => {
     for (const triangle of triangles) {
       for (let corner = 0; corner < 3; corner++) {
@@ -1941,9 +2242,15 @@ export function fillLogicalBoundaryFace(
     throw new Error('Fill Boundary loop already bounds a logical face.');
   }
 
-  const cloneCorner = (corner: Corner): Corner => Object.fromEntries(
-    Object.entries(corner).map(([name, data]) => [name, [...data]])
-  );
+  const cloneCorner = (corner: Corner): Corner => {
+    const cloned = Object.fromEntries(
+      Object.entries(corner).map(([name, data]) => [name, [...data]])
+    ) as Corner;
+    if (corner[logicalVertexIdentity] !== undefined) {
+      cloned[logicalVertexIdentity] = corner[logicalVertexIdentity];
+    }
+    return cloned;
+  };
   const fill: Polygon = {
     material: start.material,
     corners: loop.map(record => cloneCorner(record.fromCorner)),
