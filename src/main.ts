@@ -1142,10 +1142,17 @@ async function extrudeSelectedFace() {
 }
 async function extrudeSelectedRegion() {
   try {
-    if (!editor.editMode || editor.componentMode !== 'face' || !editor.componentSelection.length || !editor.meshTopology) throw new Error('Select connected coplanar faces in Edit Mode first.');
-    const faces = editor.componentSelection.flatMap(id => editor.meshTopology!.polygonTriangles[id] ?? []);
-    await editor.runModeling({ kind: 'region', faces, distance: modelingToolSettings.extrudeDistance });
-    toast('Planar region extruded. The cap faces remain selected.');
+    if (!editor.editMode || editor.componentMode !== 'face' || !editor.componentSelection.length || !editor.meshTopology) {
+      throw new Error('Select one connected logical face region in Edit Mode first.');
+    }
+    const faces = editor.componentSelection;
+    await editor.runModeling({
+      kind: 'extrude-region',
+      faces,
+      distance: modelingToolSettings.extrudeDistance,
+      polygonTriangles: editor.meshTopology.polygonTriangles.map(group => [...group]),
+    });
+    toast('Face region extruded. Internal logical edges are preserved.');
   } catch (error) { toast((error as Error).message); }
 }
 async function insetSelectedRegion() {
