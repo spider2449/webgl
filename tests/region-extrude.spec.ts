@@ -507,6 +507,7 @@ test('UI vertex-touching diagonal faces extrude separately without non-manifold 
     (window as any).__forgeModelingSettings.extrudeDistance = 0.25;
     return {
       pair,
+      selectedUuid: e.selected.uuid,
       snapshot: e.snapshot(),
       undoDepth: e.undoDepth,
     };
@@ -559,9 +560,13 @@ test('UI vertex-touching diagonal faces extrude separately without non-manifold 
     (window as any).__forge.snapshot() === snapshot,
   before.snapshot);
 
-  await page.evaluate((snapshot: string) => {
-    (window as any).__forge.load(JSON.parse(snapshot));
-  }, extrudedSnapshot);
+  await page.evaluate(({ snapshot, uuid }: { snapshot: string; uuid: string }) => {
+    const e = (window as any).__forge;
+    e.load(JSON.parse(snapshot));
+    const restored = e.content.getObjectByProperty('uuid', uuid);
+    if (!restored) throw new Error('Extruded Plane was not restored by project load.');
+    e.select(restored);
+  }, { snapshot: extrudedSnapshot, uuid: before.selectedUuid });
   await page.locator('#mode').selectOption('edit');
   await page.getByLabel('Mesh component').selectOption('face');
 
