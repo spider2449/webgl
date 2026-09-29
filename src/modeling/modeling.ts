@@ -67,10 +67,10 @@ export function inspectGeometry(source: THREE.BufferGeometry, logical: boolean |
   const topology = buildTopology(coordinates, indices, logical, logicalVertexIds);
   const identityForBuffer = (index: number) =>
     logicalVertexIds?.[index] ?? topology.bufferToVertex[index];
-  const nextLogicalVertexIdentity = Math.max(
-    -1,
-    ...Array.from({ length: p.count }, (_, index) => identityForBuffer(index)),
-  ) + 1;
+  let nextLogicalVertexIdentity = 0;
+  for (let index = 0; index < p.count; index++) {
+    nextLogicalVertexIdentity = Math.max(nextLogicalVertexIdentity, identityForBuffer(index) + 1);
+  }
   const read = (v: number) => new THREE.Vector3().fromBufferAttribute(p, topology.vertices[v][0]);
   const normals = topology.faces.map(face => {
     const [a, b, c] = face.map(read), n = b.sub(a).cross(c.sub(a));
