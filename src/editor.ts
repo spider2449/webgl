@@ -13,7 +13,6 @@ import { extrudeLogicalFace } from './modeling/modeling';
 import { buildTopology, growLogicalComponents, linkedLogicalComponents, logicalCoplanarFaces, logicalEdgesByLength, logicalFaceBoundaryEdges, logicalFacesBySides, logicalMeshBoundaryEdges, logicalNonManifoldEdges, logicalSharpEdges, shrinkLogicalComponents, type MeshTopology, type ComponentMode, type FaceSideKind } from './modeling/topology';
 import { proportionalWeights } from './modeling/proportional';
 import { subdivideEdges } from './modeling/subdivide';
-import { extrudeRegion } from './modeling/extrude-region';
 import { modelingJob, type ModelingOperation } from './modeling/modeling-worker-client';
 import { validateModifierStack, type Modifier, type ModifierStack } from './modeling/modifiers';
 import { createPrimitiveGeometry, defaultPrimitiveSettings, parsePrimitiveSettings, updatePrimitiveSetting, type Primitive, type PrimitiveSettings } from './modeling/primitives';
@@ -2161,28 +2160,6 @@ export class Editor extends EventTarget {
     this.selectedComponents = new Set([selectedAfter]);
     this.selectedFace = selectedAfter;
     this.selectComponentVertices(this.topology!.polygons[selectedAfter] ?? []);
-    this.commit();
-  }
-  extrudePlanarRegion(distance: number) {
-    if (!this.editMode || this.componentMode !== 'face' || !this.selectedComponents.size || !this.topology || !(this.selected instanceof THREE.Mesh) || this.selected instanceof THREE.SkinnedMesh || this.playing || this.transform.dragging) {
-      throw new Error('Select connected coplanar faces in Edit Mode and finish the current drag first.');
-    }
-    const faces = [...this.selectedComponents].flatMap(polygon => this.topology!.polygonTriangles[polygon] ?? []);
-    const mesh = this.selected, original = mesh.geometry;
-    const geometry = extrudeRegion(original, faces, distance);
-    if (this.stats().vertices + geometry.getAttribute('position').count - original.getAttribute('position').count > 2_000_000) {
-      geometry.dispose(); throw new Error('Region extrusion would exceed the scene vertex limit.');
-    }
-    this.markTopologyChanged(mesh);
-    this.setEditMode(false);
-    mesh.geometry = geometry;
-    let retained = false;
-    this.content.traverse(object => { if (object instanceof THREE.Mesh && object.geometry === original) retained = true; });
-    if (!retained) original.dispose();
-    this.setEditMode(true);
-    this.selectedComponents = new Set(faces);
-    this.selectedFace = faces.length === 1 ? faces[0] : null;
-    this.selectComponentVertices(faces.flatMap(face => this.topology!.polygons[face] ?? []));
     this.commit();
   }
   subdivideSelectedEdge() {
