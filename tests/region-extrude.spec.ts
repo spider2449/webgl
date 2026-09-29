@@ -601,6 +601,94 @@ test('UI vertex-touching diagonal faces extrude separately without non-manifold 
   })).toBe(true);
 });
 
+test('Delete Face works after vertex-touching multi-region extrusion', async ({ page }) => {
+  await page.goto('/');
+  await page.waitForFunction(() => (window as any).__forge?.selected);
+
+  await page.locator('[data-menu="add-menu"]').click();
+  await page.locator('[data-primitive="plane"]').click();
+  await page.getByLabel('Primitive Segments X').fill('2');
+  await page.getByLabel('Primitive Segments X').press('Enter');
+  await page.getByLabel('Primitive Segments Y').fill('2');
+  await page.getByLabel('Primitive Segments Y').press('Enter');
+
+  await page.locator('#mode').selectOption('edit');
+  await page.getByLabel('Mesh component').selectOption('face');
+
+  const before = await page.evaluate(() => {
+    const e = (window as any).__forge;
+    const pair = e.meshTopology.polygons.flatMap((polygon: number[], face: number) =>
+      e.meshTopology.polygons.flatMap((other: number[], candidate: number) => {
+        if (candidate <= face) return [];
+        const shared = polygon.filter((vertex: number) => other.includes(vertex));
+        const sharedEdge = e.meshTopology.polygonEdges.some(([a, b]: [number, number]) =>
+          shared.includes(a) && shared.includes(b)
+        );
+        return shared.length === 1 && !sharedEdge ? [[face, candidate]] : [];
+      })
+    )[0];
+    e.selectComponent(pair[0]);
+    e.selectComponent(pair[1], true);
+    (window as any).__forgeModelingSettings.extrudeDistance = 0.25;
+    return { pair, undoDepth: e.undoDepth };
+  });
+
+  await page.evaluate(() => (window as any).__forgeCommands.extrudeRegion());
+  await page.waitForFunction(() => !(window as any).__forge.modelingBusy);
+  await expect(page.locator('#toast')).toContainText('Selected face regions extruded');
+
+  const extruded = await page.evaluate((pair: number[]) => {
+    const e = (window as any).__forge;
+    e.selectComponent(pair[0]);
+    return {
+      faces: e.meshTopology.polygons.length,
+      triangles: e.meshTopology.polygonTriangles.flat().length,
+      selected: [...e.componentSelection],
+      identityCount: e.selected.userData.forgeLogicalVertexIds?.length,
+      positionCount: e.selected.geometry.getAttribute('position').count,
+      undoDepth: e.undoDepth,
+    };
+  }, before.pair);
+
+  expect(extruded.selected).toEqual([before.pair[0]]);
+  expect(extruded.identityCount).toBe(extruded.positionCount);
+
+  await page.keyboard.press('Delete');
+  await page.waitForFunction(() => !(window as any).__forge.modelingBusy);
+  await expect(page.locator('#toast')).toContainText('Faces deleted');
+
+  expect(await page.evaluate((previous: { faces: number; triangles: number; undoDepth: number }) => {
+    const e = (window as any).__forge;
+    return {
+      mode: e.componentMode,
+      faces: e.meshTopology.polygons.length,
+      triangles: e.meshTopology.polygonTriangles.flat().length,
+      identityCount: e.selected.userData.forgeLogicalVertexIds?.length,
+      positionCount: e.selected.geometry.getAttribute('position').count,
+      undoDepth: e.undoDepth,
+      previous,
+    };
+  }, { faces: extruded.faces, triangles: extruded.triangles, undoDepth: extruded.undoDepth })).toEqual({
+    mode: 'face',
+    faces: extruded.faces - 1,
+    triangles: extruded.triangles - 2,
+    identityCount: expect.any(Number),
+    positionCount: expect.any(Number),
+    undoDepth: extruded.undoDepth + 1,
+    previous: {
+      faces: extruded.faces,
+      triangles: extruded.triangles,
+      undoDepth: extruded.undoDepth,
+    },
+  });
+
+  expect(await page.evaluate(() => {
+    const e = (window as any).__forge;
+    return e.selected.userData.forgeLogicalVertexIds.length ===
+      e.selected.geometry.getAttribute('position').count;
+  })).toBe(true);
+});
+
 test('UI disconnected face selection extrudes as separate logical regions in one Undo step', async ({ page }) => {
   await page.goto('/');
   await page.waitForFunction(() => (window as any).__forge?.selected);
