@@ -552,10 +552,48 @@ test('UI vertex-touching diagonal faces extrude separately without non-manifold 
       e.selected.geometry.getAttribute('position').count;
   })).toBe(true);
 
+  const extrudedSnapshot = await page.evaluate(() => (window as any).__forge.snapshot());
+
   await page.keyboard.press('Control+z');
   await page.waitForFunction((snapshot: string) =>
     (window as any).__forge.snapshot() === snapshot,
   before.snapshot);
+
+  await page.evaluate((snapshot: string) => {
+    (window as any).__forge.load(JSON.parse(snapshot));
+  }, extrudedSnapshot);
+  await page.locator('#mode').selectOption('edit');
+  await page.getByLabel('Mesh component').selectOption('face');
+
+  expect(await page.evaluate((pair: number[]) => {
+    const e = (window as any).__forge;
+    const first = e.meshTopology.polygons[pair[0]];
+    const second = e.meshTopology.polygons[pair[1]];
+    const position = e.selected.geometry.getAttribute('position');
+    const positions = (polygon: number[]) => polygon.map((vertex: number) => {
+      const buffer = e.meshTopology.vertices[vertex][0];
+      return [position.getX(buffer), position.getY(buffer), position.getZ(buffer)].join(',');
+    });
+    const firstPositions = positions(first);
+    const secondPositions = positions(second);
+    return {
+      sharedLogicalVertices: first.filter((vertex: number) => second.includes(vertex)),
+      coincidentCapPositions: firstPositions.filter((value: string) => secondPositions.includes(value)),
+      identityCount: e.selected.userData.forgeLogicalVertexIds?.length,
+      bufferVertices: position.count,
+    };
+  }, before.pair)).toEqual({
+    sharedLogicalVertices: [],
+    coincidentCapPositions: [expect.any(String)],
+    identityCount: expect.any(Number),
+    bufferVertices: expect.any(Number),
+  });
+
+  expect(await page.evaluate(() => {
+    const e = (window as any).__forge;
+    return e.selected.userData.forgeLogicalVertexIds.length ===
+      e.selected.geometry.getAttribute('position').count;
+  })).toBe(true);
 });
 
 test('UI disconnected face selection extrudes as separate logical regions in one Undo step', async ({ page }) => {
