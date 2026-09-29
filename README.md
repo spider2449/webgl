@@ -88,7 +88,7 @@ RMB -> **Select Less** removes one logical boundary ring by dropping selected co
 Renderer triangulation diagonals never participate. In Face mode, RMB -> **Select Faces by Sides** selects logical Triangles, Quads or N-gons (5+ sides)
 from polygon boundary size rather than renderer tessellation; the default Cube therefore has six Quads, not
 twelve Triangles. **Select Coplanar Faces** expands the current face seed across shared logical polygon edges
-only while adjacent faces remain on the same consistently oriented plane, which is useful before Extrude Region.
+only while adjacent faces remain on the same consistently oriented plane.
 In Edge mode, RMB -> **Select Same Length** uses the active logical edge as a reference and selects logical polygon edges within the session-only **Length Tolerance (%)** (1% by default); renderer triangulation diagonals never participate. RMB -> **Select Sharp Edges** selects manifold logical edges shared by exactly two logical polygons
 when their face-normal angle is at least the session-only **Sharp Angle** threshold (30° by default); renderer
 triangulation diagonals, open boundaries and over-connected non-manifold edges are excluded. RMB -> **Select Non-Manifold Edges** selects logical edges whose polygon-face use count
@@ -102,13 +102,15 @@ logical components in that mode. Renderer triangulation diagonals never particip
 temporary and these selection commands do not add an Undo step; moved geometry still supports undo/redo
 and project saving. **Extrude Face** requires exactly one selected logical face. **Inset Faces**
 accepts either one logical face or one edge-connected logical face region and keeps the resulting inner face selection.
-**Extrude planar region** accepts connected coplanar face selections.
+**Extrude Region** accepts one edge-connected logical face region, including folded non-coplanar regions, and preserves its internal logical edges.
 
-### Planar region extrusion
+### Logical face region extrusion
 
-In Edit Mode with Triangle face selection, Shift-click connected coplanar triangles and choose **Extrude planar region**. The existing **Extrusion distance** sets the positive offset in local units. The selected faces move together along their common normal; only region boundaries get side walls, including hole boundaries. Cap faces remain selected for another extrusion or group movement. UV/color seams and material groups are retained; wall UVs inherit boundary coordinates. Undo/redo and Forge projects retain the result.
+In Face Edit Mode, select one edge-connected logical face region and choose **Extrude Region**. Forge keeps every selected Triangle, Quad or N-gon as its own logical cap polygon and preserves selected-selected internal logical edges. Only the region perimeter receives new logical wall Quads, including inner hole boundaries. Renderer triangulation remains an implementation detail underneath those polygons.
 
-The operation accepts up to 100k input vertices and 200k triangles and rejects disconnected/nonplanar selections, invalid topology, ambiguous boundaries, unsupported attributes and precision collapse before changing the mesh. Planarity uses a relative tolerance of one millionth of the region diagonal (minimum 0.0000001 local units). Curved-surface extrusion, inward extrusion, collision checks and automatic wall UV unwrapping remain future work.
+The shared **Extrude Distance** supplies a positive local-space distance. Forge derives one area-weighted outward direction from the selected logical face normals and translates the whole cap region by one common 3D vector. A planar region therefore moves along its common normal, while a folded region can cross creases without flattening or independently offsetting its faces. Because every cap vertex receives the same translation, the authored cap polygons and their internal edges keep their original shape.
+
+The selected cap face IDs remain selected after the operation, so Extrude Region can be repeated immediately. UV/color seams remain independent per polygon side, existing face materials are retained, and each perimeter wall inherits its adjacent selected face material. Disconnected selections, selections whose normals cannot define one outward extrusion hemisphere, closed selections without a perimeter, ambiguous/non-manifold boundaries, collapsed walls and precision failures reject atomically before the mesh is replaced. Undo/redo and Forge project save/load retain the polygon-native result.
 
 ### Logical edge subdivision
 
