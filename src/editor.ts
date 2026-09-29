@@ -1307,6 +1307,13 @@ export class Editor extends EventTarget {
         }
         attribute.needsUpdate = true;
       }
+      const logicalVertexIds = this.storedLogicalVertexIds(this.selected);
+      if (logicalVertexIds) {
+        for (let i = 0; i < logicalVertexIds.length; i += 3) {
+          [logicalVertexIds[i], logicalVertexIds[i + 2]] = [logicalVertexIds[i + 2], logicalVertexIds[i]];
+        }
+        this.selected.userData.forgeLogicalVertexIds = logicalVertexIds;
+      }
     }
     geometry.computeVertexNormals();
     geometry.computeBoundingSphere();
