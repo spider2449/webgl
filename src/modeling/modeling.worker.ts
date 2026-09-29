@@ -1,8 +1,7 @@
 import * as THREE from 'three';
-import { bevelLogicalEdges, cutLogicalFace, deleteLogicalComponents, extrudeLogicalFace, fillLogicalBoundaryFace, insetLogicalFace, insetLogicalFaceRegion, loopCutLogicalEdge, mergeLogicalVerticesAtCenter, subdivideLogicalEdges, editUV, inspectGeometry } from './modeling';
+import { bevelLogicalEdges, cutLogicalFace, deleteLogicalComponents, extrudeLogicalFace, extrudeLogicalFaceRegion, fillLogicalBoundaryFace, insetLogicalFace, insetLogicalFaceRegion, loopCutLogicalEdge, mergeLogicalVerticesAtCenter, subdivideLogicalEdges, editUV, inspectGeometry } from './modeling';
 import { cutLogicalFaceBetweenEdges, cutLogicalFaceToEdge, cutLogicalFaceViaPath, cutLogicalFaceViaPoint } from './cut-edge-endpoint';
 import { evaluateModifiers } from './modifiers';
-import { extrudeRegion } from './extrude-region';
 import { subdivideEdges } from './subdivide';
 import type { ModelingOperation } from './modeling-worker-client';
 import { buildTopology } from './topology';
@@ -111,7 +110,12 @@ self.onmessage = (event: MessageEvent<{ source: ReturnType<THREE.BufferGeometry[
         logicalGroups = cut.polygonTriangles;
         break;
       }
-      case 'region': result = extrudeRegion(source, op.faces, op.distance); break;
+      case 'extrude-region': {
+        const extrusion = extrudeLogicalFaceRegion(source, op.faces, op.distance, op.polygonTriangles);
+        result = extrusion.geometry;
+        logicalGroups = extrusion.polygonTriangles;
+        break;
+      }
       case 'subdivide': {
         const subdivision = subdivideLogicalEdges(source, op.edges, op.polygonTriangles, op.cuts ?? 1);
         result = subdivision.geometry;
