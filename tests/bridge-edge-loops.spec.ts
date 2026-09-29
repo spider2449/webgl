@@ -276,6 +276,63 @@ test('RMB Bridge Edge Loops closes two Cube boundary loops and selects the new Q
   })).toBe(true);
   await expect(page.locator('#geometry-statistics-selected')).toHaveText('Obj 1 · V 8 · E 12 · F 4 · T 8');
 
+  // The whole 4-face side band has no single rigid outward translation direction,
+  // so current Extrude Region must reject it without changing the mesh.
+  const bridgedSnapshot = await page.evaluate(() => (window as any).__forge.snapshot());
+  await page.evaluate(() => (window as any).__forgeCommands.extrudeRegion());
+  await page.waitForFunction(() => !(window as any).__forge.modelingBusy);
+  await expect(page.locator('#toast')).toContainText('cannot derive one outward direction');
+  expect(await page.evaluate(() => (window as any).__forge.snapshot())).toBe(bridgedSnapshot);
+
+  // A single newly bridged logical Quad must remain a normal polygon-native face.
+  await page.evaluate(() => {
+    const e = (window as any).__forge;
+    e.selectComponent(2);
+    (window as any).__forgeModelingSettings.extrudeDistance = 0.5;
+  });
+  await page.evaluate(() => (window as any).__forgeCommands.extrudeFace());
+  await page.waitForFunction(() => !(window as any).__forge.modelingBusy);
+  await expect(page.locator('#toast')).toContainText('Face extruded');
+
+  expect(await page.evaluate(() => {
+    const e = (window as any).__forge;
+    return {
+      mode: e.componentMode,
+      selection: [...e.componentSelection],
+      vertices: e.meshTopology.logicalVertices.length,
+      edges: e.meshTopology.polygonEdges.length,
+      faces: e.meshTopology.polygons.length,
+      triangles: e.meshTopology.polygonTriangles.flat().length,
+      identityCount: e.selected.userData.forgeLogicalVertexIds?.length,
+      positionCount: e.selected.geometry.getAttribute('position').count,
+      undoDepth: e.undoDepth,
+    };
+  })).toEqual({
+    mode: 'face',
+    selection: [2],
+    vertices: 12,
+    edges: 20,
+    faces: 10,
+    triangles: 20,
+    identityCount: expect.any(Number),
+    positionCount: expect.any(Number),
+    undoDepth: before.undoDepth + 3,
+  });
+
+  expect(await page.evaluate(() => {
+    const e = (window as any).__forge;
+    return e.selected.userData.forgeLogicalVertexIds.length ===
+      e.selected.geometry.getAttribute('position').count;
+  })).toBe(true);
+
+  await page.keyboard.press('Control+z');
+  await page.waitForFunction(() => {
+    const e = (window as any).__forge;
+    return e.meshTopology?.logicalVertices.length === 8 &&
+      e.meshTopology?.polygons.length === 6 &&
+      e.meshTopology?.polygonTriangles.flat().length === 12;
+  });
+
   await page.keyboard.press('Control+z');
   await page.waitForFunction(() => {
     const e = (window as any).__forge;
