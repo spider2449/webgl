@@ -2242,9 +2242,15 @@ export function fillLogicalBoundaryFace(
     throw new Error('Fill Boundary loop already bounds a logical face.');
   }
 
-  const cloneCorner = (corner: Corner): Corner => Object.fromEntries(
-    Object.entries(corner).map(([name, data]) => [name, [...data]])
-  );
+  const cloneCorner = (corner: Corner): Corner => {
+    const cloned = Object.fromEntries(
+      Object.entries(corner).map(([name, data]) => [name, [...data]])
+    ) as Corner;
+    if (corner[logicalVertexIdentity] !== undefined) {
+      cloned[logicalVertexIdentity] = corner[logicalVertexIdentity];
+    }
+    return cloned;
+  };
   const fill: Polygon = {
     material: start.material,
     corners: loop.map(record => cloneCorner(record.fromCorner)),
