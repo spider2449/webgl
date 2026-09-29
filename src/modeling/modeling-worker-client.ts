@@ -19,7 +19,7 @@ export type ModelingOperation =
   | { kind: 'cut-face-edges'; face: number; firstEdge: number; firstT: number; secondEdge: number; secondT: number; polygonTriangles?: number[][] }
   | { kind: 'cut-face-via-point'; face: number; start: KnifeBoundaryTarget; interior: [number, number, number]; end: KnifeBoundaryTarget; polygonTriangles?: number[][] }
   | { kind: 'cut-face-via-path'; face: number; start: KnifeBoundaryTarget; interiors: [number, number, number][]; end: KnifeBoundaryTarget; polygonTriangles?: number[][] }
-  | { kind: 'region'; faces: number[]; distance: number }
+  | { kind: 'extrude-region'; faces: number[]; distance: number; polygonTriangles?: number[][] }
   | { kind: 'subdivide'; edges: number[]; cuts?: number; polygonTriangles?: number[][] }
   | { kind: 'subdivide-all' }
   | { kind: 'topology'; pairTriangles?: boolean; polygonTriangles?: number[][] };
