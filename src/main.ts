@@ -2177,6 +2177,26 @@ async function fillSelectedBoundaryFace() {
   } catch (error) { toast((error as Error).message); }
 }
 
+async function bridgeSelectedBoundaryLoops() {
+  try {
+    if (
+      !editor.editMode ||
+      editor.componentMode !== 'edge' ||
+      editor.componentSelection.length < 6 ||
+      editor.componentSelection.length % 2 !== 0 ||
+      !editor.meshTopology
+    ) {
+      throw new Error('Select exactly two complete logical mesh boundary loops with matching edge counts.');
+    }
+    await editor.runModeling({
+      kind: 'bridge-loops',
+      edges: editor.componentSelection,
+      polygonTriangles: editor.meshTopology.polygonTriangles.map(group => [...group]),
+    });
+    toast('Boundary loops bridged with logical Quads.');
+  } catch (error) { toast((error as Error).message); }
+}
+
 async function deleteSelectedComponents() {
   try {
     if (!editor.editMode || !editor.componentSelection.length || !editor.meshTopology) throw new Error('Select mesh components in Edit Mode first.');
@@ -2222,6 +2242,7 @@ const modelingCommands = {
   selectMeshBoundaryEdges,
   selectFaceBoundaryEdges,
   fillBoundary: fillSelectedBoundaryFace,
+  bridgeLoops: bridgeSelectedBoundaryLoops,
   deleteComponents: deleteSelectedComponents,
 };
 
@@ -2278,6 +2299,10 @@ function viewportContextCommands(mode: ViewportContextMode): ViewportContextComm
   const oneComponent = () => editor.componentSelection.length === 1 && !editor.modelingBusy;
   const twoComponents = () => editor.componentSelection.length === 2 && !editor.modelingBusy;
   const boundaryLoop = () => editor.componentSelection.length >= 3 && !editor.modelingBusy;
+  const bridgeLoops = () =>
+    editor.componentSelection.length >= 6 &&
+    editor.componentSelection.length % 2 === 0 &&
+    !editor.modelingBusy;
   const knifeReady = () => editor.componentSelection.length <= 1 && !editor.modelingBusy;
   const canSelectComponents = () => !!editor.meshTopology && !editor.modelingBusy;
   const canDeselectComponents = () => editor.componentSelection.length > 0 && !editor.modelingBusy;
@@ -2315,6 +2340,7 @@ function viewportContextCommands(mode: ViewportContextMode): ViewportContextComm
     { label: 'Select Non-Manifold Edges', action: modelingCommands.selectNonManifoldEdges, enabled: canSelectComponents },
     { label: 'Select Mesh Boundary', action: modelingCommands.selectMeshBoundaryEdges, enabled: canSelectComponents },
     { label: 'Fill Boundary Face', action: modelingCommands.fillBoundary, enabled: boundaryLoop, separatorBefore: true },
+    { label: 'Bridge Edge Loops', action: modelingCommands.bridgeLoops, enabled: bridgeLoops },
     { label: 'Bevel Edges', action: modelingCommands.bevelEdges, enabled: hasComponents },
     { label: 'Subdivide Edges', action: modelingCommands.subdivideEdges, enabled: hasComponents },
     { label: 'Loop Cut', action: modelingCommands.loopCut, enabled: oneComponent },
