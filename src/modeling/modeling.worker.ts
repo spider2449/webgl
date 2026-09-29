@@ -6,11 +6,18 @@ import { subdivideEdges } from './subdivide';
 import type { ModelingOperation } from './modeling-worker-client';
 import { buildTopology } from './topology';
 
-self.onmessage = (event: MessageEvent<{ source: ReturnType<THREE.BufferGeometry['toJSON']>; operation: ModelingOperation }>) => {
+self.onmessage = (event: MessageEvent<{
+  source: ReturnType<THREE.BufferGeometry['toJSON']>;
+  operation: ModelingOperation;
+  logicalVertexIds?: number[];
+}>) => {
   let source: THREE.BufferGeometry | undefined, result: THREE.BufferGeometry | undefined, logicalGroups: number[][] | undefined;
   const start = performance.now();
   try {
     source = new THREE.BufferGeometryLoader().parse(event.data.source);
+    if (event.data.logicalVertexIds) {
+      source.userData.forgeLogicalVertexIds = [...event.data.logicalVertexIds];
+    }
     const op = event.data.operation;
     switch (op.kind) {
       case 'topology': self.postMessage({ topology: inspectGeometry(source, op.polygonTriangles ?? op.pairTriangles ?? false).topology, milliseconds: performance.now() - start }); return;
@@ -127,10 +134,20 @@ self.onmessage = (event: MessageEvent<{ source: ReturnType<THREE.BufferGeometry[
         result = subdivideEdges(source, t.edges.map(edge => edge.map(v => t.vertices[v][0]) as [number, number])); break;
       }
     }
-    const topology = op.kind === 'modifiers' ? undefined : buildTopology(result.getAttribute('position').array, result.index?.array, logicalGroups ?? false);
+    const logicalVertexIds = Array.isArray(result.userData.forgeLogicalVertexIds)
+      ? result.userData.forgeLogicalVertexIds.map((id: unknown) => Number(id))
+      : undefined;
+    const topology = op.kind === 'modifiers'
+      ? undefined
+      : buildTopology(
+          result.getAttribute('position').array,
+          result.index?.array,
+          logicalGroups ?? false,
+          logicalVertexIds,
+        );
     const geometry = result.toJSON();
     if (JSON.stringify(geometry).length > 32 * 1024 * 1024) throw new Error('Worker result exceeds 32 MB.');
-    self.postMessage({ geometry, topology, milliseconds: performance.now() - start });
+    self.postMessage({ geometry, topology, logicalVertexIds, milliseconds: performance.now() - start });
   } catch (error) { self.postMessage({ error: (error as Error).message }); }
   finally { source?.dispose(); result?.dispose(); }
 };
