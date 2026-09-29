@@ -1955,14 +1955,18 @@ function polygonFromTriangleGroup(
   const { topology, indices, materials, normals } = inspection;
   const triangles = topology.polygonTriangles[polygonId];
   const vertices = topology.polygons[polygonId];
-  const rawCorner = (index: number): Corner => Object.fromEntries(
-    Object.entries(source.attributes)
-      .filter(([name]) => name !== 'normal')
-      .map(([name, attribute]) => [
-        name,
-        Array.from({ length: attribute.itemSize }, (_, component) => attribute.getComponent(index, component)),
-      ]),
-  );
+  const rawCorner = (index: number): Corner => {
+    const corner = Object.fromEntries(
+      Object.entries(source.attributes)
+        .filter(([name]) => name !== 'normal')
+        .map(([name, attribute]) => [
+          name,
+          Array.from({ length: attribute.itemSize }, (_, component) => attribute.getComponent(index, component)),
+        ]),
+    ) as Corner;
+    corner[logicalVertexIdentity] = inspection.identityForBuffer(index);
+    return corner;
+  };
   const corners = vertices.map(vertex => {
     for (const triangle of triangles) {
       for (let corner = 0; corner < 3; corner++) {
