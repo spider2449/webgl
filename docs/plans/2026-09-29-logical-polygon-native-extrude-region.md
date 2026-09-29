@@ -15,7 +15,7 @@ The new operation keeps logical polygons authoritative before, during and after 
 
 Face Edit Mode keeps the existing **Extrude Region** command and shared **Extrude Distance**.
 
-The user selects one edge-connected logical face region and runs Extrude Region.
+The user selects one or more logical faces and runs Extrude Region. Forge partitions the selection into edge-connected logical regions and extrudes each region independently in the same operation.
 
 On success:
 
@@ -36,25 +36,27 @@ For every logical polygon edge:
 - 1 selected use -> region boundary edge;
 - 0 selected uses -> unrelated.
 
-Selected faces must form one edge-connected region.
+Selected faces are partitioned into edge-connected components.
 
-The region boundary must consist of one or more simple closed directed loops. Holes are therefore valid.
+Each connected component is one extrusion region. A region may contain one face or many faces, and one command may therefore extrude multiple disconnected regions at once.
 
-A selection with no boundary, such as every face of a closed Cube, is rejected because there is no perimeter on which to build extrusion walls.
+Each region boundary must consist of one or more simple closed directed loops. Holes are therefore valid.
+
+A selected region with no boundary, such as every face of one closed mesh island, is rejected because there is no perimeter on which to build extrusion walls. The whole multi-region operation remains atomic.
 
 ## Common 3D extrusion vector
 
-Extrude Region translates the selected cap as one rigid region.
+Extrude Region translates each connected selected cap as one rigid region.
 
-For each selected logical polygon, Forge computes its area-weighted Newell normal vector and sums those vectors across the region.
+For each connected region, Forge computes the area-weighted Newell normal vector of every selected logical polygon in that region and sums those vectors.
 
-The normalized sum is the region extrusion direction.
+The normalized sum is that region's extrusion direction.
 
 ```
 offset = normalize(sum(areaWeightedFaceNormals)) * ExtrudeDistance
 ```
 
-Every selected cap vertex receives this exact same offset.
+Every selected cap vertex within the same connected region receives that region's exact same offset.
 
 Consequences:
 
@@ -62,11 +64,12 @@ Consequences:
 - folded regions may cross creases;
 - every cap Triangle/Quad/N-gon keeps its original shape;
 - selected-selected internal edges keep their original length and relationship;
-- this is region extrusion, not independent per-face normal extrusion.
+- disconnected regions may move in different directions;
+- this is region extrusion, not independent per-face normal extrusion inside one connected region.
 
-The selected face normals must fit one outward extrusion hemisphere. If any selected face points perpendicular/opposite to the derived direction, the operation rejects instead of silently pushing part of the cap inward.
+Within each connected region, selected face normals must fit one outward extrusion hemisphere. If any face points perpendicular/opposite to that region's derived direction, the whole operation rejects instead of silently pushing part of the cap inward.
 
-Regions whose weighted normals cancel cannot define one extrusion direction and are rejected.
+A region whose weighted normals cancel cannot define one extrusion direction and causes atomic rejection.
 
 ## Side walls
 
@@ -184,13 +187,36 @@ Expected:
 - center unselected face remains at its original coordinates;
 - F25 / T50.
 
+### Disconnected planar regions
+
+3-Quad Plane strip, select the left and right Quads while leaving the center Quad unselected.
+
+Expected:
+
+- 2 independent extrusion regions;
+- 2 boundary loops;
+- 8 total boundary edges;
+- both selected cap face IDs remain selected;
+- center Quad remains at its original coordinates;
+- V16 / E26 / F11 / T22.
+
+### Disconnected regions with different normals
+
+On a Cube, select two opposite Quads.
+
+Expected:
+
+- 2 independent extrusion regions;
+- each region derives its own outward direction;
+- the two directions align with their respective opposite face normals;
+- V16 / E28 / F14 / T28.
+
 ## Rejection
 
 Reject atomically:
 
 - invalid face IDs;
 - non-positive or excessive distance;
-- disconnected selected regions;
 - non-manifold logical boundaries;
 - ambiguous/non-simple boundary loops;
 - selections with no region boundary;
@@ -236,7 +262,8 @@ Manual priority:
 5. Confirm the folded cap moves as one rigid region and its shared edge remains.
 6. 3x3 Plane with center face unselected -> extrude outer eight faces; confirm the center face stays unchanged and both outer/hole walls are created.
 7. Undo returns to the exact pre-extrusion topology.
-8. Select disconnected Plane faces and confirm atomic rejection.
+8. Select disconnected Plane faces and confirm they extrude as independent regions in one Undo step.
+9. Select two opposite Cube faces and confirm each island extrudes along its own outward direction.
 
 Final exact-HEAD gate, once only:
 
