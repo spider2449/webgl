@@ -143,7 +143,7 @@ test('Bridge Edge Loops rejects unequal loop counts and interior logical edges a
   const cube = logicalTopology(box, true);
   expect(() => bridgeLogicalBoundaryLoops(
     box,
-    cube.polygonEdges.slice(0, 8),
+    cube.polygonEdges.map((_, edge) => edge).slice(0, 8),
     cube.polygonTriangles,
   )).toThrow('open logical mesh boundary edges');
 
