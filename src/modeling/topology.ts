@@ -1,7 +1,9 @@
 export type ComponentMode = 'vertex' | 'edge' | 'face';
 export type FaceSideKind = 'triangles' | 'quads' | 'ngons';
 export type MeshTopology = {
-  // Renderer-welded vertices used by triangle data and attribute updates.
+  // Renderer buffer vertices grouped into modeling vertex identities. Legacy/imported
+  // meshes fall back to exact-position welding; polygon-native Forge meshes may
+  // preserve distinct logical vertices at the same XYZ position.
   vertices: number[][];
   bufferToVertex: number[];
   // Modeling vertices: only welded vertices that occur on a logical polygon boundary.
