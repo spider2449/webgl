@@ -4,10 +4,12 @@ import { extrudeLogicalFaceRegion } from '../src/modeling/modeling';
 import { buildTopology } from '../src/modeling/topology';
 
 function logicalTopology(geometry: THREE.BufferGeometry, groups: number[][] | true) {
+  const ids = geometry.userData.forgeLogicalVertexIds;
   return buildTopology(
     geometry.getAttribute('position').array,
     geometry.index?.array,
     groups,
+    Array.isArray(ids) ? ids : undefined,
   );
 }
 
@@ -253,6 +255,73 @@ test('disconnected logical selections extrude as independent regions', () => {
   plane.dispose();
 });
 
+test('vertex-touching disconnected regions keep coincident moved corners topologically distinct', () => {
+  const plane = new THREE.PlaneGeometry(4, 4, 2, 2);
+  const before = logicalTopology(plane, true);
+  const pair = before.polygons.flatMap((polygon, face) =>
+    before.polygons.flatMap((other, candidate) => {
+      if (candidate <= face) return [];
+      const shared = polygon.filter(vertex => other.includes(vertex));
+      const sharedEdge = before.polygonEdges.some(([a, b]) =>
+        shared.includes(a) && shared.includes(b)
+      );
+      return shared.length === 1 && !sharedEdge
+        ? [[face, candidate] as [number, number]]
+        : [];
+    })
+  )[0];
+  expect(pair).toBeDefined();
+
+  const extrusion = extrudeLogicalFaceRegion(
+    plane,
+    pair,
+    0.25,
+    before.polygonTriangles.map(group => [...group]),
+  );
+  expect(extrusion.regionCount).toBe(2);
+  expect(extrusion.regions.map(region => region.faces)).toEqual([[pair[0]], [pair[1]]]);
+
+  const ids = extrusion.geometry.userData.forgeLogicalVertexIds;
+  expect(Array.isArray(ids)).toBe(true);
+  expect(ids).toHaveLength(extrusion.geometry.getAttribute('position').count);
+
+  const after = logicalTopology(extrusion.geometry, extrusion.polygonTriangles);
+  const logicalIntersection = after.polygons[pair[0]].filter(vertex =>
+    after.polygons[pair[1]].includes(vertex)
+  );
+  expect(logicalIntersection).toEqual([]);
+
+  const position = extrusion.geometry.getAttribute('position');
+  const capPositions = pair.map(face =>
+    new Map(after.polygons[face].map(vertex => {
+      const point = new THREE.Vector3().fromBufferAttribute(position, after.vertices[vertex][0]);
+      return [point.toArray().join(','), vertex] as const;
+    }))
+  );
+  const coincident = [...capPositions[0].keys()].filter(key => capPositions[1].has(key));
+  expect(coincident).toHaveLength(1);
+  expect(capPositions[0].get(coincident[0])).not.toBe(capPositions[1].get(coincident[0]));
+
+  // Repeating the same two cap faces must preserve the topological split.
+  const repeated = extrudeLogicalFaceRegion(
+    extrusion.geometry,
+    pair,
+    0.25,
+    extrusion.polygonTriangles,
+  );
+  const repeatedTopology = logicalTopology(repeated.geometry, repeated.polygonTriangles);
+  expect(repeated.regionCount).toBe(2);
+  expect(
+    repeatedTopology.polygons[pair[0]].filter(vertex =>
+      repeatedTopology.polygons[pair[1]].includes(vertex)
+    )
+  ).toEqual([]);
+
+  repeated.geometry.dispose();
+  extrusion.geometry.dispose();
+  plane.dispose();
+});
+
 test('disconnected Cube regions derive independent outward extrusion directions', () => {
   const box = new THREE.BoxGeometry(2, 2, 2);
   const position = box.getAttribute('position');
@@ -405,6 +474,88 @@ test('real logical face region extrusion repeats, preserves selection, and undoe
       e.meshTopology?.polygonTriangles.flat().length === 4;
   });
   expect(await page.evaluate(() => (window as any).__forge.snapshot())).toBe(before.snapshot);
+});
+
+test('UI vertex-touching diagonal faces extrude separately without non-manifold welding', async ({ page }) => {
+  await page.goto('/');
+  await page.waitForFunction(() => (window as any).__forge?.selected);
+
+  await page.locator('[data-menu="add-menu"]').click();
+  await page.locator('[data-primitive="plane"]').click();
+  await page.getByLabel('Primitive Segments X').fill('2');
+  await page.getByLabel('Primitive Segments X').press('Enter');
+  await page.getByLabel('Primitive Segments Y').fill('2');
+  await page.getByLabel('Primitive Segments Y').press('Enter');
+
+  await page.locator('#mode').selectOption('edit');
+  await page.getByLabel('Mesh component').selectOption('face');
+
+  const before = await page.evaluate(() => {
+    const e = (window as any).__forge;
+    const pair = e.meshTopology.polygons.flatMap((polygon: number[], face: number) =>
+      e.meshTopology.polygons.flatMap((other: number[], candidate: number) => {
+        if (candidate <= face) return [];
+        const shared = polygon.filter((vertex: number) => other.includes(vertex));
+        const sharedEdge = e.meshTopology.polygonEdges.some(([a, b]: [number, number]) =>
+          shared.includes(a) && shared.includes(b)
+        );
+        return shared.length === 1 && !sharedEdge ? [[face, candidate]] : [];
+      })
+    )[0];
+    e.selectComponent(pair[0]);
+    e.selectComponent(pair[1], true);
+    (window as any).__forgeModelingSettings.extrudeDistance = 0.25;
+    return {
+      pair,
+      snapshot: e.snapshot(),
+      undoDepth: e.undoDepth,
+    };
+  });
+
+  await page.evaluate(() => (window as any).__forgeCommands.extrudeRegion());
+  await page.waitForFunction(() => !(window as any).__forge.modelingBusy);
+  await expect(page.locator('#toast')).toContainText('Selected face regions extruded');
+
+  expect(await page.evaluate((pair: number[]) => {
+    const e = (window as any).__forge;
+    const first = e.meshTopology.polygons[pair[0]];
+    const second = e.meshTopology.polygons[pair[1]];
+    const position = e.selected.geometry.getAttribute('position');
+    const positions = (polygon: number[]) => polygon.map(vertex => {
+      const buffer = e.meshTopology.vertices[vertex][0];
+      return [position.getX(buffer), position.getY(buffer), position.getZ(buffer)].join(',');
+    });
+    const firstPositions = positions(first);
+    const secondPositions = positions(second);
+    return {
+      mode: e.componentMode,
+      selection: [...e.componentSelection],
+      sharedLogicalVertices: first.filter((vertex: number) => second.includes(vertex)),
+      coincidentCapPositions: firstPositions.filter((value: string) => secondPositions.includes(value)),
+      storedVertexIds: e.selected.userData.forgeLogicalVertexIds?.length,
+      bufferVertices: position.count,
+      undoDepth: e.undoDepth,
+    };
+  }, before.pair)).toEqual({
+    mode: 'face',
+    selection: before.pair,
+    sharedLogicalVertices: [],
+    coincidentCapPositions: [expect.any(String)],
+    storedVertexIds: expect.any(Number),
+    bufferVertices: expect.any(Number),
+    undoDepth: before.undoDepth + 1,
+  });
+
+  expect(await page.evaluate(() => {
+    const e = (window as any).__forge;
+    return e.selected.userData.forgeLogicalVertexIds.length ===
+      e.selected.geometry.getAttribute('position').count;
+  })).toBe(true);
+
+  await page.keyboard.press('Control+z');
+  await page.waitForFunction((snapshot: string) =>
+    (window as any).__forge.snapshot() === snapshot,
+  before.snapshot);
 });
 
 test('UI disconnected face selection extrudes as separate logical regions in one Undo step', async ({ page }) => {
