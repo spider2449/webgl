@@ -30,6 +30,7 @@ function polygonNormal(
 
 test('logical two-Quad region extrusion preserves caps and their shared internal edge', () => {
   const plane = new THREE.PlaneGeometry(4, 2, 2, 1);
+  const sourceBefore = JSON.stringify(plane.toJSON());
   const before = logicalTopology(plane, true);
 
   const extrusion = extrudeLogicalFaceRegion(
@@ -38,6 +39,7 @@ test('logical two-Quad region extrusion preserves caps and their shared internal
     0.5,
     before.polygonTriangles.map(group => [...group]),
   );
+  expect(JSON.stringify(plane.toJSON())).toBe(sourceBefore);
   const after = logicalTopology(extrusion.geometry, extrusion.polygonTriangles);
   const position = extrusion.geometry.getAttribute('position');
 
@@ -61,6 +63,52 @@ test('logical two-Quad region extrusion preserves caps and their shared internal
     const point = new THREE.Vector3().fromBufferAttribute(position, after.vertices[vertex][0]);
     expect(point.z).toBeCloseTo(0.5, 6);
   }
+
+  extrusion.geometry.dispose();
+  plane.dispose();
+});
+
+test('logical region extrusion preserves cap UVs and assigns wall materials from adjacent logical faces', () => {
+  const plane = new THREE.PlaneGeometry(4, 2, 2, 1);
+  plane.clearGroups();
+  plane.addGroup(0, 6, 2);
+  plane.addGroup(6, 6, 3);
+  const before = logicalTopology(plane, true);
+  const sourceUV = plane.getAttribute('uv');
+
+  const sourceFaceUVs = before.polygons.map(polygon =>
+    [...new Set(polygon.map(vertex => {
+      const buffer = before.vertices[vertex][0];
+      return `${sourceUV.getX(buffer)},${sourceUV.getY(buffer)}`;
+    }))].sort()
+  );
+
+  const extrusion = extrudeLogicalFaceRegion(
+    plane,
+    [0, 1],
+    0.25,
+    before.polygonTriangles.map(group => [...group]),
+  );
+  const uv = extrusion.geometry.getAttribute('uv');
+  const outputFaceUVs = [0, 1].map(face =>
+    [...new Set(extrusion.polygonTriangles[face].flatMap(triangle =>
+      [0, 1, 2].map(corner => {
+        const buffer = extrusion.geometry.index?.getX(triangle * 3 + corner) ?? triangle * 3 + corner;
+        return `${uv.getX(buffer)},${uv.getY(buffer)}`;
+      })
+    ))].sort()
+  );
+  expect(outputFaceUVs).toEqual(sourceFaceUVs);
+
+  const materialCounts = new Map<number, number>();
+  for (const group of extrusion.geometry.groups) {
+    materialCounts.set(
+      group.materialIndex,
+      (materialCounts.get(group.materialIndex) ?? 0) + group.count,
+    );
+  }
+  expect(materialCounts.get(2)).toBe(24);
+  expect(materialCounts.get(3)).toBe(24);
 
   extrusion.geometry.dispose();
   plane.dispose();
