@@ -14,6 +14,7 @@ export type ModelingOperation =
   | { kind: 'delete-components'; mode: 'vertex' | 'edge' | 'face'; components: number[]; polygonTriangles?: number[][] }
   | { kind: 'merge-vertices'; vertices: [number, number]; polygonTriangles?: number[][] }
   | { kind: 'fill-boundary'; edges: number[]; polygonTriangles?: number[][] }
+  | { kind: 'bridge-loops'; edges: number[]; polygonTriangles?: number[][] }
   | { kind: 'cut-face'; face: number; vertices: [number, number]; polygonTriangles?: number[][] }
   | { kind: 'cut-face-edge'; face: number; vertex: number; edge: number; t: number; polygonTriangles?: number[][] }
   | { kind: 'cut-face-edges'; face: number; firstEdge: number; firstT: number; secondEdge: number; secondT: number; polygonTriangles?: number[][] }

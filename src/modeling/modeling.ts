@@ -2269,6 +2269,172 @@ export function fillLogicalBoundaryFace(
   };
 }
 
+export function bridgeLogicalBoundaryLoops(
+  source: THREE.BufferGeometry,
+  edges: number[],
+  polygonTriangles?: number[][],
+) {
+  const inspection = inspectGeometry(source, polygonTriangles ?? false);
+  const { topology, read } = inspection;
+  const surface = logicalSurface(source, inspection);
+  const selectedEdges = [...new Set(edges)];
+  if (
+    selectedEdges.length < 6 ||
+    selectedEdges.length > 4096 ||
+    selectedEdges.some(edge => !Number.isInteger(edge) || !topology.polygonEdges[edge])
+  ) {
+    throw new Error('Bridge Edge Loops requires exactly two selected logical boundary loops with at least three edges each.');
+  }
+
+  type BoundaryRecord = {
+    edge: number;
+    face: number;
+    a: number;
+    b: number;
+    aCorner: Corner;
+    bCorner: Corner;
+    material: number;
+  };
+
+  const records: BoundaryRecord[] = selectedEdges.map(edge => {
+    const [a, b] = topology.polygonEdges[edge];
+    const uses = surface.uses.get(edgeKey(a, b)) ?? [];
+    if (uses.length !== 1) {
+      throw new Error('Bridge Edge Loops requires open logical mesh boundary edges.');
+    }
+    const use = uses[0];
+    const vertices = topology.polygons[use.face];
+    const local = vertices.findIndex((vertex, index) =>
+      vertex === use.a && vertices[(index + 1) % vertices.length] === use.b
+    );
+    if (local < 0) throw new Error('Bridge Edge Loops could not resolve logical boundary orientation.');
+    const polygon = surface.polygons[use.face];
+    return {
+      edge,
+      face: use.face,
+      a: use.a,
+      b: use.b,
+      aCorner: polygon.corners[local],
+      bCorner: polygon.corners[(local + 1) % vertices.length],
+      material: polygon.material,
+    };
+  });
+
+  const outgoing = new Map<number, BoundaryRecord>();
+  const incoming = new Map<number, BoundaryRecord>();
+  for (const record of records) {
+    if (outgoing.has(record.a) || incoming.has(record.b)) {
+      throw new Error('Bridge Edge Loops selection must contain two simple, vertex-disjoint boundary loops.');
+    }
+    outgoing.set(record.a, record);
+    incoming.set(record.b, record);
+  }
+  const selectedVertices = new Set(records.flatMap(record => [record.a, record.b]));
+  if (
+    [...selectedVertices].some(vertex => !outgoing.has(vertex) || !incoming.has(vertex))
+  ) {
+    throw new Error('Bridge Edge Loops selection must contain complete closed boundary loops.');
+  }
+
+  const unvisited = new Set(selectedEdges);
+  const extractLoop = (start: BoundaryRecord) => {
+    const loop: BoundaryRecord[] = [];
+    let current = start;
+    for (let step = 0; step <= records.length; step++) {
+      if (!unvisited.delete(current.edge)) {
+        throw new Error('Bridge Edge Loops selection contains a repeated or intersecting loop.');
+      }
+      loop.push(current);
+      if (current.b === start.a) break;
+      const next = outgoing.get(current.b);
+      if (!next) throw new Error('Bridge Edge Loops selection contains an open boundary chain.');
+      current = next;
+    }
+    if (loop.length < 3 || loop.at(-1)!.b !== start.a) {
+      throw new Error('Bridge Edge Loops requires simple closed boundary loops with at least three edges.');
+    }
+    return loop;
+  };
+
+  const activeEdge = selectedEdges.at(-1)!;
+  const activeRecord = records.find(record => record.edge === activeEdge)!;
+  const first = extractLoop(activeRecord);
+  if (!unvisited.size) {
+    throw new Error('Bridge Edge Loops requires exactly two boundary loops.');
+  }
+  const secondStartEdge = unvisited.values().next().value as number;
+  const second = extractLoop(records.find(record => record.edge === secondStartEdge)!);
+  if (unvisited.size) {
+    throw new Error('Bridge Edge Loops requires exactly two boundary loops.');
+  }
+  if (first.length !== second.length) {
+    throw new Error('Bridge Edge Loops currently requires both boundary loops to have the same edge count.');
+  }
+
+  const reversedSecond = [...second].reverse();
+  let bestShift = 0;
+  let bestCost = Infinity;
+  for (let shift = 0; shift < reversedSecond.length; shift++) {
+    let cost = 0;
+    for (let index = 0; index < first.length; index++) {
+      const a = first[index];
+      const b = reversedSecond[(index + shift) % reversedSecond.length];
+      cost += read(a.a).distanceToSquared(read(b.b));
+      cost += read(a.b).distanceToSquared(read(b.a));
+    }
+    if (cost < bestCost) {
+      bestCost = cost;
+      bestShift = shift;
+    }
+  }
+  if (!Number.isFinite(bestCost)) throw new Error('Bridge Edge Loops could not align the selected boundaries.');
+
+  const cloneCorner = (corner: Corner): Corner => {
+    const cloned = Object.fromEntries(
+      Object.entries(corner).map(([name, data]) => [name, [...data]])
+    ) as Corner;
+    if (corner[logicalVertexIdentity] !== undefined) {
+      cloned[logicalVertexIdentity] = corner[logicalVertexIdentity];
+    }
+    return cloned;
+  };
+
+  const bridgePolygons: Polygon[] = [];
+  for (let index = 0; index < first.length; index++) {
+    const primary = first[index];
+    const secondary = reversedSecond[(index + bestShift) % reversedSecond.length];
+    const crossA = read(primary.a).distanceToSquared(read(secondary.b));
+    const crossB = read(primary.b).distanceToSquared(read(secondary.a));
+    if (crossA < 1e-16 || crossB < 1e-16) {
+      throw new Error('Bridge Edge Loops boundaries touch or collapse at the chosen alignment.');
+    }
+    bridgePolygons.push({
+      material: primary.material,
+      corners: [
+        cloneCorner(primary.bCorner),
+        cloneCorner(primary.aCorner),
+        cloneCorner(secondary.bCorner),
+        cloneCorner(secondary.aCorner),
+      ],
+    });
+  }
+
+  const entries: EditedPolygon[] = topology.polygons.map((_, face) => ({
+    polygon: surface.polygons[face],
+    sourceFace: face,
+  }));
+  const bridgeFaceStart = entries.length;
+  bridgePolygons.forEach(polygon => entries.push({ polygon }));
+
+  return {
+    ...finishEditedSurface(source, inspection, entries),
+    bridgeFaceStart,
+    bridgeFaceCount: bridgePolygons.length,
+    loopEdgeCount: first.length,
+    alignmentShift: bestShift,
+  };
+}
+
 export function deleteLogicalComponents(
   source: THREE.BufferGeometry,
   mode: 'vertex' | 'edge' | 'face',
