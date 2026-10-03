@@ -176,29 +176,31 @@ At corner junctions:
 
 A four-edge top loop on the default Cube is a required regression for this junction behavior.
 
-## Adjacent-junction cap canonicalization
+## Adjacent-junction generated-vertex normalization
 
-Repeated Float32 clipping at a corner where multiple selected beveled edges meet can create redundant corners on a newly generated bevel cap:
+Repeated Float32 clipping at a corner where several selected beveled edges meet can compute the same new geometric junction a few ULPs apart on different incident polygons.
 
-- two consecutive cap corners may differ by only a few Float32 ULPs;
-- a middle cap corner may lie exactly on the segment between its neighbors.
+Forge can distinguish authored/source corners from bevel-generated intersections:
 
-Those points are numerical construction artifacts, not authored modeling boundaries. Leaving them in a generated convex cap can force renderer triangulation to emit a zero-area triangle even though the intended bevel surface is valid.
+- every source logical corner carries `logicalVertexIdentity`;
+- corners produced by bevel clipping do not.
 
-Forge therefore tracks bevel-generated polygons by provenance and canonicalizes them whenever later clipping changes them:
+After each bevel clipping plane, Forge therefore normalizes **only generated corners globally across the complete intermediate surface**:
 
-- source polygons are never simplified by this rule;
-- a newly created bevel cap is marked bevel-generated;
-- if a later selected-edge plane clips that bevel face, its clipped boundary is canonicalized again;
-- remove consecutive points within a bounded Float32-scale tolerance;
-- remove a strictly intermediate collinear generated-cap corner;
-- repeat until stable;
-- an older bevel face reduced below three corners disappears because the later half-space constraint has consumed that face;
-- the newly created cap for the current plane must still contain at least three corners.
+- cluster generated positions within a bounded Float32-scale tolerance;
+- snap every member of a cluster to one exact representative XYZ;
+- remove only exact consecutive duplicate corners created by that snap;
+- preserve every distinct collinear vertex;
+- leave source logical corners untouched.
 
-This rule is deliberately not applied to source polygons or the shared tessellator. Knife, Subdivide and other modeling operations may intentionally preserve collinear logical boundary vertices, and their topology contract remains unchanged.
+The normalization is global rather than per-face. This is required to preserve shared-edge segmentation: if one polygon uses `A-B-C`, an adjacent polygon cannot independently simplify the same boundary to `A-C` or Forge would create a T-junction.
 
-The tolerance scales to roughly four Float32 ULPs at the current coordinate magnitude and is computed with a bounded vertex scan rather than a large spread call.
+Distinct collinear generated vertices stay present. The shared `triangulateBoundary()` path already knows how to tessellate polygons containing intentional collinear logical boundary vertices without exposing renderer diagonals.
+
+This rule fixes junction precision without weakening the common degeneracy check and without changing Knife, Subdivide or other source-polygon topology contracts.
+
+The position tolerance is approximately four Float32 ULPs at the current coordinate magnitude and is computed with a bounded vertex scan plus spatial buckets.
+
 
 ## Materials and attributes
 
