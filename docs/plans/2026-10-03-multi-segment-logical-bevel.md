@@ -176,6 +176,26 @@ At corner junctions:
 
 A four-edge top loop on the default Cube is a required regression for this junction behavior.
 
+## Adjacent-junction cap canonicalization
+
+Repeated Float32 clipping at a corner where multiple selected beveled edges meet can create redundant corners on a newly generated bevel cap:
+
+- two consecutive cap corners may differ by only a few Float32 ULPs;
+- a middle cap corner may lie exactly on the segment between its neighbors.
+
+Those points are numerical construction artifacts, not authored modeling boundaries. Leaving them in a generated convex cap can force renderer triangulation to emit a zero-area triangle even though the intended bevel surface is valid.
+
+Forge therefore canonicalizes **only newly generated bevel caps** before they become logical polygons:
+
+- remove consecutive points within a bounded Float32-scale tolerance;
+- remove a strictly intermediate collinear cap point;
+- repeat until stable;
+- reject if the cap would fall below three corners.
+
+This rule is deliberately not applied to source polygons or the shared tessellator. Knife, Subdivide and other modeling operations may intentionally preserve collinear logical boundary vertices, and their topology contract remains unchanged.
+
+The tolerance scales to roughly four Float32 ULPs at the current coordinate magnitude and is computed with a bounded vertex scan rather than a large spread call.
+
 ## Materials and attributes
 
 Every profile plane inherits the material from the same adjacent logical face used by the previous one-segment implementation.
