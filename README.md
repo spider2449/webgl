@@ -137,7 +137,7 @@ The Object panel includes collapsible **Mesh operations**, **UV editor**,
 
 | Feature | Supported workflow |
 | --- | --- |
-| Bevel | In Edit Mode, select sharp edges and use **Bevel selected edges**. Creates one flat bevel segment on a closed, consistently oriented convex mesh. Width is a local distance along adjacent faces. |
+| Bevel | In Edge Edit Mode, select sharp logical edges and use RMB -> **Bevel Edges**. **Bevel Width** remains the local distance along adjacent faces; **Segments** 1–16 controls a polygon-native rounded profile approximation. Segment 1 preserves the historical flat chamfer. |
 | Loop cut | Select exactly one logical Quad boundary edge, then RMB -> **Loop Cut**. The operator traverses opposite edges directly through logical Quads, supports a retained **Loop Position** from 0.01-0.99, preserves polygon groups, and leaves the newly created logical loop edges selected. |
 | UV editing | Select triangle faces, open **UV editor**, project UVs or translate/rotate/scale existing UVs around their selected-corner center. UV seams split without moving geometry or changing normals; the canvas fits up to 2,000 selected triangles. |
 | Multiple objects | Shift-click in the viewport or outliner. Use **Multiple objects** for world translation, rotation about the shared center, uniform scaling, or atomic subdivision of all selected meshes. Ordinary gizmos and numeric object properties still target the active object. |
@@ -146,11 +146,19 @@ The Object panel includes collapsible **Mesh operations**, **UV editor**,
 
 Bevel rejects open, concave, nonmanifold or inconsistently oriented input,
 coplanar diagonals, excessive widths, degenerate results and work-budget overflow.
-At most 128 sharp edges can be beveled in one operation. Loop cuts reject
-ambiguous quad pairing, triangle continuations and self-intersecting rings.
+At most 128 sharp edges can be beveled in one operation, Segments must be 1–16,
+and the selected-edge × segment product is capped at 512 clipping planes.
+Segment 1 uses the established single bisector plane. Higher segment counts
+sample the angle between the two adjacent logical face normals and clip against
+successive circular-profile chords, so every segment becomes a real logical
+bevel face rather than renderer-only subdivision. Adjacent selected edges are
+resolved by the same convex half-space intersection, producing manifold corner
+junctions without centroid modeling vertices. Loop cuts reject ambiguous quad
+pairing, triangle continuations and self-intersecting rings.
 Bevel clears obsolete component selection; Loop Cut instead selects the newly
 created logical loop for immediate editing. New bevel faces inherit an adjacent
-material and boundary attributes; automatic bevel UV unwrap is not provided.
+material and interpolated boundary attributes; persistent logical vertex IDs are
+retained for surviving corners, and automatic bevel UV unwrap is not provided.
 Loop Cut traverses authoritative logical Quad boundaries and rejects triangle/N-gon
 continuations rather than treating renderer triangulation as modeling topology.
 
@@ -375,7 +383,7 @@ The automated WebGL tests use Chromium's software renderer for repeatability. Th
 
 ## Current limits and next stages
 
-The editor now has a logical polygon-selection foundation and polygon-native Cut Face, Knife, single-face extrusion/inset, bevel and Loop Cut paths, but does not yet preserve polygon topology through every modeling operation. Curved-surface region extrusion, multi-face inset, sculpting, weight painting, IK pole vectors/joint limits, retargeting, geometry nodes, physics, compositing and offline rendering are not yet included. The modeling core includes bevel, loop cuts, UV editing, modifiers and mesh snapping within the supported limits documented above. Kimodo text-to-motion inference is not connected. The UI exposes only implemented local workflows and labels the basic rigging limitations.
+The editor now has a logical polygon-selection foundation and polygon-native Cut Face, Knife, single-face extrusion/inset, multi-segment bevel and Loop Cut paths, but does not yet preserve polygon topology through every modeling operation. Curved-surface region extrusion, multi-face inset, sculpting, weight painting, IK pole vectors/joint limits, retargeting, geometry nodes, physics, compositing and offline rendering are not yet included. The modeling core includes bevel, loop cuts, UV editing, modifiers and mesh snapping within the supported limits documented above. Kimodo text-to-motion inference is not connected. The UI exposes only implemented local workflows and labels the basic rigging limitations.
 
 The development plan is [docs/plans/2026-09-08-forge-studio.md](docs/plans/2026-09-08-forge-studio.md).
 

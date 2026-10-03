@@ -22,7 +22,7 @@ self.onmessage = (event: MessageEvent<{
     switch (op.kind) {
       case 'topology': self.postMessage({ topology: inspectGeometry(source, op.polygonTriangles ?? op.pairTriangles ?? false).topology, milliseconds: performance.now() - start }); return;
       case 'bevel': {
-        const bevel = bevelLogicalEdges(source, op.edges, op.width, op.polygonTriangles);
+        const bevel = bevelLogicalEdges(source, op.edges, op.width, op.polygonTriangles, op.segments ?? 1);
         result = bevel.geometry;
         logicalGroups = bevel.polygonTriangles;
         break;

@@ -2511,56 +2511,293 @@ export function deleteLogicalComponents(
   return finishEditedSurface(source, inspection, entries);
 }
 
-export function bevelLogicalEdges(source: THREE.BufferGeometry, edges: number[], width: number, polygonTriangles?: number[][]) {
-  if (!Number.isFinite(width) || width < 0.0001 || width > 1000) throw new Error('Bevel width must be between 0.0001 and 1000.');
+export function bevelLogicalEdges(
+  source: THREE.BufferGeometry,
+  edges: number[],
+  width: number,
+  polygonTriangles?: number[][],
+  segments = 1,
+) {
+  if (!Number.isFinite(width) || width < 0.0001 || width > 1000) {
+    throw new Error('Bevel width must be between 0.0001 and 1000.');
+  }
+  if (!Number.isInteger(segments) || segments < 1 || segments > 16) {
+    throw new Error('Bevel segments must be an integer between 1 and 16.');
+  }
+
   const inspection = inspectGeometry(source, polygonTriangles ?? false);
   const { topology: t, read } = inspection;
   const { polygons, normals, uses } = logicalSurface(source, inspection);
-  if (!edges.length || new Set(edges).size > 128 || edges.some(edge => !Number.isInteger(edge) || !t.polygonEdges[edge])) {
+  const selectedEdges = [...new Set(edges)].sort((a, b) => a - b);
+  if (
+    !selectedEdges.length ||
+    selectedEdges.length > 128 ||
+    selectedEdges.some(edge => !Number.isInteger(edge) || !t.polygonEdges[edge])
+  ) {
     throw new Error('Select at most 128 valid logical boundary edges.');
   }
-  if ([...uses.values()].some(use => use.length !== 2)) throw new Error('Bevel requires a closed convex polygon mesh.');
-  const points = t.vertices.map((_, i) => read(i)), bounds = new THREE.Box3().setFromPoints(points);
+  if (selectedEdges.length * segments > 512) {
+    throw new Error('Bevel edge/segment combination exceeds the 512-plane work budget.');
+  }
+  if ([...uses.values()].some(use => use.length !== 2)) {
+    throw new Error('Bevel requires a closed convex polygon mesh.');
+  }
+
+  const points = t.vertices.map((_, i) => read(i));
+  const bounds = new THREE.Box3().setFromPoints(points);
   const epsilon = Math.max(1e-7, bounds.getSize(new THREE.Vector3()).length() * 1e-6);
-  if (points.length * t.polygons.length > 20_000_000) throw new Error('Convex bevel validation exceeds the work budget.');
+  if (points.length * t.polygons.length > 20_000_000) {
+    throw new Error('Convex bevel validation exceeds the work budget.');
+  }
   for (let face = 0; face < t.polygons.length; face++) {
     const d = read(t.polygons[face][0]).dot(normals[face]);
-    if (points.some(point => point.dot(normals[face]) > d + epsilon)) throw new Error('Bevel requires a consistently oriented convex mesh.');
+    if (points.some(point => point.dot(normals[face]) > d + epsilon)) {
+      throw new Error('Bevel requires a consistently oriented convex mesh.');
+    }
   }
-  const planes = [...new Set(edges)].sort((a, b) => a - b).map(edge => {
-    const [a, b] = t.polygonEdges[edge], adjacent = uses.get(edgeKey(a, b));
-    if (!adjacent || adjacent.length !== 2) throw new Error('Selected logical edge is not shared by two polygons.');
-    const n1 = normals[adjacent[0].face], n2 = normals[adjacent[1].face];
-    if (n1.dot(n2) > 1 - 1e-6) throw new Error('Select sharp edges, not coplanar triangle diagonals.');
-    const normal = n1.clone().add(n2).normalize();
-    const inset = width * Math.sqrt((1 - n1.dot(n2)) / 2);
-    if (width >= read(a).distanceTo(read(b)) / 2) throw new Error('Bevel width is too large for the selected edge.');
-    const constant = read(a).dot(normal) - inset;
-    if (points.some((point, i) => i !== a && i !== b && point.dot(normal) > constant + epsilon)) throw new Error('Bevel width would remove unrelated vertices.');
-    return { normal, constant, material: polygons[adjacent[0].face].material };
-  });
+
+  type BevelPlane = { normal: THREE.Vector3; constant: number; material: number };
+  const planes: BevelPlane[] = [];
+
+  // Every source logical corner carries a persistent identity. Intersections
+  // created by bevel clipping do not. Repeated clipping around adjacent
+  // selected edges can compute the same generated junction a few Float32 ULPs
+  // apart on different polygons. Normalize only those generated corners
+  // globally so every incident polygon uses the exact same XYZ. Never remove a
+  // distinct collinear point: the shared tessellator deliberately knows how to
+  // preserve collinear logical boundary vertices without exposing renderer
+  // diagonals.
+  let coordinateScale = 1;
+  for (const point of points) {
+    coordinateScale = Math.max(
+      coordinateScale,
+      Math.abs(point.x),
+      Math.abs(point.y),
+      Math.abs(point.z),
+    );
+  }
+  const generatedPositionEpsilon = Math.max(1e-8, coordinateScale * 4 * 2 ** -23);
+  const generatedPositionEpsilonSq = generatedPositionEpsilon * generatedPositionEpsilon;
+
+  type GeneratedRepresentative = {
+    position: [number, number, number];
+  };
+  const normalizeGeneratedBevelVertices = (input: Polygon[]) => {
+    const buckets = new Map<string, GeneratedRepresentative[]>();
+    const bucketCoordinate = (value: number) => Math.floor(value / generatedPositionEpsilon);
+    const bucketKey = (x: number, y: number, z: number) => `${x}:${y}:${z}`;
+
+    const representativeFor = (corner: Corner) => {
+      const [x, y, z] = corner.position;
+      const bx = bucketCoordinate(x);
+      const by = bucketCoordinate(y);
+      const bz = bucketCoordinate(z);
+      let best: GeneratedRepresentative | undefined;
+      let bestDistance = Infinity;
+
+      for (let dx = -1; dx <= 1; dx++) {
+        for (let dy = -1; dy <= 1; dy++) {
+          for (let dz = -1; dz <= 1; dz++) {
+            for (const candidate of buckets.get(bucketKey(bx + dx, by + dy, bz + dz)) ?? []) {
+              const distance =
+                (candidate.position[0] - x) ** 2 +
+                (candidate.position[1] - y) ** 2 +
+                (candidate.position[2] - z) ** 2;
+              if (distance <= generatedPositionEpsilonSq && distance < bestDistance) {
+                best = candidate;
+                bestDistance = distance;
+              }
+            }
+          }
+        }
+      }
+
+      if (best) return best;
+      const created: GeneratedRepresentative = {
+        position: [Math.fround(x), Math.fround(y), Math.fround(z)],
+      };
+      const keyValue = bucketKey(bx, by, bz);
+      const list = buckets.get(keyValue) ?? [];
+      list.push(created);
+      buckets.set(keyValue, list);
+      return created;
+    };
+
+    // First pass: globally snap only bevel-generated corners.
+    for (const polygon of input) {
+      for (const corner of polygon.corners) {
+        if (corner[logicalVertexIdentity] !== undefined) continue;
+        const representative = representativeFor(corner);
+        corner.position = [...representative.position];
+      }
+    }
+
+    // Snapping can turn an already tiny generated edge into an exact
+    // zero-length edge. Remove only exact consecutive duplicates. Distinct
+    // collinear vertices stay in the boundary so adjacent faces keep identical
+    // segmentation.
+    const output: Polygon[] = [];
+    for (const polygon of input) {
+      if (polygon.corners.length < 3) continue;
+      const keep: number[] = [];
+      for (let index = 0; index < polygon.corners.length; index++) {
+        const previous = polygon.corners[(index + polygon.corners.length - 1) % polygon.corners.length];
+        const current = polygon.corners[index];
+        if (key(previous.position) === key(current.position)) continue;
+        keep.push(index);
+      }
+      if (keep.length < 3) continue;
+      if (keep.length === polygon.corners.length) {
+        output.push(polygon);
+        continue;
+      }
+      output.push({
+        ...polygon,
+        corners: keep.map(index => polygon.corners[index]),
+        referenceNormals: polygon.referenceNormals?.length === polygon.corners.length
+          ? keep.map(index => polygon.referenceNormals![index])
+          : polygon.referenceNormals,
+      });
+    }
+    return output;
+  };
+
+  for (const edge of selectedEdges) {
+    const [a, b] = t.polygonEdges[edge];
+    const adjacent = uses.get(edgeKey(a, b));
+    if (!adjacent || adjacent.length !== 2) {
+      throw new Error('Selected logical edge is not shared by two polygons.');
+    }
+
+    const n1 = normals[adjacent[0].face];
+    const n2 = normals[adjacent[1].face];
+    const dot = THREE.MathUtils.clamp(n1.dot(n2), -1, 1);
+    if (dot > 1 - 1e-6) {
+      throw new Error('Select sharp edges, not coplanar triangle diagonals.');
+    }
+    if (dot < -1 + 1e-6) {
+      throw new Error('Bevel cannot resolve opposing face normals.');
+    }
+
+    const bisector = n1.clone().add(n2);
+    if (bisector.lengthSq() < 1e-16) {
+      throw new Error('Bevel cannot resolve the selected edge angle.');
+    }
+    bisector.normalize();
+
+    const sinHalf = Math.sqrt(Math.max(0, (1 - dot) / 2));
+    const cosHalf = Math.sqrt(Math.max(0, (1 + dot) / 2));
+    if (sinHalf < 1e-8 || cosHalf < 1e-8) {
+      throw new Error('Bevel cannot resolve the selected edge angle.');
+    }
+
+    const edgePoint = read(a);
+    const inset = width * sinHalf;
+    if (width >= edgePoint.distanceTo(read(b)) / 2) {
+      throw new Error('Bevel width is too large for the selected edge.');
+    }
+
+    // The historical one-segment plane is also the most restrictive chord of
+    // the rounded profile. If it would remove any unrelated source vertex,
+    // every higher segment count rejects at the same width as well.
+    const singleConstant = edgePoint.dot(bisector) - inset;
+    if (points.some((point, i) =>
+      i !== a && i !== b && point.dot(bisector) > singleConstant + epsilon
+    )) {
+      throw new Error('Bevel width would remove unrelated vertices.');
+    }
+
+    const material = polygons[adjacent[0].face].material;
+    if (segments === 1) {
+      planes.push({ normal: bisector, constant: singleConstant, material });
+      continue;
+    }
+
+    const angle = Math.acos(dot);
+    const sinAngle = Math.sin(angle);
+    if (Math.abs(sinAngle) < 1e-8) {
+      throw new Error('Bevel cannot resolve the selected edge angle.');
+    }
+
+    // Width is measured along either adjacent face from the original edge.
+    // The corresponding tangent-circle radius is width * cot(angle / 2).
+    // Its center lies inward on the face-normal bisector.
+    const radius = width * cosHalf / sinHalf;
+    const center = edgePoint.clone().addScaledVector(bisector, -width / sinHalf);
+    const sampleNormal = (tValue: number) => {
+      if (tValue <= 0) return n1.clone();
+      if (tValue >= 1) return n2.clone();
+      const first = Math.sin((1 - tValue) * angle) / sinAngle;
+      const second = Math.sin(tValue * angle) / sinAngle;
+      return n1.clone().multiplyScalar(first).addScaledVector(n2, second).normalize();
+    };
+
+    for (let segment = 0; segment < segments; segment++) {
+      const startNormal = sampleNormal(segment / segments);
+      const endNormal = sampleNormal((segment + 1) / segments);
+      const chordNormal = startNormal.clone().add(endNormal);
+      if (chordNormal.lengthSq() < 1e-16) {
+        throw new Error('Bevel segment profile collapses at the selected edge angle.');
+      }
+      chordNormal.normalize();
+
+      const startPoint = center.clone().addScaledVector(startNormal, radius);
+      const endPoint = center.clone().addScaledVector(endNormal, radius);
+      const constant = startPoint.dot(chordNormal);
+      if (
+        !Number.isFinite(constant) ||
+        Math.abs(endPoint.dot(chordNormal) - constant) > Math.max(epsilon, Math.abs(constant) * 1e-9)
+      ) {
+        throw new Error('Bevel segment profile exceeds coordinate precision.');
+      }
+      if (points.some((point, i) =>
+        i !== a && i !== b && point.dot(chordNormal) > constant + epsilon
+      )) {
+        throw new Error('Bevel width would remove unrelated vertices.');
+      }
+      planes.push({ normal: chordNormal, constant, material });
+    }
+  }
 
   let output = polygons;
   for (const plane of planes) {
     const cuts = new Map<string, Corner>(), next: Polygon[] = [];
+
     for (const polygon of output) {
       const clipped = clip(polygon.corners, plane.normal, plane.constant);
-      if (clipped.corners.length >= 3) next.push({ ...polygon, corners: clipped.corners });
+      if (clipped.corners.length >= 3) {
+        next.push({ ...polygon, corners: clipped.corners });
+      }
       clipped.cuts.forEach(corner => cuts.set(key(corner.position), corner));
     }
+
     const cap = [...cuts.values()];
-    if (cap.length < 3) throw new Error('Bevel width removes a selected edge or collapses its cap.');
-    const center = cap.reduce((sum, corner) => sum.add(vector(corner)), new THREE.Vector3()).divideScalar(cap.length);
-    const u = vector(cap[0]).sub(center).normalize(), v = plane.normal.clone().cross(u);
-    cap.sort((a, b) => Math.atan2(vector(a).sub(center).dot(v), vector(a).sub(center).dot(u)) - Math.atan2(vector(b).sub(center).dot(v), vector(b).sub(center).dot(u)));
+    if (cap.length < 3) {
+      throw new Error('Bevel width removes a selected edge or collapses its cap.');
+    }
+    const center = cap
+      .reduce((sum, corner) => sum.add(vector(corner)), new THREE.Vector3())
+      .divideScalar(cap.length);
+    const u = vector(cap[0]).sub(center).normalize();
+    const v = plane.normal.clone().cross(u);
+    cap.sort((a, b) =>
+      Math.atan2(vector(a).sub(center).dot(v), vector(a).sub(center).dot(u)) -
+      Math.atan2(vector(b).sub(center).dot(v), vector(b).sub(center).dot(u))
+    );
     next.push({ corners: cap, material: plane.material });
-    output = next;
+
+    output = normalizeGeneratedBevelVertices(next);
   }
   return finishDetailed(output);
 }
 
-export function bevelEdges(source: THREE.BufferGeometry, edges: number[], width: number) {
-  return bevelLogicalEdges(source, edges, width).geometry;
+export function bevelEdges(
+  source: THREE.BufferGeometry,
+  edges: number[],
+  width: number,
+  segments = 1,
+) {
+  return bevelLogicalEdges(source, edges, width, undefined, segments).geometry;
 }
 
 export function loopCut(source: THREE.BufferGeometry, edge: number) {
