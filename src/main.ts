@@ -1302,7 +1302,11 @@ async function bevelSelectedEdges() {
       segments: modelingToolSettings.bevelSegments,
       polygonTriangles: editor.meshTopology.polygonTriangles.map(group => [...group]),
     });
-    toast(`Bevel complete · ${modelingToolSettings.bevelSegments} segment${modelingToolSettings.bevelSegments === 1 ? '' : 's'}.`);
+    toast(
+      modelingToolSettings.bevelSegments === 1
+        ? 'Bevel complete.'
+        : `Bevel complete · ${modelingToolSettings.bevelSegments} segments.`
+    );
   } catch (error) { toast((error as Error).message); }
 }
 async function loopCutSelectedEdge() {
