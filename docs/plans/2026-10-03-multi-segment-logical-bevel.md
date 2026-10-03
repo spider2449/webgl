@@ -185,12 +185,16 @@ Repeated Float32 clipping at a corner where multiple selected beveled edges meet
 
 Those points are numerical construction artifacts, not authored modeling boundaries. Leaving them in a generated convex cap can force renderer triangulation to emit a zero-area triangle even though the intended bevel surface is valid.
 
-Forge therefore canonicalizes **only newly generated bevel caps** before they become logical polygons:
+Forge therefore tracks bevel-generated polygons by provenance and canonicalizes them whenever later clipping changes them:
 
+- source polygons are never simplified by this rule;
+- a newly created bevel cap is marked bevel-generated;
+- if a later selected-edge plane clips that bevel face, its clipped boundary is canonicalized again;
 - remove consecutive points within a bounded Float32-scale tolerance;
-- remove a strictly intermediate collinear cap point;
+- remove a strictly intermediate collinear generated-cap corner;
 - repeat until stable;
-- reject if the cap would fall below three corners.
+- an older bevel face reduced below three corners disappears because the later half-space constraint has consumed that face;
+- the newly created cap for the current plane must still contain at least three corners.
 
 This rule is deliberately not applied to source polygons or the shared tessellator. Knife, Subdivide and other modeling operations may intentionally preserve collinear logical boundary vertices, and their topology contract remains unchanged.
 
