@@ -2610,9 +2610,6 @@ export function bevelLogicalEdges(
         }
       }
     }
-    if (result.length < 3) {
-      throw new Error('Bevel profile collapses at an adjacent edge junction.');
-    }
     return result;
   };
 
@@ -2714,13 +2711,24 @@ export function bevelLogicalEdges(
   }
 
   let output = polygons;
+  let generated = new WeakSet<Polygon>();
   for (const plane of planes) {
     const cuts = new Map<string, Corner>(), next: Polygon[] = [];
+    const nextGenerated = new WeakSet<Polygon>();
+
     for (const polygon of output) {
       const clipped = clip(polygon.corners, plane.normal, plane.constant);
-      if (clipped.corners.length >= 3) next.push({ ...polygon, corners: clipped.corners });
+      const corners = generated.has(polygon)
+        ? canonicalizeBevelCap(clipped.corners)
+        : clipped.corners;
+      if (corners.length >= 3) {
+        const clippedPolygon = { ...polygon, corners };
+        next.push(clippedPolygon);
+        if (generated.has(polygon)) nextGenerated.add(clippedPolygon);
+      }
       clipped.cuts.forEach(corner => cuts.set(key(corner.position), corner));
     }
+
     const cap = [...cuts.values()];
     if (cap.length < 3) {
       throw new Error('Bevel width removes a selected edge or collapses its cap.');
@@ -2735,8 +2743,15 @@ export function bevelLogicalEdges(
       Math.atan2(vector(b).sub(center).dot(v), vector(b).sub(center).dot(u))
     );
     const canonicalCap = canonicalizeBevelCap(cap);
-    next.push({ corners: canonicalCap, material: plane.material });
+    if (canonicalCap.length < 3) {
+      throw new Error('Bevel profile collapses at an adjacent edge junction.');
+    }
+    const capPolygon: Polygon = { corners: canonicalCap, material: plane.material };
+    next.push(capPolygon);
+    nextGenerated.add(capPolygon);
+
     output = next;
+    generated = nextGenerated;
   }
   return finishDetailed(output);
 }
