@@ -1111,6 +1111,7 @@ const modelingToolSettings = {
   extrudeDistance: 0.5,
   insetDistance: 0.1,
   bevelWidth: 0.1,
+  bevelSegments: 1,
   sharpAngleDegrees: 30,
   sameLengthTolerancePercent: 1,
   loopPosition: 0.5,
@@ -1298,9 +1299,10 @@ async function bevelSelectedEdges() {
       kind: 'bevel',
       edges: editor.componentSelection,
       width: modelingToolSettings.bevelWidth,
+      segments: modelingToolSettings.bevelSegments,
       polygonTriangles: editor.meshTopology.polygonTriangles.map(group => [...group]),
     });
-    toast('Bevel complete.');
+    toast(`Bevel complete · ${modelingToolSettings.bevelSegments} segment${modelingToolSettings.bevelSegments === 1 ? '' : 's'}.`);
   } catch (error) { toast((error as Error).message); }
 }
 async function loopCutSelectedEdge() {
@@ -2596,6 +2598,33 @@ function contextParameterBefore(mode: ViewportContextMode, command: ViewportCont
   return null;
 }
 
+function contextParametersBefore(
+  mode: ViewportContextMode,
+  command: ViewportContextCommand,
+): ContextParameter[] {
+  const first = contextParameterBefore(mode, command);
+  if (mode === 'edge' && command.label === 'Bevel Edges') {
+    return [
+      ...(first ? [first] : []),
+      {
+        kind: 'number',
+        label: 'Segments',
+        ariaLabel: 'Context bevel segments',
+        min: 1,
+        max: 16,
+        sliderMin: 1,
+        sliderMax: 8,
+        step: 1,
+        integer: true,
+        get: () => modelingToolSettings.bevelSegments,
+        set: value => { modelingToolSettings.bevelSegments = value; },
+        run: modelingCommands.bevelEdges,
+      },
+    ];
+  }
+  return first ? [first] : [];
+}
+
 function showViewportContextMenu(clientX: number, clientY: number) {
   if (editor.weightMode || editor.playing || editor.transform.dragging || editor.snapTargetPending) return;
   closeMenus();
@@ -2614,8 +2643,9 @@ function showViewportContextMenu(clientX: number, clientY: number) {
 
   for (const command of viewportContextCommands(mode)) {
     if (command.separatorBefore) viewportContextMenu.append(document.createElement('hr'));
-    const parameter = contextParameterBefore(mode, command);
-    if (parameter) appendContextParameter(parameter);
+    for (const parameter of contextParametersBefore(mode, command)) {
+      appendContextParameter(parameter);
+    }
     const item = document.createElement('button');
     item.type = 'button';
     item.setAttribute('role', 'menuitem');
