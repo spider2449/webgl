@@ -2566,10 +2566,15 @@ export function bevelLogicalEdges(
   // Canonicalize only these generated caps. Do not apply this to source
   // polygons, where Knife/Subdivide may intentionally preserve collinear
   // logical vertices.
-  const coordinateScale = Math.max(
-    1,
-    ...points.flatMap(point => [Math.abs(point.x), Math.abs(point.y), Math.abs(point.z)]),
-  );
+  let coordinateScale = 1;
+  for (const point of points) {
+    coordinateScale = Math.max(
+      coordinateScale,
+      Math.abs(point.x),
+      Math.abs(point.y),
+      Math.abs(point.z),
+    );
+  }
   const capPositionEpsilon = Math.max(1e-8, coordinateScale * 4 * 2 ** -23);
   const capPositionEpsilonSq = capPositionEpsilon * capPositionEpsilon;
   const canonicalizeBevelCap = (corners: Corner[]) => {
