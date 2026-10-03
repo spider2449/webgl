@@ -2559,6 +2559,58 @@ export function bevelLogicalEdges(
   type BevelPlane = { normal: THREE.Vector3; constant: number; material: number };
   const planes: BevelPlane[] = [];
 
+  // Repeated Float32 clipping at adjacent beveled-edge junctions can produce
+  // redundant cap corners that differ by only a few ULPs, or an exactly
+  // collinear middle corner. Those points do not represent authored/source
+  // topology: they are artifacts of constructing a new convex bevel cap.
+  // Canonicalize only these generated caps. Do not apply this to source
+  // polygons, where Knife/Subdivide may intentionally preserve collinear
+  // logical vertices.
+  const coordinateScale = Math.max(
+    1,
+    ...points.flatMap(point => [Math.abs(point.x), Math.abs(point.y), Math.abs(point.z)]),
+  );
+  const capPositionEpsilon = Math.max(1e-8, coordinateScale * 4 * 2 ** -23);
+  const capPositionEpsilonSq = capPositionEpsilon * capPositionEpsilon;
+  const canonicalizeBevelCap = (corners: Corner[]) => {
+    let result = [...corners];
+    let changed = true;
+    while (changed && result.length >= 3) {
+      changed = false;
+      for (let index = 0; index < result.length; index++) {
+        const previous = vector(result[(index + result.length - 1) % result.length]);
+        const current = vector(result[index]);
+        const next = vector(result[(index + 1) % result.length]);
+
+        if (
+          current.distanceToSquared(previous) <= capPositionEpsilonSq ||
+          current.distanceToSquared(next) <= capPositionEpsilonSq
+        ) {
+          result.splice(index, 1);
+          changed = true;
+          break;
+        }
+
+        const span = next.clone().sub(previous);
+        const spanLengthSq = span.lengthSq();
+        if (spanLengthSq <= capPositionEpsilonSq) continue;
+        const offset = current.clone().sub(previous);
+        const tValue = offset.dot(span) / spanLengthSq;
+        if (tValue <= 1e-8 || tValue >= 1 - 1e-8) continue;
+        const closest = previous.clone().addScaledVector(span, tValue);
+        if (closest.distanceToSquared(current) <= capPositionEpsilonSq) {
+          result.splice(index, 1);
+          changed = true;
+          break;
+        }
+      }
+    }
+    if (result.length < 3) {
+      throw new Error('Bevel profile collapses at an adjacent edge junction.');
+    }
+    return result;
+  };
+
   for (const edge of selectedEdges) {
     const [a, b] = t.polygonEdges[edge];
     const adjacent = uses.get(edgeKey(a, b));
@@ -2677,7 +2729,8 @@ export function bevelLogicalEdges(
       Math.atan2(vector(a).sub(center).dot(v), vector(a).sub(center).dot(u)) -
       Math.atan2(vector(b).sub(center).dot(v), vector(b).sub(center).dot(u))
     );
-    next.push({ corners: cap, material: plane.material });
+    const canonicalCap = canonicalizeBevelCap(cap);
+    next.push({ corners: canonicalCap, material: plane.material });
     output = next;
   }
   return finishDetailed(output);
