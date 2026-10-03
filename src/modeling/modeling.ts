@@ -2559,13 +2559,14 @@ export function bevelLogicalEdges(
   type BevelPlane = { normal: THREE.Vector3; constant: number; material: number };
   const planes: BevelPlane[] = [];
 
-  // Repeated Float32 clipping at adjacent beveled-edge junctions can produce
-  // redundant cap corners that differ by only a few ULPs, or an exactly
-  // collinear middle corner. Those points do not represent authored/source
-  // topology: they are artifacts of constructing a new convex bevel cap.
-  // Canonicalize only these generated caps. Do not apply this to source
-  // polygons, where Knife/Subdivide may intentionally preserve collinear
-  // logical vertices.
+  // Every source logical corner carries a persistent identity. Intersections
+  // created by bevel clipping do not. Repeated clipping around adjacent
+  // selected edges can compute the same generated junction a few Float32 ULPs
+  // apart on different polygons. Normalize only those generated corners
+  // globally so every incident polygon uses the exact same XYZ. Never remove a
+  // distinct collinear point: the shared tessellator deliberately knows how to
+  // preserve collinear logical boundary vertices without exposing renderer
+  // diagonals.
   let coordinateScale = 1;
   for (const point of points) {
     coordinateScale = Math.max(
@@ -2575,42 +2576,90 @@ export function bevelLogicalEdges(
       Math.abs(point.z),
     );
   }
-  const capPositionEpsilon = Math.max(1e-8, coordinateScale * 4 * 2 ** -23);
-  const capPositionEpsilonSq = capPositionEpsilon * capPositionEpsilon;
-  const canonicalizeBevelCap = (corners: Corner[]) => {
-    let result = [...corners];
-    let changed = true;
-    while (changed && result.length >= 3) {
-      changed = false;
-      for (let index = 0; index < result.length; index++) {
-        const previous = vector(result[(index + result.length - 1) % result.length]);
-        const current = vector(result[index]);
-        const next = vector(result[(index + 1) % result.length]);
+  const generatedPositionEpsilon = Math.max(1e-8, coordinateScale * 4 * 2 ** -23);
+  const generatedPositionEpsilonSq = generatedPositionEpsilon * generatedPositionEpsilon;
 
-        if (
-          current.distanceToSquared(previous) <= capPositionEpsilonSq ||
-          current.distanceToSquared(next) <= capPositionEpsilonSq
-        ) {
-          result.splice(index, 1);
-          changed = true;
-          break;
-        }
+  type GeneratedRepresentative = {
+    position: [number, number, number];
+  };
+  const normalizeGeneratedBevelVertices = (input: Polygon[]) => {
+    const buckets = new Map<string, GeneratedRepresentative[]>();
+    const bucketCoordinate = (value: number) => Math.floor(value / generatedPositionEpsilon);
+    const bucketKey = (x: number, y: number, z: number) => `${x}:${y}:${z}`;
 
-        const span = next.clone().sub(previous);
-        const spanLengthSq = span.lengthSq();
-        if (spanLengthSq <= capPositionEpsilonSq) continue;
-        const offset = current.clone().sub(previous);
-        const tValue = offset.dot(span) / spanLengthSq;
-        if (tValue <= 1e-8 || tValue >= 1 - 1e-8) continue;
-        const closest = previous.clone().addScaledVector(span, tValue);
-        if (closest.distanceToSquared(current) <= capPositionEpsilonSq) {
-          result.splice(index, 1);
-          changed = true;
-          break;
+    const representativeFor = (corner: Corner) => {
+      const [x, y, z] = corner.position;
+      const bx = bucketCoordinate(x);
+      const by = bucketCoordinate(y);
+      const bz = bucketCoordinate(z);
+      let best: GeneratedRepresentative | undefined;
+      let bestDistance = Infinity;
+
+      for (let dx = -1; dx <= 1; dx++) {
+        for (let dy = -1; dy <= 1; dy++) {
+          for (let dz = -1; dz <= 1; dz++) {
+            for (const candidate of buckets.get(bucketKey(bx + dx, by + dy, bz + dz)) ?? []) {
+              const distance =
+                (candidate.position[0] - x) ** 2 +
+                (candidate.position[1] - y) ** 2 +
+                (candidate.position[2] - z) ** 2;
+              if (distance <= generatedPositionEpsilonSq && distance < bestDistance) {
+                best = candidate;
+                bestDistance = distance;
+              }
+            }
+          }
         }
       }
+
+      if (best) return best;
+      const created: GeneratedRepresentative = {
+        position: [Math.fround(x), Math.fround(y), Math.fround(z)],
+      };
+      const keyValue = bucketKey(bx, by, bz);
+      const list = buckets.get(keyValue) ?? [];
+      list.push(created);
+      buckets.set(keyValue, list);
+      return created;
+    };
+
+    // First pass: globally snap only bevel-generated corners.
+    for (const polygon of input) {
+      for (const corner of polygon.corners) {
+        if (corner[logicalVertexIdentity] !== undefined) continue;
+        const representative = representativeFor(corner);
+        corner.position = [...representative.position];
+      }
     }
-    return result;
+
+    // Snapping can turn an already tiny generated edge into an exact
+    // zero-length edge. Remove only exact consecutive duplicates. Distinct
+    // collinear vertices stay in the boundary so adjacent faces keep identical
+    // segmentation.
+    const output: Polygon[] = [];
+    for (const polygon of input) {
+      if (polygon.corners.length < 3) continue;
+      const keep: number[] = [];
+      for (let index = 0; index < polygon.corners.length; index++) {
+        const previous = polygon.corners[(index + polygon.corners.length - 1) % polygon.corners.length];
+        const current = polygon.corners[index];
+        if (key(previous.position) === key(current.position)) continue;
+        keep.push(index);
+      }
+      if (keep.length < 3) continue;
+      if (keep.length === polygon.corners.length) {
+        output.push(polygon);
+        continue;
+      }
+      output.push({
+        ...polygon,
+        corners: keep.map(index => polygon.corners[index]),
+        referenceNormals: polygon.referenceNormals?.length === polygon.corners.length
+          ? keep.map(index => polygon.referenceNormals![index])
+          : polygon.referenceNormals,
+      });
+    }
+    return output;
   };
 
   for (const edge of selectedEdges) {
@@ -2711,20 +2760,13 @@ export function bevelLogicalEdges(
   }
 
   let output = polygons;
-  let generated = new WeakSet<Polygon>();
   for (const plane of planes) {
     const cuts = new Map<string, Corner>(), next: Polygon[] = [];
-    const nextGenerated = new WeakSet<Polygon>();
 
     for (const polygon of output) {
       const clipped = clip(polygon.corners, plane.normal, plane.constant);
-      const corners = generated.has(polygon)
-        ? canonicalizeBevelCap(clipped.corners)
-        : clipped.corners;
-      if (corners.length >= 3) {
-        const clippedPolygon = { ...polygon, corners };
-        next.push(clippedPolygon);
-        if (generated.has(polygon)) nextGenerated.add(clippedPolygon);
+      if (clipped.corners.length >= 3) {
+        next.push({ ...polygon, corners: clipped.corners });
       }
       clipped.cuts.forEach(corner => cuts.set(key(corner.position), corner));
     }
@@ -2742,16 +2784,9 @@ export function bevelLogicalEdges(
       Math.atan2(vector(a).sub(center).dot(v), vector(a).sub(center).dot(u)) -
       Math.atan2(vector(b).sub(center).dot(v), vector(b).sub(center).dot(u))
     );
-    const canonicalCap = canonicalizeBevelCap(cap);
-    if (canonicalCap.length < 3) {
-      throw new Error('Bevel profile collapses at an adjacent edge junction.');
-    }
-    const capPolygon: Polygon = { corners: canonicalCap, material: plane.material };
-    next.push(capPolygon);
-    nextGenerated.add(capPolygon);
+    next.push({ corners: cap, material: plane.material });
 
-    output = next;
-    generated = nextGenerated;
+    output = normalizeGeneratedBevelVertices(next);
   }
   return finishDetailed(output);
 }
