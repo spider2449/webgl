@@ -77,30 +77,56 @@ test('Face context exposes inline Extrude and Inset sliders with numeric entry a
   await expect(page.locator('#viewport-context-menu').getByLabel('Context inset distance', { exact: true })).toHaveValue('0.35');
 });
 
-test('Edge context exposes inline Bevel width and Enter executes with the typed value', async ({ page }) => {
+test('Edge context exposes retained Bevel width and segment count', async ({ page }) => {
   await page.locator('#mode').selectOption('edit');
   await page.getByLabel('Mesh component').selectOption('edge');
   await page.evaluate(() => {
     const e = (window as any).__forge;
     e.selectComponent(0);
     (window as any).__contextCalls = [];
+    (window as any).__forgeModelingSettings.bevelWidth = 0.1;
+    (window as any).__forgeModelingSettings.bevelSegments = 1;
     e.runModeling = async (operation: unknown) => { (window as any).__contextCalls.push(operation); };
   });
   await rightClickViewport(page);
 
-  const menu = page.locator('#viewport-context-menu');
+  let menu = page.locator('#viewport-context-menu');
   const bevelNumber = menu.getByLabel('Context bevel width', { exact: true });
   const bevelSlider = menu.getByLabel('Context bevel width slider', { exact: true });
+  const segmentsNumber = menu.getByLabel('Context bevel segments', { exact: true });
+  const segmentsSlider = menu.getByLabel('Context bevel segments slider', { exact: true });
+
+  await expect(bevelNumber).toHaveValue('0.1');
+  await expect(segmentsNumber).toHaveValue('1');
   await setRange(bevelSlider, '0.4');
   await expect(bevelNumber).toHaveValue('0.4');
+  await setRange(segmentsSlider, '4');
+  await expect(segmentsNumber).toHaveValue('4');
+
   await bevelNumber.fill('0.65');
-  await bevelNumber.press('Enter');
+  await segmentsNumber.fill('3');
+  await segmentsNumber.press('Enter');
   await expect(menu).toBeHidden();
 
   expect(await page.evaluate(() => (window as any).__contextCalls[0])).toMatchObject({
     kind: 'bevel',
     width: 0.65,
+    segments: 3,
   });
+
+  await rightClickViewport(page);
+  menu = page.locator('#viewport-context-menu');
+  await expect(menu.getByLabel('Context bevel width', { exact: true })).toHaveValue('0.65');
+  const retainedSegments = menu.getByLabel('Context bevel segments', { exact: true });
+  await expect(retainedSegments).toHaveValue('3');
+
+  await retainedSegments.fill('2.5');
+  await retainedSegments.press('Enter');
+  await expect(menu).toBeVisible();
+  await expect(page.locator('#toast')).toContainText('whole number between 1 and 16');
+  await expect(retainedSegments).toHaveValue('3');
+  expect(await page.evaluate(() => (window as any).__contextCalls)).toHaveLength(1);
+  await page.keyboard.press('Escape');
 });
 
 test('Edge context exposes retained integer subdivision cuts', async ({ page }) => {
